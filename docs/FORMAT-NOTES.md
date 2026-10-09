@@ -23,7 +23,7 @@ File references are relative to `testdata/`. `corpus-file` = `dvw/datavolley4/co
 
 - `[3MATCH]` field 9 is the Windows code page: `1252` in all files.
 - 13 files are pure ASCII. 5 contain raw cp1252 bytes in player names, which are invalid UTF-8: `í` = 0xED (corpus-file), `ò` = 0xF2 (corpus-file, -05, -08, -10). Tools that sniff UTF-8 (grep, `file`) treat these as binary.
-- DataVolley also stores names hex-encoded in trailing columns, prefixed with `2`: `Siobhán` → `253696F6268E16E` (corpus-file), i.e. `2` + hex of the cp1252 bytes. Seen in `[3MATCH]`, `[3TEAMS]`, `[3MORE]`, `[3PLAYERS-*]`. VolleyStation omits these columns (corpus-file).
+- DataVolley also stores names hex-encoded in trailing columns, prefixed with `2`: e.g. a first name `Siobhán` → `253696F6268E16E` (pattern seen in corpus-file), i.e. `2` + hex of the cp1252 bytes. Seen in `[3MATCH]`, `[3TEAMS]`, `[3MORE]`, `[3PLAYERS-*]`. VolleyStation omits these columns (corpus-file).
 - Tokeniser works on bytes, so encoding is irrelevant to round-trip; decoding is task 4.
 
 ## Line endings
@@ -34,7 +34,7 @@ File references are relative to `testdata/`. `corpus-file` = `dvw/datavolley4/co
 
 ## Field content
 
-- Literal tab characters inside fields: `Surname Forename<TAB>` in `[3TEAMS]`, `Forename<TAB>` in `[3PLAYERS-H]` (corpus-file). Never trim fields.
+- Literal tab characters inside fields: `Surname Forename<TAB>` (coach) in `[3TEAMS]`, `Forename<TAB>` in `[3PLAYERS-H]` (corpus-file). Never trim fields.
 - Competition names can contain `|` (corpus-file: `CEV U20 ... 2024 | Men - Pool in IRL`).
 - `[3PLAYERS-*]` column 15 is empty in most DataVolley rows and `False` in some (corpus-file visitors) and all VolleyStation rows.
 

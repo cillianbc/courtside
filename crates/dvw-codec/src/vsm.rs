@@ -35,7 +35,7 @@ mod tests {
     fn round_trips_compact_json_in_key_order() {
         // VolleyStation writes non-ASCII as raw UTF-8 and escapes control chars.
         let input =
-            r#"{"gameType":"indoor","version":1,"b":[1,-2,{"z":"Marlène\t","a":null}],"a":true}"#;
+            r#"{"gameType":"indoor","version":1,"b":[1,-2,{"z":"Hélène\t","a":null}],"a":true}"#;
         let vsm = RawVsm::parse(input.as_bytes()).unwrap();
         assert_eq!(vsm.to_bytes(), input.as_bytes());
     }
