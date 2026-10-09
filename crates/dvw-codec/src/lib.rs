@@ -5,8 +5,13 @@
 //! `docs/FORMAT-NOTES.md`.
 
 pub mod sections;
+pub mod vsm;
 
 pub use sections::RawFile;
+pub use vsm::RawVsm;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {}
+pub enum Error {
+    #[error("invalid .vsm JSON: {0}")]
+    VsmJson(#[from] serde_json::Error),
+}

@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use dvw_codec::RawFile;
+use dvw_codec::{RawFile, RawVsm};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -80,15 +80,29 @@ fn manifest_matches_files_on_disk() {
     );
 }
 
-/// I-02, stricter than the PRD's normalised diff: the tokeniser must be
+fn is_vsm(entry: &Entry) -> bool {
+    entry.path.to_ascii_lowercase().ends_with(".vsm")
+}
+
+/// I-02, stricter than the PRD's normalised diff: both raw layers must be
 /// byte-exact.
 #[test]
-fn sections_round_trip_byte_exact() {
+fn raw_round_trip_byte_exact() {
     let Some(root) = corpus_root() else { return };
     let mut failures = Vec::new();
     for entry in manifest(&root).file {
         let bytes = std::fs::read(root.join(&entry.path)).expect("read corpus file");
-        let out = RawFile::parse(&bytes).to_bytes();
+        let out = if is_vsm(&entry) {
+            match RawVsm::parse(&bytes) {
+                Ok(vsm) => vsm.to_bytes(),
+                Err(e) => {
+                    failures.push(format!("{}: {e}", entry.path));
+                    continue;
+                }
+            }
+        } else {
+            RawFile::parse(&bytes).to_bytes()
+        };
         if out != bytes {
             let at = out.iter().zip(&bytes).position(|(a, b)| a != b);
             failures.push(format!("{} (first diff at byte {at:?})", entry.path));
@@ -101,13 +115,13 @@ fn sections_round_trip_byte_exact() {
     );
 }
 
-/// Every corpus file so far starts with [3DATAVOLLEYSCOUT] and has a [3SCOUT]
+/// Every .dvw so far starts with [3DATAVOLLEYSCOUT] and has a [3SCOUT]
 /// section. If a new file breaks this, record it in FORMAT-NOTES.md.
 #[test]
-fn every_file_has_header_and_scout_sections() {
+fn every_dvw_has_header_and_scout_sections() {
     let Some(root) = corpus_root() else { return };
     let mut failures = Vec::new();
-    for entry in manifest(&root).file {
+    for entry in manifest(&root).file.into_iter().filter(|e| !is_vsm(e)) {
         let bytes = std::fs::read(root.join(&entry.path)).expect("read corpus file");
         let file = RawFile::parse(&bytes);
         let first = file.sections.first().map(|s| s.name.as_str());

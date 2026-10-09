@@ -3,7 +3,7 @@
 Everything learned about the formats, each entry with the corpus file(s) that show it.
 When Courtside and openvolley disagree, check the file by hand, decide who is right, and record it here.
 
-File references are relative to `testdata/`. `corpus-file` = `dvw/datavolley4/corpus-file`, `corpus-file` = `dvw/datavolley4/corpus-file`, `corpus-file` = `corpus-file`.
+File references are relative to `testdata/`. `corpus-file` = `dvw/datavolley4/corpus-file`, `corpus-file` = `dvw/datavolley4/corpus-file`, `corpus-file` = `corpus-file`, `corpus-file*`, `corpus-file*`, `Ireland v *` = files in `vsm/`.
 
 ## Sections
 
@@ -44,6 +44,48 @@ File references are relative to `testdata/`. `corpus-file` = `dvw/datavolley4/co
 - DataVolley Media files have no video column values (no video). VolleyStation fills a video-seconds column (`236`, `244`, … in corpus-file).
 - Set end line: `**3set;...` with on-court columns empty (corpus-file, corpus-file).
 - Unknown-player attacks/blocks coded `$$&H#` (team prefix `*` or `a`).
+
+## .vsm (VolleyStation native)
+
+Seed: 18 files in `vsm/`, all VolleyStation, 2023-01 to 2024-03.
+
+### Container
+
+- Compact UTF-8 JSON on one line: no BOM, no whitespace, no trailing newline. Non-ASCII is raw UTF-8 (`è`, `ü`, `’`), control chars escaped (`\t`). (all)
+- Parsing and re-serialising compactly **with key order preserved** reproduces every file byte-exact. So the lossless layer is `serde_json::Value` with `preserve_order` (`dvw_codec::RawVsm`). Key order is not alphabetical and varies between objects of the same kind (e.g. plays put `hitType` before or after `team`), so never re-serialise through a typed struct for round-trip.
+- Top level: `gameType` (`"indoor"`), `version` (`1` in all), `startDate` (ISO 8601 UTC), `scout`, `team`, `attackCombinations`, `setterCalls`; optional `createdAt` (9 files), `comment` (5 files; free-text coach notes, may contain `\n`).
+- `scout` = `{sets, video?}`. `video` = `{path}`, a local absolute path; missing in 1 file.
+
+### Teams
+
+- `team.home|away`: `name`, `shortCode`, `code`, `libero` (array of shirt numbers, 1–2 seen), `players`, `staff` (`coach`, `assistantCoach`, `assistantCoach2`, `therapist`, `medicalDoctor`, each `{firstName, lastName}`).
+- Player: `_id`, `firstName`, `lastName`, `shirtNumber` (int), `code`; optional `position` (int), `nickname`, `isForeign`.
+- Trailing tabs inside names here too (`"firstName":"…\t"`). Same source data as the tab-in-field quirk in corpus-file's .dvw export.
+
+### Sets and events
+
+- `scout.sets[]`: `_id`, `startingLineup`, `events`, `score` (`{home, away}` final).
+- Lineup: `{home|away: {positions: {"1".."6": shirtNumber}, setterAt: 1..6}}`. Position keys are strings, values ints.
+- Each event has `_id`, `lineup` (state after the event), `score` (after), and exactly one of:
+  - `exchange` = one rally: `{plays: [...], point: "*"|"a"}` (2,677 events)
+  - `substitution` = `{team, playerIn, playerOut}` (ints) (254)
+  - `timeout` = `{team}` (164)
+  - none of these (6 events; only lineup + score; meaning unknown, look at them)
+- `_id`s are 24-hex MongoDB ObjectIds (timestamp in the first 4 bytes).
+
+### Plays (`exchange.plays[]`)
+
+- Always: `_id`, `team` (`*`/`a`), `player` (**string**, zero-padded `"03"`), `skill`, `hitType`, `effect`.
+- Usually: `time` (all but 2), `originalTime` (most), `code` (95%).
+- Optional: `skillType`, `startZone`, `endZone` (ints), `startSubZone`, `endSubZone` (`A`–`D`), `combination`, `targetAttacker`, `players` (int; blockers etc.), `special`, `custom`, `travelPath` (`[{x, y}, ...]` court coordinates).
+- Naming vs DataVolley: `hitType` = DV skill type (position 5), `effect` = evaluation, `skillType` = DV skill subtype, `players` = num_players.
+- **`code` is the keystrokes the scout typed, not the expanded DV code**: `7S.`, `.15A!` (dot/compound entry), as well as full forms like `a01RH-`. Missing on some plays. It cannot be used as the DV code; build the DV code from the fields.
+- `time` vs `originalTime`: different scales (`4551` vs `6932022` on one play). Units unknown; probably video offset vs wall clock. Check against a video before relying on either.
+- Values seen. skill: A S R D B E F. hitType: H M T Q O N U. effect: `- # + = / !`. skillType: mostly H, T, P, then rare `3 A B E C 2 R`. special: I Z S P A C U.
+
+### Re-saved pairs
+
+- `corpus-file`/`Ireland v Luxembourg`, `corpus-file`/`Ireland v Malta`, `corpus-fileor`/`Ireland v Northern Ireland` are the same match saved twice. The later file has real post-match edits: changed `effect`/`skill`/`player`, plays added and removed, `_id`s regenerated on some plays. Good test data for the Correction model and for import diffing.
 
 ## Generator quirks
 
