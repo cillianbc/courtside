@@ -9,7 +9,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use dvw_codec::{RawFile, RawVsm};
+use dvw_codec::dvw::{DateOrder, DateSource};
+use dvw_codec::{Dvw, RawFile, RawVsm};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -130,6 +131,119 @@ fn every_dvw_has_header_and_scout_sections() {
         }
         if file.section("3SCOUT").is_none() {
             failures.push(format!("{}: no [3SCOUT]", entry.path));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+fn dvw_files(root: &Path) -> Vec<(String, Vec<u8>)> {
+    manifest(root)
+        .file
+        .into_iter()
+        .filter(|e| !is_vsm(e))
+        .map(|e| {
+            let bytes = std::fs::read(root.join(&e.path)).expect("read corpus file");
+            (e.path, bytes)
+        })
+        .collect()
+}
+
+/// I-02 through the typed header model: every typed section is rewritten
+/// from its decoded fields and must come out byte-exact.
+#[test]
+fn typed_round_trip_byte_exact() {
+    let Some(root) = corpus_root() else { return };
+    let mut failures = Vec::new();
+    for (path, bytes) in dvw_files(&root) {
+        match Dvw::parse(&bytes).and_then(|d| d.to_bytes()) {
+            Ok(out) if out == bytes => {}
+            Ok(out) => {
+                let at = out.iter().zip(&bytes).position(|(a, b)| a != b);
+                failures.push(format!("{path}: first diff at byte {at:?}"));
+            }
+            Err(e) => failures.push(format!("{path}: {e}")),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Header fields every seed file has. Loosen with a FORMAT-NOTES entry if a
+/// new corpus file legitimately breaks one.
+#[test]
+fn typed_headers_are_sane() {
+    let Some(root) = corpus_root() else { return };
+    let mut failures = Vec::new();
+    for (path, bytes) in dvw_files(&root) {
+        let mut fail = |msg: String| failures.push(format!("{path}: {msg}"));
+        let dvw = match Dvw::parse(&bytes) {
+            Ok(d) => d,
+            Err(e) => {
+                fail(e.to_string());
+                continue;
+            }
+        };
+        if dvw.teams.len() != 2 || dvw.teams.iter().any(|t| t.name().trim().is_empty()) {
+            fail(format!("expected two named teams, got {}", dvw.teams.len()));
+        }
+        match dvw.match_date() {
+            None => fail(format!("no date from {:?}", dvw.match_info.date_text())),
+            Some((date, DateSource::Serial)) => {
+                // The serial and the written date (in the generator's order) must agree.
+                let written = dvw.match_info.clone();
+                let mut rows = written.rows.clone();
+                rows.truncate(1);
+                let text_only = dvw_codec::dvw::MatchInfo { rows };
+                let order = Some(DateOrder::MonthFirst);
+                if text_only.date(order).map(|(d, _)| d) != Some(date) {
+                    fail(format!(
+                        "serial date {date} disagrees with {:?}",
+                        written.date_text()
+                    ));
+                }
+            }
+            Some(_) => {}
+        }
+        for (side, players) in [("H", &dvw.players_home), ("V", &dvw.players_visiting)] {
+            if players.is_empty() {
+                fail(format!("no players in [3PLAYERS-{side}]"));
+            }
+            for p in players {
+                // Role may be empty (DataVolley) or `NaN` (VolleyStation), nothing else.
+                let role_ok = p.role().is_some() || matches!(p.0.get(13), "" | "NaN");
+                if p.number().is_none() || !role_ok || p.last_name().is_empty() {
+                    fail(format!(
+                        "bad player row in [3PLAYERS-{side}]: {:?}",
+                        p.0.to_line()
+                    ));
+                }
+                // Where DataVolley wrote an embedded Unicode copy, it must match the plain text.
+                for (plain, embedded) in [(9, 17), (10, 18), (11, 19)] {
+                    if let Some(text) = dvw_codec::text::decode_embedded(p.0.get(embedded)) {
+                        if text != p.0.get(plain) {
+                            fail(format!(
+                                "embedded text differs in [3PLAYERS-{side}] column {plain}"
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        let played = dvw
+            .sets
+            .iter()
+            .filter(|s| s.final_score().is_some())
+            .count();
+        let won: u32 = dvw
+            .teams
+            .iter()
+            .filter_map(|t| t.sets_won())
+            .map(u32::from)
+            .sum();
+        if played == 0 || played as u32 != won {
+            fail(format!("{played} scored sets but teams won {won}"));
+        }
+        if dvw.winning_symbols.for_skill('A').is_none() {
+            fail("unreadable [3WINNINGSYMBOLS]".into());
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));

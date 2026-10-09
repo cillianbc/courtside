@@ -18,12 +18,14 @@ File references are relative to `testdata/`. `corpus-file` = `dvw/datavolley4/co
 - `GENERATOR-PRG: Data Volley` / `GENERATOR-REL: Release 4.2023.03` (corpus-file) and `Release 4.2025.01` (corpus-file), `GENERATOR-VER: Media`.
 - VolleyStation writes `GENERATOR-PRG: VolleyStation`, `GENERATOR-VER: Professional`, empty `REL` and `NAM`, keeping the trailing space after the colon (`GENERATOR-REL: `). Must round-trip that space. (corpus-file)
 - Date format differs by generator: DataVolley `MM/DD/YYYY` (corpus-file, corpus-file), VolleyStation `DD/MM/YYYY` (corpus-file). Same in `[3MATCH]` field 1. Ambiguous for day ≤ 12; decide by `GENERATOR-PRG`, not by guessing.
+- `[3MATCH]` line 2, field 3 (DataVolley only) is a spreadsheet date serial, day 0 = 1899-12-30: `46234` = 2026-07-31. It matches the written date (read month-first) in all 17 DataVolley files, so it is the most reliable date source. `12345` is a known placeholder (per openvolley). Empty in VolleyStation exports (corpus-file). `Dvw::match_date` uses serial → generator order → unambiguous parse, in that order.
 
 ## Encodings
 
 - `[3MATCH]` field 9 is the Windows code page: `1252` in all files.
 - 13 files are pure ASCII. 5 contain raw cp1252 bytes in player names, which are invalid UTF-8: `í` = 0xED (corpus-file), `ò` = 0xF2 (corpus-file, -05, -08, -10). Tools that sniff UTF-8 (grep, `file`) treat these as binary.
-- DataVolley also stores names hex-encoded in trailing columns, prefixed with `2`: e.g. a first name `Siobhán` → `253696F6268E16E` (pattern seen in corpus-file), i.e. `2` + hex of the cp1252 bytes. Seen in `[3MATCH]`, `[3TEAMS]`, `[3MORE]`, `[3PLAYERS-*]`. VolleyStation omits these columns (corpus-file).
+- DataVolley 4 stores a Unicode copy of text fields: `\x0F` (invisible control byte), a digit `n` (`2` or `4`), then `n` hex digits per character, each a **Unicode code point** (not a cp1252 byte; they coincide below U+0100). E.g. first name `Siobhán` → `\x0F253696F6268E16E`; empty → `\x0F2`. All 1,536 such fields in the seed corpus use width 2 and decode to exactly the plain column (verified in `typed_headers_are_sane`). Columns: `[3MATCH]` 12–13 (league, phase; openvolley also reads 14), `[3TEAMS]` 6–8 (name, coach, assistant), `[3MORE]` 6–9 (referees, city, arena, scout), `[3PLAYERS-*]` 17–19 (last, first, nickname). 0-based. VolleyStation omits them (corpus-file).
+- Reading prefers the Unicode copy when it decodes to non-empty text, else the plain column (same as openvolley). Writing must keep both in step.
 - Tokeniser works on bytes, so encoding is irrelevant to round-trip; decoding is task 4.
 
 ## Line endings
@@ -36,7 +38,12 @@ File references are relative to `testdata/`. `corpus-file` = `dvw/datavolley4/co
 
 - Literal tab characters inside fields: `Surname Forename<TAB>` (coach) in `[3TEAMS]`, `Forename<TAB>` in `[3PLAYERS-H]` (corpus-file). Never trim fields.
 - Competition names can contain `|` (corpus-file: `CEV U20 ... 2024 | Men - Pool in IRL`).
-- `[3PLAYERS-*]` column 15 is empty in most DataVolley rows and `False` in some (corpus-file visitors) and all VolleyStation rows.
+- `[3PLAYERS-*]` columns (0-based): 0 team (0/1), 1 shirt number, 2 index, 3–7 starting zone in sets 1–5 (`1`–`6`, `*` = came on as sub, empty = did not play), 8 player id, 9 last name, 10 first name, 11 nickname, 12 special role (`L`, `C`), 13 role, 14 foreign (`True`/`False`/empty), 15 player id again (DataVolley), 16 ?, 17–19 Unicode copies. VolleyStation rows stop after column 15 (corpus-file).
+- Roles: 1 libero, 2 outside, 3 opposite, 4 middle, 5 setter, 6 unknown (openvolley's name; one row in corpus-file). Also seen: empty (corpus-file, corpus-file) and the literal string `NaN` from VolleyStation for players with no role (corpus-file, 4 rows; a JavaScript NaN leaking into the export). Treat empty and `NaN` as "no role"; round-trip them as written.
+- Placeholder player rows exist: id `unknown-4`, last name `Unknown Player 4`, and the same **plain** text (no `\x0F`) in column 17 (corpus-file). Not a DataVolley pattern; probably added by other software. The embedded-text decoder ignores fields without the `\x0F` prefix, so it falls back to the plain name.
+- `[3MATCH]` line 1 (0-based): 0 date, 1 time, 2 season, 3 league, 4 phase, 5 home/away, 6 day number, 7 match number, 8 code page, 9 regulation (0 indoor sideout, 1 indoor rally point, 2 beach), 10 `Z`/`C` (zones or cones), 11 `0` in DataVolley, 12–14 Unicode copies.
+- `[3MATCH]` line 2 (DataVolley): `2588;134;46234;;;;L;R;VIR;52515;` = federation match id, competition id, date serial, ?, ?, ?, `L`/`R` and `R`/`L` (court sides?), federation code (`VIR`, `CEV`), federation id. Only the serial is interpreted.
+- `[3TEAMS]` (0-based): 0 id, 1 name, 2 sets won, 3 coach, 4 assistant, 5 shirt colour (Windows COLORREF int), 6–8 Unicode copies. Sets won equals the number of scored `[3SET]` rows in every seed file.
 
 ## [3SCOUT] lines
 
@@ -90,3 +97,5 @@ Seed: 18 files in `vsm/`, all VolleyStation, 2023-01 to 2024-03.
 ## Generator quirks
 
 ## Disagreements with openvolley
+
+- **Date serial is off by one in openvolley.** `read_match` converts the `[3MATCH]` line-2 serial as `as.Date("1900-01-01") + serial - 1`, which gives 2026-08-01 for `46234`. The correct epoch is 1899-12-30 (the spreadsheet convention): `46234` = 2026-07-31, matching the written date in all 17 DataVolley seed files (corpus-file, corpus-file). Courtside uses 1899-12-30. openvolley only uses the serial to disambiguate the written date, so its final dates may still be right; check when the parity harness lands.
