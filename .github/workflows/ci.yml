@@ -31,6 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         # Once testdata/ is a private submodule, add:
         #   with: { submodules: true, token: ${{ secrets.CORPUS_TOKEN }} }
+        # and set COURTSIDE_REQUIRE_CORPUS: 1 on the test step.
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
