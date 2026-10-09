@@ -1,0 +1,12 @@
+/target
+*.pending-snap
+*.snap.new
+.DS_Store
+
+# Source of docs/PRD.md; the Markdown is canonical
+/*.docx
+
+# Private corpus. Becomes a submodule; until then never commit match files.
+/testdata/
+*.dvw
+*.vsm
