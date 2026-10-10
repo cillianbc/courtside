@@ -68,6 +68,8 @@ pub enum Body {
     Code(Code),
     /// Free text from the scout; ignored by the fold.
     Comment(String),
+    /// A correction that removes its target without replacing it.
+    Removed,
 }
 
 /// What an event means to the fold, derived from its [`Body`].
@@ -86,6 +88,8 @@ pub enum EventKind {
     Timeout,
     SetEnd,
     Comment,
+    /// Never seen by the fold: see [`Body::Removed`].
+    Removed,
     Unrecognised,
 }
 
@@ -102,6 +106,9 @@ pub struct MatchEvent {
     /// Set on a correction: the event this one replaces. The replaced
     /// event stays in the log but the fold skips it.
     pub supersedes: Option<EventId>,
+    /// Set on an insertion: the event this one goes before in the match.
+    /// Always an original or inserted event, never a correction.
+    pub before: Option<EventId>,
     /// For imported events, the index of the source `[3SCOUT]` line.
     pub source_line: Option<usize>,
 }
@@ -110,13 +117,16 @@ impl MatchEvent {
     pub fn code(&self) -> Option<&Code> {
         match &self.body {
             Body::Code(c) => Some(c),
-            Body::Comment(_) => None,
+            Body::Comment(_) | Body::Removed => None,
         }
     }
 
     pub fn kind(&self) -> EventKind {
         let Some(code) = self.code() else {
-            return EventKind::Comment;
+            return match self.body {
+                Body::Removed => EventKind::Removed,
+                _ => EventKind::Comment,
+            };
         };
         match code {
             Code::Touch(_) => EventKind::Touch,
@@ -184,6 +194,7 @@ mod tests {
                 clock: None,
                 producer: Producer::Keyboard,
                 supersedes: None,
+                before: None,
                 source_line: None,
             }
             .kind()

@@ -119,7 +119,7 @@ pub fn fold_events(m: &Match, events: &[&MatchEvent]) -> Folded {
     for (i, ev) in events.iter().enumerate() {
         let kind = ev.kind();
         let code = ev.code();
-        if new_set && !matches!(kind, EventKind::Comment) {
+        if new_set && !matches!(kind, EventKind::Comment | EventKind::Removed) {
             new_set = false;
             st.score = Score::default();
             st.setter_position = Sides::default();
@@ -134,7 +134,9 @@ pub fn fold_events(m: &Match, events: &[&MatchEvent]) -> Folded {
 
         // Rally membership.
         st.rally = match kind {
-            EventKind::Timeout | EventKind::SetEnd | EventKind::Comment => None,
+            EventKind::Timeout | EventKind::SetEnd | EventKind::Comment | EventKind::Removed => {
+                None
+            }
             _ => Some(*open_rally.get_or_insert_with(|| {
                 rallies.push(Rally {
                     set: st.set,

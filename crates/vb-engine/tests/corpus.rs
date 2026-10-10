@@ -150,3 +150,30 @@ fn fold_reproduces_the_files_own_columns() {
         unexpected.join("\n")
     );
 }
+
+/// PRD: a full match (~1,500 events) folds in under 5 ms. Timed only in
+/// release builds (`cargo test --release`).
+#[test]
+fn fold_is_fast_enough_to_run_on_every_change() {
+    if cfg!(debug_assertions) {
+        eprintln!("skipping: debug build");
+        return;
+    }
+    let Some((root, manifest)) = corpus() else {
+        return;
+    };
+    let mut slowest = std::time::Duration::ZERO;
+    for entry in manifest.file.iter().filter(|e| e.path.ends_with(".dvw")) {
+        let bytes = std::fs::read(root.join(&entry.path)).expect("read corpus file");
+        let dvw = Dvw::parse(&bytes).expect("parse corpus file");
+        let m = Match::from_dvw(&dvw, &mut IdGen::new(0));
+        for _ in 0..5 {
+            let start = std::time::Instant::now();
+            let folded = fold(&m);
+            slowest = slowest.max(start.elapsed());
+            assert_eq!(folded.states.len(), dvw.scout.len());
+        }
+    }
+    eprintln!("slowest fold: {slowest:?}");
+    assert!(slowest < std::time::Duration::from_millis(5), "{slowest:?}");
+}

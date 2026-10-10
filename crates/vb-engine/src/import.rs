@@ -40,7 +40,7 @@ impl Match {
                     Producer::Import(ImportFormat::Dvw),
                 )
             };
-            m.log.push(ids, new, None, Some(i));
+            m.log.push(ids, new, None, None, Some(i));
         }
         m
     }
