@@ -3,11 +3,11 @@ resolver = "3"
 members = ["crates/dvw-codec", "crates/vb-grammar", "crates/courtside-cli"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 license = "UNLICENSED"
-repository = "https://github.com/cillianbc/courtside"
+repository = "https://github.com/cillianbc/courtside-cli"
 homepage = "https://github.com/cillianbc/courtside-cli"
 publish = false
 
