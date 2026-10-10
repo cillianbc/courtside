@@ -7,6 +7,8 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "UNLICENSED"
+repository = "https://github.com/cillianbc/courtside"
+homepage = "https://github.com/cillianbc/courtside-cli"
 publish = false
 
 [workspace.dependencies]
@@ -31,3 +33,8 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

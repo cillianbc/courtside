@@ -6,6 +6,12 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[package.metadata.dist]
+# Workspace crates are publish = false (not crates.io); still build release binaries.
+dist = true
 
 [[bin]]
 name = "courtside"
