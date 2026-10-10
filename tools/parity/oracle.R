@@ -11,13 +11,20 @@ dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 home <- paste0("home_p", 1:6)
 visiting <- paste0("visiting_p", 1:6)
-# Raw [3SCOUT] columns (dvw-codec parity) then parsed code fields (vb-grammar parity).
+# Raw [3SCOUT] columns (dvw-codec parity), parsed code fields (vb-grammar
+# parity), then derived match state (vb-engine parity).
 cols <- c("file_line_number", "code", "point_phase", "attack_phase",
           "start_coordinate", "mid_coordinate", "end_coordinate", "time",
           "video_file_number", "video_time", home, visiting,
           "team", "player_number", "skill", "evaluation_code", "attack_code",
           "set_code", "set_type", "start_zone", "end_zone", "end_subzone",
-          "custom_code", "timeout", "substitution", "point", "end_of_set")
+          "custom_code", "timeout", "substitution", "point", "end_of_set",
+          # Derived columns (vb-engine parity).
+          "set_number", "home_team_score", "visiting_team_score",
+          "home_setter_position", "visiting_setter_position", "point_id",
+          "team_touch_id", "point_won_by", "serving_team", "phase",
+          "winning_attack", "home_score_start_of_point",
+          "visiting_score_start_of_point")
 
 files <- list.files(file.path(corpus, "dvw"), pattern = "\\.dvw$", recursive = TRUE,
                     ignore.case = TRUE, full.names = TRUE)

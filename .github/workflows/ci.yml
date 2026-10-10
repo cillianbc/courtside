@@ -50,6 +50,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: tools/parity/run.sh
-      - run: cargo test -p dvw-codec -p vb-grammar --test parity
+      - run: cargo test -p dvw-codec -p vb-grammar -p vb-engine --test parity
         env:
           COURTSIDE_REQUIRE_PARITY: "1"

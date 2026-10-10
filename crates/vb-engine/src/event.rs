@@ -1,0 +1,200 @@
+//! Match events: the append-only record a match is folded from (PRD
+//! domain model). Score, rotation and everything else derived is computed
+//! from these, never stored.
+
+use std::fmt;
+
+use ulid::Ulid;
+use vb_grammar::Code;
+
+/// Unique, sortable event id. Ids from one [`IdGen`] sort in creation order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EventId(pub Ulid);
+
+impl fmt::Display for EventId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// Makes monotonic [`EventId`]s from a fixed timestamp and a counter, so
+/// the engine needs no clock or randomness (it also runs in WASM). The
+/// caller supplies the time; ids are unique per generator.
+#[derive(Debug, Clone)]
+pub struct IdGen {
+    time_ms: u64,
+    counter: u128,
+}
+
+impl IdGen {
+    pub fn new(time_ms: u64) -> Self {
+        IdGen {
+            time_ms,
+            counter: 0,
+        }
+    }
+
+    pub fn next_id(&mut self) -> EventId {
+        self.counter += 1;
+        EventId(Ulid::from_parts(self.time_ms, self.counter))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Producer {
+    Keyboard,
+    Tap,
+    Import(ImportFormat),
+    /// Written by the engine or a repair tool, not a person.
+    Repair,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportFormat {
+    Dvw,
+    Vsm,
+}
+
+/// Wall-clock time of day, as written in the `[3SCOUT]` time column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ClockTime {
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Body {
+    Code(Code),
+    /// Free text from the scout; ignored by the fold.
+    Comment(String),
+}
+
+/// What an event means to the fold, derived from its [`Body`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EventKind {
+    Touch,
+    Point,
+    /// A setter or setter position code marked `>LUp`: part of the
+    /// starting lineup of a set.
+    Lineup,
+    /// `*P08` without `>LUp`: a change of setter (FORMAT-NOTES "Decisions").
+    SetterChange,
+    /// `*z1` without `>LUp`: the setter is now in this zone (a rotation).
+    SetterPosition,
+    Substitution,
+    Timeout,
+    SetEnd,
+    Comment,
+    Unrecognised,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchEvent {
+    pub id: EventId,
+    /// Position in the log, from 0.
+    pub seq: u32,
+    pub body: Body,
+    /// Offset into the primary camera.
+    pub video_ms: Option<u64>,
+    pub clock: Option<ClockTime>,
+    pub producer: Producer,
+    /// Set on a correction: the event this one replaces. The replaced
+    /// event stays in the log but the fold skips it.
+    pub supersedes: Option<EventId>,
+    /// For imported events, the index of the source `[3SCOUT]` line.
+    pub source_line: Option<usize>,
+}
+
+impl MatchEvent {
+    pub fn code(&self) -> Option<&Code> {
+        match &self.body {
+            Body::Code(c) => Some(c),
+            Body::Comment(_) => None,
+        }
+    }
+
+    pub fn kind(&self) -> EventKind {
+        let Some(code) = self.code() else {
+            return EventKind::Comment;
+        };
+        match code {
+            Code::Touch(_) => EventKind::Touch,
+            Code::Point { .. } => EventKind::Point,
+            Code::SetterPosition { note, .. } | Code::SetterPlayer { note, .. }
+                if is_lineup(note) =>
+            {
+                EventKind::Lineup
+            }
+            Code::SetterPosition { .. } => EventKind::SetterPosition,
+            Code::SetterPlayer { .. } => EventKind::SetterChange,
+            Code::Substitution { .. } => EventKind::Substitution,
+            Code::Timeout { .. } => EventKind::Timeout,
+            Code::SetEnd { .. } => EventKind::SetEnd,
+            Code::Unrecognised(_) => EventKind::Unrecognised,
+        }
+    }
+}
+
+/// `>LUp` (any case) marks a starting-lineup code.
+pub(crate) fn is_lineup(note: &str) -> bool {
+    note.to_ascii_lowercase().contains(">lup")
+}
+
+/// Everything a new event needs except what the log assigns (id, seq).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewEvent {
+    pub body: Body,
+    pub video_ms: Option<u64>,
+    pub clock: Option<ClockTime>,
+    pub producer: Producer,
+}
+
+impl NewEvent {
+    pub fn code(code: Code, producer: Producer) -> Self {
+        NewEvent {
+            body: Body::Code(code),
+            video_ms: None,
+            clock: None,
+            producer,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ids_are_monotonic() {
+        let mut ids = IdGen::new(1_700_000_000_000);
+        let a = ids.next_id();
+        let b = ids.next_id();
+        assert!(a < b);
+    }
+
+    #[test]
+    fn kinds() {
+        let kind = |s: &str| {
+            MatchEvent {
+                id: IdGen::new(0).next_id(),
+                seq: 0,
+                body: Body::Code(Code::parse(s)),
+                video_ms: None,
+                clock: None,
+                producer: Producer::Keyboard,
+                supersedes: None,
+                source_line: None,
+            }
+            .kind()
+        };
+        assert_eq!(kind("*P08>LUp"), EventKind::Lineup);
+        assert_eq!(kind("az2>LUp"), EventKind::Lineup);
+        assert_eq!(kind("aP11"), EventKind::SetterChange);
+        assert_eq!(kind("*z6"), EventKind::SetterPosition);
+        assert_eq!(kind("a10AH#"), EventKind::Touch);
+        assert_eq!(kind("*p25:20"), EventKind::Point);
+        assert_eq!(kind("**1set"), EventKind::SetEnd);
+        assert_eq!(kind("??"), EventKind::Unrecognised);
+    }
+}

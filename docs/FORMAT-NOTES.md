@@ -95,6 +95,19 @@ Seed: 18 files in `vsm/`, all VolleyStation, 2023-01 to 2024-03.
 
 - `corpus-file`/`Ireland v Luxembourg`, `corpus-file`/`Ireland v Malta`, `corpus-fileor`/`Ireland v Northern Ireland` are the same match saved twice. The later file has real post-match edits: changed `effect`/`skill`/`player`, plays added and removed, `_id`s regenerated on some plays. Good test data for the Correction model and for import diffing.
 
+## Engine fold (vb-engine)
+
+What DataVolley and VolleyStation write in the derived `[3SCOUT]` columns (8 set, 9–10 setter positions, 14–25 players on court), reproduced by `vb_engine::fold` on every corpus line except the two glitches below (`crates/vb-engine/tests/corpus.rs`).
+
+- Columns show the state **after** the line. The `**1set` line already shows set 2, with all on-court columns empty and the setter positions carried over.
+- A set's lineup comes from the `[3PLAYERS-*]` starting zones for that set, from the first line after the set end (the `>LUp` lines already show it). Setter positions on `>LUp` lines before the `z` code are leftovers: the previous set's (corpus-file set 2), or something else (`6`/`5` on corpus-file line 0, `0`/`0` on corpus-file line 0). The engine treats them as unknown.
+- `z` without `>LUp` rotates the court so the current setter (last `P` code) is in that zone. It is usually one step after a side-out (1,307 of 1,407), but scouts also re-enter `z` to fix a rotation: 0, back one or back two steps (corpus-file, corpus-file). So the `z` code is authoritative and the rotation follows the setter, not a fixed step; the validator checks it against the side-out rule.
+- `c` swaps a player in place. Media files never move the libero in these columns.
+- DataVolley writes a setter change after a rotation (`*z4`, `*P8`, note no zero padding) meaning the rotation refers to the old setter (corpus-file, corpus-file, -04, -06, -07). VolleyStation writes `*z2`, `*P21` meaning the rotation refers to the **new** setter (corpus-file line 358). `vb_engine::Conventions::setter_change_follows_rotation`, set on import from `GENERATOR-PRG`.
+- VolleyStation writes a rotation line with the substitutions straight after it already applied (corpus-file: `*z4` then `ac07:03`; the `z` line already shows 3 for 7).
+- Glitch: setter position `0` for ten lines of corpus-file set 3, with no code changing it.
+- Glitch: corpus-file home on-court columns for set 1 (274 lines) contradict the player table's set 1 starting zones (three zones empty, a player with no starting zone on court). The table was probably edited after scouting. The engine follows the table.
+
 ## Scout code grammar (vb-grammar)
 
 - Skill code: team (`*`/`a`), player digits or `$$` (unknown), skill `S R E A B D F`, then 11 fixed positions (type, evaluation, combination ×2, target, start zone, end zone, end subzone, subtype, num players, special), each a character or `~` = empty, then free custom text from position 16. Trailing positions may be omitted (`a10AH#`) or written as `~` (`*19SM+~~~`); both round-trip.
@@ -106,6 +119,7 @@ Seed: 18 files in `vsm/`, all VolleyStation, 2023-01 to 2024-03.
 ## Disagreements with openvolley
 
 - **Date serial is off by one in openvolley.** `read_match` converts the `[3MATCH]` line-2 serial as `as.Date("1900-01-01") + serial - 1`, which gives 2026-08-01 for `46234`. The correct epoch is 1899-12-30 (the spreadsheet convention): `46234` = 2026-07-31, matching the written date in all 17 DataVolley seed files (corpus-file, corpus-file). Courtside uses 1899-12-30. openvolley only uses the serial to disambiguate the written date, and its final `meta$match$date` equals `Dvw::match_date` on all 18 seed .dvw files (checked by hand against the pinned oracle), so the off-by-one never reaches its output.
+- **Serve phase.** openvolley gives a serve `phase` "Reception" when it falls in the same team touch as a reception, which only happens when a point code is missing before it (corpus-file lines 75, 681, 719; corpus-file lines 544, 683, 1009; corpus-file line 273). A serve is always serve phase in Courtside. Everything else in openvolley's derived columns (set, scores, setter positions, rally and team-touch grouping, serving team, rally winner, winning attack, phase) matches on every touch (`crates/vb-engine/tests/parity.rs`). Courtside adopts openvolley's rule that a block straight after a reception-phase attack is in reception phase.
 
 ## Decisions
 
