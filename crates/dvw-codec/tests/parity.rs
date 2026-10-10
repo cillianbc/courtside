@@ -129,7 +129,10 @@ fn scout_columns_match_openvolley() {
             };
             let mine = ours(scout);
             for (col, value) in headers.iter().zip(theirs.iter()).skip(1) {
-                let my_value = mine.get(col).map_or("<no column>", String::as_str);
+                // Parsed-code columns belong to vb-grammar's parity test.
+                let Some(my_value) = mine.get(col).map(String::as_str) else {
+                    continue;
+                };
                 if my_value != value && !ACCEPTED.contains(&(rel.as_str(), file_line, col)) {
                     let d = diffs.entry(col.to_owned()).or_default();
                     d.0 += 1;

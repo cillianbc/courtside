@@ -11,9 +11,13 @@ dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 home <- paste0("home_p", 1:6)
 visiting <- paste0("visiting_p", 1:6)
+# Raw [3SCOUT] columns (dvw-codec parity) then parsed code fields (vb-grammar parity).
 cols <- c("file_line_number", "code", "point_phase", "attack_phase",
           "start_coordinate", "mid_coordinate", "end_coordinate", "time",
-          "video_file_number", "video_time", home, visiting)
+          "video_file_number", "video_time", home, visiting,
+          "team", "player_number", "skill", "evaluation_code", "attack_code",
+          "set_code", "set_type", "start_zone", "end_zone", "end_subzone",
+          "custom_code", "timeout", "substitution", "point", "end_of_set")
 
 files <- list.files(file.path(corpus, "dvw"), pattern = "\\.dvw$", recursive = TRUE,
                     ignore.case = TRUE, full.names = TRUE)
