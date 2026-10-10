@@ -132,6 +132,17 @@ impl Dvw {
         Ok(raw.to_bytes())
     }
 
+    /// Roster entry for shirt `number` on the home (`home == true`) or
+    /// visiting team.
+    pub fn player(&self, home: bool, number: u8) -> Option<&Player> {
+        let roster = if home {
+            &self.players_home
+        } else {
+            &self.players_visiting
+        };
+        roster.iter().find(|p| p.number() == Some(number))
+    }
+
     /// The file as read; typed fields above take precedence on write.
     pub fn raw(&self) -> &RawFile {
         &self.raw
@@ -661,6 +672,11 @@ Camera0=C:\\video\\a=b.mp4\r\n\
         assert_eq!(p.special_role(), "C");
         assert_eq!(p.foreign(), Some(false));
         assert_eq!(dvw.players_visiting[0].role(), Some(Role::Libero));
+        assert_eq!(
+            dvw.player(true, 9).map(|p| p.last_name()).as_deref(),
+            Some("Byrne")
+        );
+        assert!(dvw.player(false, 9).is_none());
 
         assert_eq!(dvw.attack_combinations[0].code(), "X5");
         assert_eq!(dvw.attack_combinations[0].target_attacker(), "F");
