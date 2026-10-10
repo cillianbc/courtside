@@ -3,6 +3,7 @@
 //! deterministic fold over it ([`fold::fold`]).
 
 pub mod event;
+pub mod export;
 pub mod fold;
 mod import;
 pub mod log;

@@ -177,3 +177,68 @@ fn fold_is_fast_enough_to_run_on_every_change() {
     eprintln!("slowest fold: {slowest:?}");
     assert!(slowest < std::time::Duration::from_millis(5), "{slowest:?}");
 }
+
+/// Phase 2 task 5: `.dvw` → engine → `.dvw` gives back the same bytes,
+/// except on lines where the file's own derived columns contradict it
+/// (see `ACCEPTED` above and the VolleyStation rotation-line quirk), which
+/// the engine writes corrected. Only derived columns may differ.
+#[test]
+fn dvw_round_trips_through_the_engine() {
+    let Some((root, manifest)) = corpus() else {
+        return;
+    };
+    let mut report = Vec::new();
+    let mut files = 0;
+    for entry in manifest.file.iter().filter(|e| e.path.ends_with(".dvw")) {
+        let bytes = std::fs::read(root.join(&entry.path)).expect("read corpus file");
+        let dvw = Dvw::parse(&bytes).expect("parse corpus file");
+        let m = Match::from_dvw(&dvw, &mut IdGen::new(0));
+        let out = m.to_dvw(&dvw);
+        files += 1;
+        assert_eq!(out.scout.len(), dvw.scout.len(), "{}", entry.path);
+        let mut changed = 0;
+        for (i, (a, b)) in dvw.scout.iter().zip(&out.scout).enumerate() {
+            let (a, b) = (&a.0.0, &b.0.0);
+            if a == b {
+                continue;
+            }
+            changed += 1;
+            let cols: Vec<usize> = (0..a.len().max(b.len()))
+                .filter(|&c| a.get(c) != b.get(c))
+                .collect();
+            if cols.iter().any(|c| !(8..=25).contains(c)) {
+                report.push(format!(
+                    "{} line {i}: non-derived columns {cols:?}",
+                    entry.path
+                ));
+            }
+        }
+        let name = entry.path.rsplit('/').next().unwrap_or(&entry.path);
+        eprintln!("{name}: {changed} lines rewritten");
+        if changed == 0 {
+            let written = out.to_bytes().expect("write");
+            if written != bytes {
+                report.push(format!(
+                    "{}: scout lines equal but bytes differ",
+                    entry.path
+                ));
+            }
+        } else if !ROUND_TRIP_REWRITES
+            .iter()
+            .any(|(f, n)| name.starts_with(f) && *n == changed)
+        {
+            report.push(format!("{}: {changed} lines rewritten", entry.path));
+        }
+    }
+    assert!(files > 0, "no .dvw files");
+    assert!(report.is_empty(), "round trip:\n{}", report.join("\n"));
+}
+
+/// Files whose derived columns the engine rewrites, and how many lines:
+/// the `ACCEPTED` glitches plus VolleyStation rotation lines written with
+/// the following substitution already applied.
+const ROUND_TRIP_REWRITES: &[(&str, usize)] = &[
+    ("&corpus-file", 10),
+    ("&corpus-file", 274),
+    ("2024-03-23 corpus-file", 7),
+];

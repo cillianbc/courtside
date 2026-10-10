@@ -73,20 +73,23 @@ impl EventLog {
 
     /// Replaces `target` with `new` at the same place in the match. The
     /// target stays in the log, hidden from the fold. A correction can
-    /// itself be corrected; an event can be corrected only once.
+    /// itself be corrected; an event can be corrected only once. It keeps
+    /// the target's `source_line`, so what the engine doesn't model
+    /// (coordinates, the file's phase columns) carries over on export.
     pub fn correct(
         &mut self,
         ids: &mut IdGen,
         target: EventId,
         new: NewEvent,
     ) -> Result<EventId, LogError> {
-        if self.get(target).is_none() {
-            return Err(LogError::NotFound(target));
-        }
+        let source_line = self
+            .get(target)
+            .ok_or(LogError::NotFound(target))?
+            .source_line;
         if let Some(by) = self.events.iter().find(|e| e.supersedes == Some(target)) {
             return Err(LogError::AlreadySuperseded(target, by.id));
         }
-        Ok(self.push(ids, new, Some(target), None, None))
+        Ok(self.push(ids, new, Some(target), None, source_line))
     }
 
     /// Hides `target` from the match: a correction with no replacement.

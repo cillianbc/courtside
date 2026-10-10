@@ -105,6 +105,7 @@ What DataVolley and VolleyStation write in the derived `[3SCOUT]` columns (8 set
 - `c` swaps a player in place. Media files never move the libero in these columns.
 - DataVolley writes a setter change after a rotation (`*z4`, `*P8`, note no zero padding) meaning the rotation refers to the old setter (corpus-file, corpus-file, -04, -06, -07). VolleyStation writes `*z2`, `*P21` meaning the rotation refers to the **new** setter (corpus-file line 358). `vb_engine::Conventions::setter_change_follows_rotation`, set on import from `GENERATOR-PRG`.
 - VolleyStation writes a rotation line with the substitutions straight after it already applied (corpus-file: `*z4` then `ac07:03`; the `z` line already shows 3 for 7).
+- Export (`Match::to_dvw`) writes these columns from the fold in DataVolley's convention, so the VolleyStation rotation lines (7 in corpus-file) and both glitches below come out corrected; every other line is written back unchanged.
 - Glitch: setter position `0` for ten lines of corpus-file set 3, with no code changing it.
 - Glitch: corpus-file home on-court columns for set 1 (274 lines) contradict the player table's set 1 starting zones (three zones empty, a player with no starting zone on court). The table was probably edited after scouting. The engine follows the table.
 
