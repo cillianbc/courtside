@@ -4,11 +4,12 @@
 //! ([`Row`]), so writing back is lossless by construction: accessors
 //! interpret fields, they never normalise them. Column meanings follow
 //! openvolley (`datavolley/R/meta.R`) unless `docs/FORMAT-NOTES.md` says
-//! otherwise. `[3SCOUT]` and unknown sections stay as raw bytes.
+//! otherwise. Unknown sections stay as raw bytes.
 
 use crate::Error;
 use crate::date::Date;
 use crate::encoding::TextEncoding;
+use crate::scout::ScoutLine;
 use crate::sections::{Line, LineEnding, RawFile};
 use crate::text::Row;
 
@@ -29,6 +30,7 @@ pub struct Dvw {
     pub winning_symbols: WinningSymbols,
     pub reserve: Vec<Row>,
     pub video: Vec<VideoEntry>,
+    pub scout: Vec<ScoutLine>,
 }
 
 impl Dvw {
@@ -89,6 +91,7 @@ impl Dvw {
             },
             reserve: rows(RESERVE)?,
             video: lines(VIDEO)?.into_iter().map(VideoEntry).collect(),
+            scout: rows(SCOUT)?.into_iter().map(ScoutLine).collect(),
             raw,
         })
     }
@@ -129,7 +132,7 @@ impl Dvw {
         Ok(raw.to_bytes())
     }
 
-    /// Sections not interpreted here, including `[3SCOUT]`.
+    /// The file as read; typed fields above take precedence on write.
     pub fn raw(&self) -> &RawFile {
         &self.raw
     }
@@ -162,6 +165,7 @@ impl Dvw {
             WINNING_SYMBOLS => self.winning_symbols.lines.clone(),
             RESERVE => rows(&self.reserve),
             VIDEO => self.video.iter().map(|v| v.0.clone()).collect(),
+            SCOUT => wrapped(self.scout.iter().map(|s| &s.0).collect()),
             _ => return None,
         })
     }
@@ -180,6 +184,7 @@ const SETTER_CALLS: &str = "3SETTERCALL";
 const WINNING_SYMBOLS: &str = "3WINNINGSYMBOLS";
 const RESERVE: &str = "3RESERVE";
 const VIDEO: &str = "3VIDEO";
+const SCOUT: &str = "3SCOUT";
 
 /// `[3MATCH]` field 9 of the first line, read as ASCII before decoding.
 fn declared_codepage(raw: &RawFile) -> Option<String> {
@@ -670,7 +675,9 @@ Camera0=C:\\video\\a=b.mp4\r\n\
         );
         assert_eq!(dvw.video[0].camera(), "Camera0");
         assert_eq!(dvw.video[0].path(), "C:\\video\\a=b.mp4");
-        assert_eq!(dvw.raw().section("3SCOUT").map(|s| s.lines.len()), Some(1));
+        assert_eq!(dvw.scout.len(), 1);
+        assert_eq!(dvw.scout[0].code(), "*09SH#");
+        assert_eq!(dvw.scout[0].home_players()[0], Some(9));
     }
 
     #[test]

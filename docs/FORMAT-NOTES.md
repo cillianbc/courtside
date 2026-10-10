@@ -47,7 +47,8 @@ File references are relative to `testdata/`. `corpus-file` = `dvw/datavolley4/co
 
 ## [3SCOUT] lines
 
-- Each line: code, then `;`-separated metadata, then 12 on-court player numbers (6 home, 6 away).
+- Columns (0-based), per openvolley's `read_main`; full table in `crates/dvw-codec/src/scout.rs`: 0 code, 1 point phase (`p`/`s`), 2 attack phase (`r`/`s`/`p`), 3 ?, 4–6 start/mid/end coordinate (`-1-1` = none), 7 time `HH.MM.SS`, 8 set, 9–10 home/visiting setter position, 11 video file number, 12 video seconds, 13 ?, 14–19 home players p1–p6, 20–25 visiting p1–p6, then a trailing `;`.
+- Parity: all of these except 3, 8–10 and 13 match openvolley (datavolley 1.18.5, `c231092`) exactly on every line of all 18 seed .dvw files (`tests/parity.rs`). openvolley doesn't expose 8–10 raw (it derives set number and setter positions from the codes), and ignores 3 and 13.
 - DataVolley Media files have no video column values (no video). VolleyStation fills a video-seconds column (`236`, `244`, … in corpus-file).
 - Set end line: `**3set;...` with on-court columns empty (corpus-file, corpus-file).
 - Unknown-player attacks/blocks coded `$$&H#` (team prefix `*` or `a`).

@@ -7,6 +7,7 @@
 pub mod date;
 pub mod dvw;
 pub mod encoding;
+pub mod scout;
 pub mod sections;
 pub mod text;
 pub mod vsm;

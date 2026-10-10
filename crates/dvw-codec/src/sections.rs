@@ -82,6 +82,19 @@ impl RawFile {
         out
     }
 
+    /// 1-based line number of the first `[NAME]` header.
+    pub fn header_line(&self, name: &str) -> Option<usize> {
+        let mut line = self.preamble.len();
+        for section in &self.sections {
+            line += 1;
+            if section.name == name {
+                return Some(line);
+            }
+            line += section.lines.len();
+        }
+        None
+    }
+
     /// First section with this name, e.g. `file.section("3SCOUT")`.
     pub fn section(&self, name: &str) -> Option<&Section> {
         self.sections.iter().find(|s| s.name == name)
@@ -143,6 +156,9 @@ mod tests {
         let file = RawFile::parse(input);
         assert_eq!(names(&file), ["3DATAVOLLEYSCOUT", "3SCOUT"]);
         assert_eq!(file.section("3SCOUT").map(|s| s.lines.len()), Some(1));
+        assert_eq!(file.header_line("3DATAVOLLEYSCOUT"), Some(1));
+        assert_eq!(file.header_line("3SCOUT"), Some(3));
+        assert_eq!(file.header_line("3NOPE"), None);
         assert_eq!(file.to_bytes(), input);
     }
 

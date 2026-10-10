@@ -36,5 +36,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
-  # Parity against openvolley (R Docker image) is added with task 5,
-  # once there is [3SCOUT] output to compare.
+  # Parity against openvolley (PRD I-03). Needs the private corpus, so it is
+  # off until the testdata submodule exists and the repo variable
+  # CORPUS_AVAILABLE is set to "true".
+  parity:
+    if: ${{ vars.CORPUS_AVAILABLE == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          token: ${{ secrets.CORPUS_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: tools/parity/run.sh
+      - run: cargo test -p dvw-codec --test parity
+        env:
+          COURTSIDE_REQUIRE_PARITY: "1"
