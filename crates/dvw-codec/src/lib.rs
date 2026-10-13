@@ -24,6 +24,13 @@ pub enum Error {
     VsmJson(#[from] serde_json::Error),
     #[error("unknown code page {0:?} in [3MATCH]; pass an encoding explicitly")]
     UnknownCodepage(String),
+    /// DataVolley 2 / pre-2007 layout, first line `[Match]`.
+    #[error("legacy DataVolley file (pre-2007 [Match] format); not supported")]
+    LegacyFormat,
+    /// No `[3…]` section at all: DataVolley's encrypted scout files look
+    /// like this, as does anything that isn't a scout file.
+    #[error("not a readable DataVolley file: no [3...] sections (encrypted, or another format)")]
+    NotDataVolley,
     #[error("[{section}] line {line} is not valid {encoding}")]
     Undecodable {
         encoding: &'static str,

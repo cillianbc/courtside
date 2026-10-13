@@ -176,6 +176,18 @@ impl Validator<'_> {
                     if let Some(z) = t.end_subzone().filter(|z| !('A'..='D').contains(z)) {
                         found.push((Severity::Error, format!("end subzone {z:?} is not A–D")));
                     }
+                    // DataVolley stores codes in 20 characters, leaving 5
+                    // for custom text, and cuts anything longer on load.
+                    if t.custom().chars().count() > 5 {
+                        found.push((
+                            Severity::Warning,
+                            format!(
+                                "custom text {:?} is over 5 characters; DataVolley cuts it to {:?}",
+                                t.custom(),
+                                t.custom().chars().take(5).collect::<String>()
+                            ),
+                        ));
+                    }
                 }
                 Code::SetterPosition { position, .. }
                     if !num(position).is_some_and(|p| (1..=6).contains(&p)) =>
@@ -838,6 +850,23 @@ mod tests {
                 "7 Substitution: player 12 is already on court",
                 "7 Substitution: libero replacements are not substitutions",
                 "11 Substitution: libero 1 blocked",
+            ]
+        );
+    }
+
+    #[test]
+    fn long_custom_text() {
+        let code = |c: &str| {
+            check(&[c])
+                .into_iter()
+                .filter(|m| m.contains("custom"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(code("*08SH-~~~~~~~~~ABCDE"), Vec::<String>::new());
+        assert_eq!(
+            code("*08SH-~~~~~~~~~ABCDEFG"),
+            [
+                "0 Code: custom text \"ABCDEFG\" is over 5 characters; DataVolley cuts it to \"ABCDE\""
             ]
         );
     }

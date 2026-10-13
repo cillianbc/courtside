@@ -4,6 +4,7 @@
 use std::fmt;
 use std::path::Path;
 
+use dvw_codec::date::{Date, Written};
 use dvw_codec::text::decode_embedded;
 use dvw_codec::{Dvw, RawVsm};
 use vb_engine::validate::{Rule, Severity};
@@ -137,14 +138,25 @@ fn validate_dvw(bytes: &[u8]) -> Vec<Issue> {
             format!("expected 2 teams, found {}", dvw.teams.len()),
         ));
     }
+    let match_line = raw.header_line("3MATCH").map(|l| l + 1);
     if dvw.match_date().is_none() {
+        let text = dvw.match_info.date_text();
+        let message = match Date::parse_written(text) {
+            Some(Written::Two {
+                month_first,
+                day_first,
+            }) => format!(
+                "match date {text:?} is {month_first} or {day_first}; nothing else in the file settles the day/month order"
+            ),
+            _ => format!("cannot determine the match date from {text:?}"),
+        };
+        issues.push(issue(Severity::Warning, match_line, message));
+    }
+    if dvw.match_info.codepage().trim() == "1" {
         issues.push(issue(
             Severity::Warning,
-            raw.header_line("3MATCH").map(|l| l + 1),
-            format!(
-                "cannot determine the match date from {:?}",
-                dvw.match_info.date_text()
-            ),
+            match_line,
+            "code page 1 (the PC's default, written by DataVolley 3.x) read as Windows-1252; check accented names",
         ));
     }
 
@@ -215,7 +227,7 @@ fn validate_dvw(bytes: &[u8]) -> Vec<Issue> {
 mod tests {
     use super::*;
 
-    const GOOD: &[u8] = b"[3DATAVOLLEYSCOUT]\nGENERATOR-PRG: Data Volley\n[3MATCH]\n03/04/2026;;;;;;;;1252;1;Z;\n[3TEAMS]\nT1;Home;0;;;;\nT2;Away;0;;;;\n[3PLAYERS-H]\n0;1;1;;;;;;H1;One;A;;;2;;\n[3PLAYERS-V]\n1;2;1;;;;;;V2;Two;B;;;2;;\n[3SCOUT]\n*01SH#;;;;;;;;;;;;;;;;;;;;;;;;;;\n";
+    const GOOD: &[u8] = b"[3DATAVOLLEYSCOUT]\nGENERATOR-PRG: Data Volley\n[3MATCH]\n04/23/2026;;;;;;;;1252;1;Z;\n[3TEAMS]\nT1;Home;0;;;;\nT2;Away;0;;;;\n[3PLAYERS-H]\n0;1;1;;;;;;H1;One;A;;;2;;\n[3PLAYERS-V]\n1;2;1;;;;;;V2;Two;B;;;2;;\n[3SCOUT]\n*01SH#;;;;;;;;;;;;;;;;;;;;;;;;;;\n";
 
     #[test]
     fn clean_file_has_no_issues() {
@@ -227,7 +239,7 @@ mod tests {
         let bad = b"[3DATAVOLLEYSCOUT]\n\
 GENERATOR-PRG: Data Volley\n\
 [3MATCH]\n\
-03/04/2026;;;;;;;;1252;1;Z;\n\
+04/23/2026;;;;;;;;1252;1;Z;\n\
 [3TEAMS]\n\
 T1;Home;0;;;;\n\
 T2;Away;0;;;;\n\
@@ -250,6 +262,29 @@ T2;Away;0;;;;\n\
                 "10: warning: last name differs from its Unicode copy (file edited by another program?)",
                 "15: warning: code: unrecognised code \">ROT\"",
             ]
+        );
+    }
+
+    #[test]
+    fn ambiguous_date_and_codepage_1() {
+        let file = String::from_utf8(GOOD.to_vec())
+            .unwrap()
+            .replace("04/23/2026;;;;;;;;1252", "03/04/2026;;;;;;;;1");
+        let text: Vec<String> = validate(Path::new("m.dvw"), file.as_bytes())
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            text,
+            [
+                "4: warning: match date \"03/04/2026\" is 2026-03-04 or 2026-04-03; nothing else in the file settles the day/month order",
+                "4: warning: code page 1 (the PC's default, written by DataVolley 3.x) read as Windows-1252; check accented names",
+            ]
+        );
+        let legacy = validate(Path::new("m.dvw"), b"[Match]\n");
+        assert_eq!(
+            legacy[0].to_string(),
+            "error: legacy DataVolley file (pre-2007 [Match] format); not supported"
         );
     }
 

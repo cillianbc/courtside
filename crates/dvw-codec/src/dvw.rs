@@ -7,7 +7,7 @@
 //! otherwise. Unknown sections stay as raw bytes.
 
 use crate::Error;
-use crate::date::Date;
+use crate::date::{Date, Written};
 use crate::encoding::TextEncoding;
 use crate::scout::ScoutLine;
 use crate::sections::{Line, LineEnding, RawFile};
@@ -35,10 +35,14 @@ pub struct Dvw {
 
 impl Dvw {
     /// Parses with the encoding named in `[3MATCH]` (Windows-1252 if none).
+    /// Code page `1` (Windows' "PC default", written by DataVolley 3.x) is
+    /// read as Windows-1252; `courtside validate` warns about it.
     pub fn parse(input: &[u8]) -> Result<Self, Error> {
         let raw = RawFile::parse(input);
+        check_format(&raw)?;
         let encoding = match declared_codepage(&raw) {
             None => TextEncoding::WINDOWS_1252,
+            Some(cp) if cp == "1" => TextEncoding::WINDOWS_1252,
             Some(cp) => TextEncoding::from_codepage(&cp).ok_or(Error::UnknownCodepage(cp))?,
         };
         Self::from_raw(raw, encoding)
@@ -46,7 +50,9 @@ impl Dvw {
 
     /// Parses with an explicit encoding, ignoring the declared one.
     pub fn parse_with_encoding(input: &[u8], encoding: TextEncoding) -> Result<Self, Error> {
-        Self::from_raw(RawFile::parse(input), encoding)
+        let raw = RawFile::parse(input);
+        check_format(&raw)?;
+        Self::from_raw(raw, encoding)
     }
 
     fn from_raw(raw: RawFile, encoding: TextEncoding) -> Result<Self, Error> {
@@ -148,15 +154,22 @@ impl Dvw {
         &self.raw
     }
 
-    /// Match date, using the date serial when present, otherwise the written
-    /// date in the order the generating program uses.
+    /// Match date: the date serial when present, else the written
+    /// `[3MATCH]` date. The day/month order of a written date is the
+    /// writing PC's setting, not the program's, and can differ between the
+    /// dates in one file (FORMAT-NOTES), so an ambiguous date is settled
+    /// only when exactly one reading is within two weeks of another date in
+    /// the file that is itself unambiguous. Otherwise `None`.
     pub fn match_date(&self) -> Option<(Date, DateSource)> {
-        let order = match self.header.get("GENERATOR-PRG") {
-            Some("Data Volley") => Some(DateOrder::MonthFirst),
-            Some("VolleyStation") => Some(DateOrder::DayFirst),
-            _ => None,
-        };
-        self.match_info.date(order)
+        let anchors: Vec<Date> = ["GENERATOR-DAY", "LASTCHANGE-DAY"]
+            .iter()
+            .filter_map(|k| self.header.get(k)?.split_whitespace().next())
+            .filter_map(|t| match Date::parse_written(t)? {
+                Written::One(d) => Some(d),
+                Written::Two { .. } => None,
+            })
+            .collect();
+        self.match_info.date(&anchors)
     }
 
     fn typed_lines(&self, name: &str) -> Option<Vec<String>> {
@@ -196,6 +209,29 @@ const WINNING_SYMBOLS: &str = "3WINNINGSYMBOLS";
 const RESERVE: &str = "3RESERVE";
 const VIDEO: &str = "3VIDEO";
 const SCOUT: &str = "3SCOUT";
+
+/// Refuses files that can't be DataVolley 2007-format text: a `[Match]`
+/// first line (the pre-2007 layout) or no `[3…]` section at all (encrypted
+/// files, other formats). Anything else is read leniently; missing
+/// sections are for the validator to report.
+fn check_format(raw: &RawFile) -> Result<(), Error> {
+    if raw.sections.iter().any(|s| s.name.starts_with('3')) {
+        return Ok(());
+    }
+    let first = raw
+        .preamble
+        .iter()
+        .chain(raw.sections.iter().map(|s| &s.header))
+        .map(|l| l.content.trim_ascii())
+        .find(|c| !c.is_empty());
+    match first {
+        None => Ok(()),
+        Some(c) if c.len() >= 7 && c[..7].eq_ignore_ascii_case(b"[match]") => {
+            Err(Error::LegacyFormat)
+        }
+        Some(_) => Err(Error::NotDataVolley),
+    }
+}
 
 /// `[3MATCH]` field 9 of the first line, read as ASCII before decoding.
 fn declared_codepage(raw: &RawFile) -> Option<String> {
@@ -243,21 +279,16 @@ impl Header {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DateOrder {
-    MonthFirst,
-    DayFirst,
-}
-
 /// How a match date was determined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DateSource {
     /// The date serial on the second `[3MATCH]` line.
     Serial,
-    /// The written date, in the generating program's order.
-    GeneratorOrder,
     /// The written date, which only one order makes valid.
     Unambiguous,
+    /// The written date, in the one order that puts it near another
+    /// unambiguous date in the file.
+    NearOtherDate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -334,33 +365,29 @@ impl MatchInfo {
         self.line(1).int::<i64>(2).filter(|&n| n != 12_345)
     }
 
-    /// See [`Dvw::match_date`], which supplies `order` from the header.
-    pub fn date(&self, order: Option<DateOrder>) -> Option<(Date, DateSource)> {
+    /// See [`Dvw::match_date`], which supplies the `anchors` (other
+    /// unambiguous dates in the file).
+    pub fn date(&self, anchors: &[Date]) -> Option<(Date, DateSource)> {
         if let Some(date) = self.date_serial().and_then(Date::from_serial) {
             return Some((date, DateSource::Serial));
         }
-        let parts: Vec<&str> = self.date_text().trim().split(['/', '.', '-']).collect();
-        let [a, b, c] = parts[..] else { return None };
-        if a.len() == 4 {
-            let date = Date::new(a.parse().ok()?, b.parse().ok()?, c.parse().ok()?)?;
-            return Some((date, DateSource::Unambiguous));
-        }
-        let (a, b, year) = (a.parse().ok()?, b.parse().ok()?, c.parse().ok()?);
-        let month_first = Date::new(year, a, b);
-        let day_first = Date::new(year, b, a);
-        match order {
-            Some(DateOrder::MonthFirst) if month_first.is_some() => {
-                month_first.map(|d| (d, DateSource::GeneratorOrder))
+        match Date::parse_written(self.date_text())? {
+            Written::One(d) => Some((d, DateSource::Unambiguous)),
+            Written::Two {
+                month_first,
+                day_first,
+            } => {
+                let near = |d: Date| {
+                    anchors
+                        .iter()
+                        .any(|a| (a.to_unix_days() - d.to_unix_days()).abs() <= 14)
+                };
+                match (near(month_first), near(day_first)) {
+                    (true, false) => Some((month_first, DateSource::NearOtherDate)),
+                    (false, true) => Some((day_first, DateSource::NearOtherDate)),
+                    _ => None,
+                }
             }
-            Some(DateOrder::DayFirst) if day_first.is_some() => {
-                day_first.map(|d| (d, DateSource::GeneratorOrder))
-            }
-            _ => match (month_first, day_first) {
-                (Some(m), Some(d)) if m == d => Some((m, DateSource::Unambiguous)),
-                (Some(m), None) => Some((m, DateSource::Unambiguous)),
-                (None, Some(d)) => Some((d, DateSource::Unambiguous)),
-                _ => None,
-            },
         }
     }
 }
@@ -739,24 +766,52 @@ Camera0=C:\\video\\a=b.mp4\r\n\
     }
 
     #[test]
+    fn codepage_1_reads_as_windows_1252() {
+        let dvw = Dvw::parse(b"[3MATCH]\n;;;;;;;;1;\n[3TEAMS]\nT1;Caf\xe9;0;\n").unwrap();
+        assert_eq!(dvw.encoding, TextEncoding::WINDOWS_1252);
+        assert_eq!(dvw.teams[0].name(), "Caf\u{e9}");
+        assert_eq!(dvw.match_info.codepage(), "1");
+    }
+
+    #[test]
+    fn legacy_and_encrypted_files_are_refused() {
+        assert!(matches!(
+            Dvw::parse(b"[Match]\r\nsomething\r\n"),
+            Err(Error::LegacyFormat)
+        ));
+        assert!(matches!(
+            Dvw::parse(b"\x8f\x12\xa0binary\x00\x01"),
+            Err(Error::NotDataVolley)
+        ));
+        assert!(Dvw::parse(b"").is_ok());
+    }
+
+    #[test]
     fn date_without_serial() {
         let info = |date: &str| MatchInfo {
             rows: vec![Row::parse(date)],
         };
         let d = |y, m, day| Date::new(y, m, day).unwrap();
         assert_eq!(
-            info("03/04/2026").date(Some(DateOrder::DayFirst)),
-            Some((d(2026, 4, 3), DateSource::GeneratorOrder))
-        );
-        assert_eq!(
-            info("23/03/2024").date(Some(DateOrder::MonthFirst)),
+            info("23/03/2024").date(&[]),
             Some((d(2024, 3, 23), DateSource::Unambiguous))
         );
-        assert_eq!(info("03/04/2026").date(None), None);
         assert_eq!(
-            info("2026-04-03").date(None),
+            info("2026-04-03").date(&[]),
             Some((d(2026, 4, 3), DateSource::Unambiguous))
         );
+        // Ambiguous with nothing to settle it, or both readings near.
+        assert_eq!(info("03/04/2026").date(&[]), None);
+        assert_eq!(
+            info("05/06/2026").date(&[d(2026, 5, 20), d(2026, 5, 22)]),
+            None
+        );
+        // An unambiguous date nearby settles it.
+        assert_eq!(
+            info("03/04/2026").date(&[d(2026, 4, 5)]),
+            Some((d(2026, 4, 3), DateSource::NearOtherDate))
+        );
+        assert_eq!(info("03/04/2026").date(&[d(2026, 6, 1)]), None);
     }
 
     #[test]

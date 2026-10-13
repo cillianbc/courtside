@@ -9,7 +9,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use dvw_codec::dvw::{DateOrder, DateSource};
+use dvw_codec::date::{Date, Written};
+use dvw_codec::dvw::DateSource;
 use dvw_codec::{Dvw, RawFile, RawVsm};
 use serde::Deserialize;
 
@@ -188,17 +189,18 @@ fn typed_headers_are_sane() {
         match dvw.match_date() {
             None => fail(format!("no date from {:?}", dvw.match_info.date_text())),
             Some((date, DateSource::Serial)) => {
-                // The serial and the written date (in the generator's order) must agree.
-                let written = dvw.match_info.clone();
-                let mut rows = written.rows.clone();
-                rows.truncate(1);
-                let text_only = dvw_codec::dvw::MatchInfo { rows };
-                let order = Some(DateOrder::MonthFirst);
-                if text_only.date(order).map(|(d, _)| d) != Some(date) {
-                    fail(format!(
-                        "serial date {date} disagrees with {:?}",
-                        written.date_text()
-                    ));
+                // The serial must be one reading of the written date.
+                let text = dvw.match_info.date_text();
+                let agrees = match Date::parse_written(text) {
+                    Some(Written::One(d)) => d == date,
+                    Some(Written::Two {
+                        month_first,
+                        day_first,
+                    }) => date == month_first || date == day_first,
+                    None => false,
+                };
+                if !agrees {
+                    fail(format!("serial date {date} disagrees with {text:?}"));
                 }
             }
             Some(_) => {}
