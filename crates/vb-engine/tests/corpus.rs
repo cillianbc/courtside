@@ -248,12 +248,31 @@ fn validator_runs_on_the_corpus() {
     let Some((root, manifest)) = corpus() else {
         return;
     };
+    // COURTSIDE_VALIDATOR_DETAIL=<text> also prints every issue whose
+    // message contains <text>, with its file line and the codes around it.
+    let detail = std::env::var("COURTSIDE_VALIDATOR_DETAIL").ok();
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     for entry in manifest.file.iter().filter(|e| e.path.ends_with(".dvw")) {
         let bytes = std::fs::read(root.join(&entry.path)).expect("read corpus file");
         let dvw = Dvw::parse(&bytes).expect("parse corpus file");
         let m = Match::from_dvw(&dvw, &mut IdGen::new(0));
+        let first_line = dvw.raw().header_line("3SCOUT").expect("[3SCOUT]") + 1;
         for issue in vb_engine::validate::validate(&m) {
+            if let Some(pat) = &detail
+                && issue.message.contains(pat.as_str())
+            {
+                let line = issue.index + first_line;
+                let from = issue.index.saturating_sub(4);
+                let context: Vec<&str> = (from..=issue.index + 1)
+                    .filter_map(|i| dvw.scout.get(i).map(|l| l.code()))
+                    .collect();
+                eprintln!(
+                    "{} line {line}: {}\n    {}",
+                    entry.path,
+                    issue.message,
+                    context.join("  ")
+                );
+            }
             let shape: String = issue
                 .message
                 .chars()

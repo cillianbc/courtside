@@ -11,6 +11,8 @@ use crate::model::{Match, Outcome};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
+    /// Worth knowing, not a mistake (e.g. a rotation the scout corrected).
+    Info,
     Warning,
     Error,
 }
@@ -23,7 +25,8 @@ pub enum Rule {
     Rotation,
     /// 3. Back-row players don't attack from the front zone or block.
     BackRow,
-    /// 4. Substitutions: on and off court, six per set, re-entry, libero.
+    /// 4. Substitutions: on and off court, six per set, re-entry; liberos
+    ///    don't attack, block or (DataVolley) serve.
     Substitution,
     /// 5. A serve is followed by the other team's reception, or ends the
     ///    rally; the point goes to the team the touches say won it.
@@ -302,6 +305,19 @@ impl Validator<'_> {
             let check_at = at.unwrap_or(next.last);
             let end = &self.f.states[r.last];
             let then = &self.f.states[check_at];
+            // The `z` codes straight after the point code are the side-out
+            // step. Both DataVolley (renumbering after a setter change, or
+            // the scout re-entering `z`) and VolleyStation (a `z` for every
+            // setter-zone change) also write `z` codes elsewhere; those are
+            // corrections, not rotation mistakes.
+            let step_end = (r.last + 1..check_at)
+                .take_while(|&i| {
+                    matches!(
+                        self.events[i].kind(),
+                        EventKind::SetterPosition | EventKind::Comment
+                    )
+                })
+                .last();
             for team in [Team::Home, Team::Visiting] {
                 let (Some(p), Some(q)) = (
                     *end.setter_position.get(team),
@@ -314,16 +330,38 @@ impl Validator<'_> {
                 if q == expected {
                     continue;
                 }
-                let (severity, message) = if rotates && q == p {
+                let stepped = step_end.and_then(|i| {
+                    let z_for_team = (r.last + 1..=i).any(|j| {
+                        matches!(self.events[j].code(), Some(Code::SetterPosition { team: t, .. }) if *t == team)
+                    });
+                    z_for_team.then(|| *self.f.states[i].setter_position.get(team))
+                });
+                let (severity, message) = if stepped == Some(Some(expected)) {
+                    (
+                        Severity::Info,
+                        format!(
+                            "{} setter position corrected from zone {expected} to {q} after the side-out step",
+                            side(team)
+                        ),
+                    )
+                } else if rotates && q == p {
                     (
                         Severity::Error,
                         format!("{} won a side-out but didn't rotate", side(team)),
                     )
-                } else {
+                } else if stepped.is_some() {
                     (
                         Severity::Warning,
                         format!(
                             "{} setter moved from zone {p} to {q}; expected {expected}",
+                            side(team)
+                        ),
+                    )
+                } else {
+                    (
+                        Severity::Info,
+                        format!(
+                            "{} setter position set from zone {p} to {q} away from a side-out step (expected {expected})",
                             side(team)
                         ),
                     )
@@ -339,7 +377,13 @@ impl Validator<'_> {
                 continue;
             };
             let st = &self.f.states[i];
-            if self.m.teams.get(team).is_libero(n) || st.court.get(team).iter().all(Option::is_none)
+            let sheet = self.m.teams.get(team);
+            // Liberos are never among the six on court (both products keep
+            // them out). Players missing from the team sheet are a Code
+            // error already.
+            if sheet.is_libero(n)
+                || sheet.player(n).is_none()
+                || st.court.get(team).iter().all(Option::is_none)
             {
                 continue;
             }
@@ -349,7 +393,18 @@ impl Validator<'_> {
                     i,
                     Severity::Warning,
                     Rule::Rotation,
-                    format!("{} player {n} is not on court", side(team)),
+                    if sheet.played_in(n, st.set) {
+                        format!(
+                            "{} player {n} is not on court; missing substitution?",
+                            side(team)
+                        )
+                    } else {
+                        format!(
+                            "{} player {n} is not on court and the team sheet says they didn't play set {}; wrong shirt number?",
+                            side(team),
+                            st.set
+                        )
+                    },
                 ),
                 Some(z) if is_serve && z != 1 => self.push(
                     i,
@@ -370,16 +425,9 @@ impl Validator<'_> {
             let Some((team, n)) = touch_player(&Code::Touch(t.clone())) else {
                 continue;
             };
-            let libero = self.m.teams.get(team).is_libero(n);
             let zone = zone_of(&self.f.states[i], team, n);
             let back = zone.is_some_and(|z| matches!(z, 1 | 5 | 6));
             match t.skill {
-                Skill::Block if libero => self.push(
-                    i,
-                    Severity::Error,
-                    Rule::BackRow,
-                    format!("libero {n} blocked"),
-                ),
                 Skill::Block if back => self.push(
                     i,
                     Severity::Error,
@@ -399,6 +447,55 @@ impl Validator<'_> {
                     ),
                 _ => {}
             }
+        }
+    }
+
+    /// Liberos may not attack or block (both products). DataVolley also
+    /// forbids a libero serve unless an option allows it; VolleyStation
+    /// allows it, so it is only a warning.
+    ///
+    /// Neither product puts a libero among the six on court, so a libero
+    /// who is in the court columns is a team-sheet mislabel: reported once
+    /// per set instead of on every touch.
+    fn liberos(&mut self) {
+        let mut mislabelled: HashSet<(u8, Team, u8)> = HashSet::new();
+        for i in 0..self.events.len() {
+            let Some(code @ Code::Touch(t)) = self.events[i].code() else {
+                continue;
+            };
+            let Some((team, n)) = touch_player(code) else {
+                continue;
+            };
+            if !self.m.teams.get(team).is_libero(n) {
+                continue;
+            }
+            let set = self.f.states[i].set;
+            if zone_of(&self.f.states[i], team, n).is_some() {
+                if mislabelled.insert((set, team, n)) {
+                    self.push(
+                        i,
+                        Severity::Warning,
+                        Rule::Substitution,
+                        format!(
+                            "{} player {n} is a libero on the team sheet but is on court in set {set}; team sheet wrong?",
+                            side(team)
+                        ),
+                    );
+                }
+                continue;
+            }
+            let (severity, what) = match t.skill {
+                Skill::Attack => (Severity::Error, "attacked"),
+                Skill::Block => (Severity::Error, "blocked"),
+                Skill::Serve => (Severity::Warning, "served"),
+                _ => continue,
+            };
+            self.push(
+                i,
+                severity,
+                Rule::Substitution,
+                format!("libero {n} {what}"),
+            );
         }
     }
 
@@ -635,6 +732,7 @@ pub fn validate_folded(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Ve
     v.rotation();
     v.back_row();
     v.substitutions();
+    v.liberos();
     v.serve_reception();
     let mut issues = v.issues;
     issues.sort_by_key(|i| (i.index, std::cmp::Reverse(i.severity), i.rule));
@@ -699,7 +797,7 @@ mod tests {
             with_lineup(&[
                 "*08SH-", "a16RH#", "a18AH#", "ap00:01", // side-out
                 "az1", "a11SH=", "*p01:01", // serve error
-                "*z6", "*12SH+", "a18RH-", "a11EH+", "a10AH-", "*13BH#", "*p02:01",
+                "*z6", "*12SH+", "a18RH-", "a11EH+", "a10AH-", "*13BH#", "a$$&H=", "*p02:01",
             ]),
             Vec::<String>::new()
         );
@@ -739,7 +837,7 @@ mod tests {
                 "7 Substitution: player 1 is not on court",
                 "7 Substitution: player 12 is already on court",
                 "7 Substitution: libero replacements are not substitutions",
-                "11 BackRow: libero 1 blocked",
+                "11 Substitution: libero 1 blocked",
             ]
         );
     }
@@ -755,10 +853,130 @@ mod tests {
                 "6 ServeReception: reception without a serve from the other team",
                 "7 ServeReception: second serve in one rally; missing point code before it?",
                 "7 Code: player 44 is not on the home team sheet",
-                "7 Rotation: home player 44 is not on court",
                 "8 ServeReception: a serve should be followed by the other team's reception",
                 "10 Rotation: visiting won a side-out but didn't rotate",
                 "10 Code: unrecognised code \"%%\"",
+            ]
+        );
+    }
+
+    #[test]
+    fn liberos() {
+        assert_eq!(
+            with_lineup(&[
+                "a16SH-", "*01RH#", "*01AH+", "a18DH+", "a10AH-", "*01BH+", "*p01:00", "*z6",
+                "*01SH-"
+            ]),
+            [
+                "6 Substitution: libero 1 attacked",
+                "9 Substitution: libero 1 blocked",
+                "12 Substitution: libero 1 served",
+            ]
+        );
+    }
+
+    #[test]
+    fn libero_in_the_six_is_a_team_sheet_mislabel() {
+        let mut m = Match {
+            teams: Sides {
+                home: sheet([8, 12, 13, 11, 3, 14], &[], None),
+                visiting: sheet([16, 11, 18, 6, 10, 13], &[], None),
+            },
+            ..Match::default()
+        };
+        m.teams.home.players[0].libero = true;
+        let mut ids = IdGen::new(0);
+        for c in LINEUP
+            .iter()
+            .chain(&["*08SH-", "a16RH#", "a18AH+", "*08DH+", "*08AH#", "*p01:00"])
+        {
+            m.log
+                .append(&mut ids, NewEvent::code(Code::parse(c), Producer::Keyboard));
+        }
+        let got: Vec<String> = validate(&m).iter().map(|i| i.message.clone()).collect();
+        assert_eq!(
+            got,
+            [
+                "home player 8 is a libero on the team sheet but is on court in set 1; team sheet wrong?"
+            ]
+        );
+    }
+
+    #[test]
+    fn players_off_court() {
+        // 5 is on the bench (no starting zone); 9 too. The sheet in these
+        // tests marks nobody as a substitute, so both read as wrong shirts.
+        let mut m = Match {
+            teams: Sides {
+                home: sheet([8, 12, 13, 11, 3, 14], &[5], None),
+                visiting: sheet([16, 11, 18, 6, 10, 13], &[], None),
+            },
+            ..Match::default()
+        };
+        m.teams.home.players[6].starting_zones[0] = StartingZone::Substitute;
+        let mut ids = IdGen::new(0);
+        for c in LINEUP
+            .iter()
+            .chain(&["*08SH-", "a16RH#", "a18AH-", "*05DH+", "*09AH#", "*p01:00"])
+        {
+            m.log
+                .append(&mut ids, NewEvent::code(Code::parse(c), Producer::Keyboard));
+        }
+        let got: Vec<String> = validate(&m)
+            .iter()
+            .map(|i| format!("{} {:?}", i.index, i.message))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                "7 \"home player 5 is not on court; missing substitution?\"",
+                "8 \"player 9 is not on the home team sheet\"",
+            ]
+        );
+    }
+
+    #[test]
+    fn setter_zone_corrections_are_info() {
+        let issues = |codes: &[&str]| -> Vec<String> {
+            let all: Vec<&str> = LINEUP.iter().chain(codes).copied().collect();
+            let mut m = Match {
+                teams: Sides {
+                    home: sheet([8, 12, 13, 11, 3, 14], &[5], None),
+                    visiting: sheet([16, 11, 18, 6, 10, 13], &[2], None),
+                },
+                ..Match::default()
+            };
+            let mut ids = IdGen::new(0);
+            for c in all {
+                m.log
+                    .append(&mut ids, NewEvent::code(Code::parse(c), Producer::Keyboard));
+            }
+            validate(&m)
+                .iter()
+                .filter(|i| i.rule == Rule::Rotation)
+                .map(|i| format!("{:?} {}", i.severity, i.message))
+                .collect()
+        };
+        // Side-out step right after the point, then the scout changes the
+        // setter and re-enters z: a correction.
+        assert_eq!(
+            issues(&[
+                "*08SH-", "a16RH#", "a18AH#", "ap00:01", "az1", "ac11:02", "aP02", "az3", "a$$SH-"
+            ]),
+            ["Info visiting setter position corrected from zone 1 to 3 after the side-out step"]
+        );
+        // The z straight after the point contradicts the side-out rule.
+        assert_eq!(
+            issues(&["*08SH-", "a16RH#", "a18AH#", "ap00:01", "az4", "a$$SH-"]),
+            ["Warning visiting setter moved from zone 2 to 4; expected 1",]
+        );
+        // No z after the point, one later on: info.
+        assert_eq!(
+            issues(&[
+                "*08SH-", "a16RH-", "a18AH=", "*p01:00", "aT", "az3", "*08SH-"
+            ]),
+            [
+                "Info visiting setter position set from zone 2 to 3 away from a side-out step (expected 2)"
             ]
         );
     }

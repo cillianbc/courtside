@@ -15,10 +15,11 @@ impl Match {
     /// `source_line` points back at it. Players without a readable shirt
     /// number are left off the team sheet.
     pub fn from_dvw(dvw: &Dvw, ids: &mut IdGen) -> Self {
+        let volleystation = dvw.header.get("GENERATOR-PRG") == Some("VolleyStation");
         let mut m = Match {
             teams: Sides {
-                home: sheet(&dvw.players_home),
-                visiting: sheet(&dvw.players_visiting),
+                home: sheet(&dvw.players_home, volleystation),
+                visiting: sheet(&dvw.players_visiting, volleystation),
             },
             regulation: match dvw.match_info.regulation() {
                 Some(DvwRegulation::IndoorSideout) => Regulation::IndoorSideout,
@@ -27,8 +28,7 @@ impl Match {
             },
             winning_symbols: winning_symbols(dvw),
             conventions: Conventions {
-                setter_change_follows_rotation: dvw.header.get("GENERATOR-PRG")
-                    == Some("VolleyStation"),
+                setter_change_follows_rotation: volleystation,
             },
             ..Match::default()
         };
@@ -54,7 +54,9 @@ impl Match {
     }
 }
 
-fn sheet(players: &[Player]) -> TeamSheet {
+/// Liberos: `L` in the special-role column; DataVolley also accepts role
+/// 1, VolleyStation only reads `L`.
+fn sheet(players: &[Player], volleystation: bool) -> TeamSheet {
     TeamSheet {
         players: players
             .iter()
@@ -72,7 +74,8 @@ fn sheet(players: &[Player]) -> TeamSheet {
                             None => StartingZone::None,
                         }
                     }),
-                    libero: p.special_role().trim() == "L" || p.role() == Some(Role::Libero),
+                    libero: p.special_role().trim() == "L"
+                        || (!volleystation && p.role() == Some(Role::Libero)),
                 })
             })
             .collect(),

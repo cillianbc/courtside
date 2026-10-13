@@ -37,6 +37,20 @@ impl TeamSheet {
         self.player(number).is_some_and(|p| p.libero)
     }
 
+    /// Whether the team sheet says `number` played in `set` (1-based):
+    /// started in a zone or came on as a substitute.
+    pub fn played_in(&self, number: u8, set: u8) -> bool {
+        let Some(i) = usize::from(set).checked_sub(1) else {
+            return false;
+        };
+        self.player(number).is_some_and(|p| {
+            matches!(
+                p.starting_zones.get(i),
+                Some(StartingZone::Zone(_) | StartingZone::Substitute)
+            )
+        })
+    }
+
     /// Players in zones 1–6 at the start of `set` (1-based). Zones nobody
     /// starts in are `None`.
     pub fn starting_lineup(&self, set: u8) -> [Option<u8>; 6] {

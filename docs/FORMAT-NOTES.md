@@ -17,7 +17,7 @@ File references are relative to `testdata/`. `corpus-file` = `dvw/datavolley4/co
 - `FILEFORMAT: 2.0` in all files.
 - `GENERATOR-PRG: Data Volley` / `GENERATOR-REL: Release 4.2023.03` (corpus-file) and `Release 4.2025.01` (corpus-file), `GENERATOR-VER: Media`.
 - VolleyStation writes `GENERATOR-PRG: VolleyStation`, `GENERATOR-VER: Professional`, empty `REL` and `NAM`, keeping the trailing space after the colon (`GENERATOR-REL: `). Must round-trip that space. (corpus-file)
-- Date format differs by generator: DataVolley `MM/DD/YYYY` (corpus-file, corpus-file), VolleyStation `DD/MM/YYYY` (corpus-file). Same in `[3MATCH]` field 1. Ambiguous for day ≤ 12; decide by `GENERATOR-PRG`, not by guessing.
+- Date order seen: `MM/DD/YYYY` in the DataVolley files (corpus-file, corpus-file), `DD/MM/YYYY` in the VolleyStation one (corpus-file). Same in `[3MATCH]` field 1. Ambiguous for day ≤ 12. The order does **not** follow from `GENERATOR-PRG`: DataVolley writes the scouting PC's Windows locale and VolleyStation a per-season setting (DD/MM, MM/DD or YYYY/MM/DD) (docs/research). So the corpus orders are those PCs' settings, not rules. Parse strictly, disambiguate with the other dates in the file (serial, GENERATOR vs LASTCHANGE), else flag as ambiguous. `Dvw::match_date` still falls back on generator order; fixing that is a queued codec task.
 - `[3MATCH]` line 2, field 3 (DataVolley only) is a spreadsheet date serial, day 0 = 1899-12-30: `46234` = 2026-07-31. It matches the written date (read month-first) in all 17 DataVolley files, so it is the most reliable date source. `12345` is a known placeholder (per openvolley). Empty in VolleyStation exports (corpus-file). `Dvw::match_date` uses serial → generator order → unambiguous parse, in that order.
 
 ## Encodings
@@ -47,11 +47,13 @@ File references are relative to `testdata/`. `corpus-file` = `dvw/datavolley4/co
 
 ## [3SCOUT] lines
 
-- Columns (0-based), per openvolley's `read_main`; full table in `crates/dvw-codec/src/scout.rs`: 0 code, 1 point phase (`p`/`s`), 2 attack phase (`r`/`s`/`p`), 3 ?, 4–6 start/mid/end coordinate (`-1-1` = none), 7 time `HH.MM.SS`, 8 set, 9–10 home/visiting setter position, 11 video file number, 12 video seconds, 13 ?, 14–19 home players p1–p6, 20–25 visiting p1–p6, then a trailing `;`.
+- Columns (0-based), per openvolley's `read_main`; full table in `crates/dvw-codec/src/scout.rs`: 0 code, 1 point phase (`p`/`s`), 2 attack phase (`r`/`s`/`p`), 3 action (rally) id, 4–6 start/mid/end coordinate (`-1-1` = none), 7 time `HH.MM.SS`, 8 set, 9–10 home/visiting setter position, 11 video file number, 12 video seconds, 13 DataVolley's transient "matches the current search" flag, 14–19 home players p1–p6, 20–25 visiting p1–p6, then a trailing `;`.
+- Columns 3 and 13 are empty on every line of all 18 seed files; the meanings come from DataVolley's writer (docs/research/DATAVOLLEY4.md). Write them empty.
+- Column 11 is empty in every DataVolley file and `1` on all 822 lines of corpus-file (VolleyStation always writes `1`).
 - Parity: all of these except 3, 8–10 and 13 match openvolley (datavolley 1.18.5, `c231092`) exactly on every line of all 18 seed .dvw files (`tests/parity.rs`). openvolley doesn't expose 8–10 raw (it derives set number and setter positions from the codes), and ignores 3 and 13.
 - DataVolley Media files have no video column values (no video). VolleyStation fills a video-seconds column (`236`, `244`, … in corpus-file).
-- Set end line: `**3set;...` with on-court columns empty (corpus-file, corpus-file).
-- Unknown-player attacks/blocks coded `$$&H#` (team prefix `*` or `a`).
+- Set end line: `**3set;...` with on-court columns empty and column 8 already the **next** set (all 18 files: `**1set` shows `2`, `**5set` shows `6` in corpus-file, corpus-file, corpus-file).
+- `$$&H#` / `$$&H=` (team prefix `*` or `a`) are green codes: a point credited to (`#`) or charged against (`=`) a team without a player touch, e.g. `*17AH#` then `a$$&H=` then `*p05:03` (corpus-file). Every seed file has them: 87–181 per DataVolley file, 107 in corpus-file, where VolleyStation also writes them for a rally with a winner but no rally-ending play and for each unit of an exported score correction. They are never player touches: the validator and stats skip them.
 
 ## .vsm (VolleyStation native)
 
@@ -78,7 +80,7 @@ Seed: 18 files in `vsm/`, all VolleyStation, 2023-01 to 2024-03.
   - `exchange` = one rally: `{plays: [...], point: "*"|"a"}` (2,677 events)
   - `substitution` = `{team, playerIn, playerOut}` (ints) (254)
   - `timeout` = `{team}` (164)
-  - none of these (6 events; only lineup + score; meaning unknown, look at them)
+  - none of these (6 events, only lineup + score): corrections. One changes a lineup (`corpus-file` set 3), four change the score by one point (`corpus-file` set 2 twice and set 3, `corpus-file` set 4), one changes nothing (`corpus-file` set 3). Matches VolleyStation's model, where an event with only score and lineup is a score, rotation or setter correction (docs/research/VOLLEYSTATION.md).
 - `_id`s are 24-hex MongoDB ObjectIds (timestamp in the first 4 bytes).
 
 ### Plays (`exchange.plays[]`)
@@ -101,7 +103,7 @@ What DataVolley and VolleyStation write in the derived `[3SCOUT]` columns (8 set
 
 - Columns show the state **after** the line. The `**1set` line already shows set 2, with all on-court columns empty and the setter positions carried over.
 - A set's lineup comes from the `[3PLAYERS-*]` starting zones for that set, from the first line after the set end (the `>LUp` lines already show it). Setter positions on `>LUp` lines before the `z` code are leftovers: the previous set's (corpus-file set 2), or something else (`6`/`5` on corpus-file line 0, `0`/`0` on corpus-file line 0). The engine treats them as unknown.
-- `z` without `>LUp` rotates the court so the current setter (last `P` code) is in that zone. It is usually one step after a side-out (1,307 of 1,407), but scouts also re-enter `z` to fix a rotation: 0, back one or back two steps (corpus-file, corpus-file). So the `z` code is authoritative and the rotation follows the setter, not a fixed step; the validator checks it against the side-out rule.
+- `z` without `>LUp` rotates the court so the current setter (last `P` code) is in that zone. It is usually one step after a side-out (1,307 of 1,407), but scouts also re-enter `z` to fix a rotation: 0, back one or back two steps (corpus-file, corpus-file). So the `z` code is authoritative and the rotation follows the setter, not a fixed step; the validator checks it against the side-out rule (see "Validator").
 - `c` swaps a player in place. Media files never move the libero in these columns.
 - DataVolley writes a setter change after a rotation (`*z4`, `*P8`, note no zero padding) meaning the rotation refers to the old setter (corpus-file, corpus-file, -04, -06, -07). VolleyStation writes `*z2`, `*P21` meaning the rotation refers to the **new** setter (corpus-file line 358). `vb_engine::Conventions::setter_change_follows_rotation`, set on import from `GENERATOR-PRG`.
 - VolleyStation writes a rotation line with the substitutions straight after it already applied (corpus-file: `*z4` then `ac07:03`; the `z` line already shows 3 for 7).
@@ -109,10 +111,21 @@ What DataVolley and VolleyStation write in the derived `[3SCOUT]` columns (8 set
 - Glitch: setter position `0` for ten lines of corpus-file set 3, with no code changing it.
 - Glitch: corpus-file home on-court columns for set 1 (274 lines) contradict the player table's set 1 starting zones (three zones empty, a player with no starting zone on court). The table was probably edited after scouting. The engine follows the table.
 
+## Validator (vb-engine)
+
+What the six rules (`vb_engine::validate`) report on the corpus, and why (`validator_runs_on_the_corpus`; set `COURTSIDE_VALIDATOR_DETAIL=<text>` to list the lines).
+
+- **Liberos are never in the six.** Both products keep the libero out of the on-court columns and exempt the team's liberos from "player not on court" (docs/research). Liberos are `L` in the special-role column; DataVolley also accepts role `1`, VolleyStation only `L`. In the corpus every role-1 player is also `L` (43 rows), so the two readings agree.
+- **Libero rule:** a libero attack or block is an error (both products), a libero serve a warning (an error in DataVolley unless an option allows it; VolleyStation allows it). Seen: libero attacks in corpus-file, corpus-file (home 2, line 295, not on court), corpus-file; a libero block in corpus-file line 111.
+- **Libero on court = team-sheet mislabel.** corpus-file home 10 is marked `L` but has starting zones 5 and 6 in sets 1–2 and serves and attacks from the six. Reported once per set as a warning, not on every touch.
+- **"Player N is not on court"** (52 left after the exemptions; none are liberos) are scouting slips, not engine errors: a wrong shirt number (corpus-file line 633: `*12SH#` with 15 in zone 1, the next serve is `*15SH=`) or a missing substitution code (corpus-file set 3: the team sheet has 5 coming on, no `c` brings them on; set 2 line 507 `*c15:08` puts 8 on court twice). The message says which by checking the team sheet's starting zones for that set. Players missing from the team sheet get only the Code error.
+- **Setter-position changes away from a side-out step are corrections, not mistakes.** DataVolley renumbers `z` codes after a setter change and scouts re-enter `z` by hand; VolleyStation writes a `z` for every setter-zone change (docs/research). Typical corpus case, a double switch: `*c13:08`, `*c21:04`, `*P4`, `*z1` (corpus-file line 282; also corpus-file, corpus-file). Only the `z` codes straight after the point code count as the side-out step: if they contradict the side-out rule it is a warning (10 in the corpus: the wrong team rotated, e.g. corpus-file lines 882 and 887, or the knock-on of a missing point code, corpus-file line 79); any other change is `Info` (36). "Won a side-out but didn't rotate" stays an error.
+- What remains as errors looks like real scouting slips: missing point codes (second serve in one rally), skipped scores, missed rotations, wrong team on the point code.
+
 ## Scout code grammar (vb-grammar)
 
 - Skill code: team (`*`/`a`), player digits or `$$` (unknown), skill `S R E A B D F`, then 11 fixed positions (type, evaluation, combination ×2, target, start zone, end zone, end subzone, subtype, num players, special), each a character or `~` = empty, then free custom text from position 16. Trailing positions may be omitted (`a10AH#`) or written as `~` (`*19SM+~~~`); both round-trip.
-- `$$&` is a "green code" (point credited without a skill). openvolley skips these entirely (no skill, player or evaluation), so parity compares only their team.
+- `$$&` is a "green code" (point credited or charged without a player touch; see "[3SCOUT] lines"). openvolley skips these entirely (no skill, player or evaluation), so parity compares only their team.
 - Non-skill codes: `*p25:20` point (home:visiting after the point), `*z1` setter position, `*P08` setter player, `*c06:07` substitution (out:in), `*T` timeout, `**1set` set end. `>LUp` suffix on `P`/`z` marks the starting lineup.
 - openvolley counts a setter-player code without `>LUp` (e.g. `aP11`, 196 in the seed corpus incl. LUp ones) as a substitution. Parity and the JSON export's `substitution` column mirror that; vb-engine treats it as a setter change (see Decisions).
 - Seed corpus coding is shallow: 10,682 of 10,871 skill codes are 6 characters (`a10AH#`), the rest only add subtype and num players (`~~~~~~H2`). No combinations, zones or custom text yet, so the generated property tests carry that coverage until richer files arrive.
