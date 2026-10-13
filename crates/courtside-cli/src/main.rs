@@ -1,15 +1,30 @@
-mod export;
-mod stats;
-mod validate;
-
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, bail};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+use courtside_ffi::{plays, stats, validate};
 use dvw_codec::Dvw;
 
 use vb_engine::validate::Severity;
+
+/// Which positive/negative symbols the rates use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum Symbols {
+    /// DataVolley 4's default efficiency table
+    Datavolley,
+    /// VolleyStation Pro's default winning/losing symbols
+    Volleystation,
+}
+
+impl From<Symbols> for stats::Symbols {
+    fn from(s: Symbols) -> Self {
+        match s {
+            Symbols::Datavolley => stats::Symbols::Datavolley,
+            Symbols::Volleystation => stats::Symbols::Volleystation,
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "courtside", version, about)]
@@ -26,6 +41,9 @@ enum Command {
         /// Also list info notes (e.g. rotations the scout corrected)
         #[arg(long)]
         info: bool,
+        /// Print every issue (info included) as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Convert a .dvw to .json (openvolley plays layout) or re-save as .dvw
     Convert { input: PathBuf, output: PathBuf },
@@ -36,8 +54,8 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Which positive/negative symbols the rates use
-        #[arg(long, value_enum, default_value_t = stats::Symbols::Datavolley)]
-        symbols: stats::Symbols,
+        #[arg(long, value_enum, default_value_t = Symbols::Datavolley)]
+        symbols: Symbols,
     },
 }
 
@@ -64,8 +82,24 @@ fn extension(path: &Path) -> String {
 
 fn run(command: Command) -> anyhow::Result<ExitCode> {
     match command {
-        Command::Validate { file, info } => {
+        Command::Validate { file, info, json } => {
             let issues = validate::validate(&file, &read(&file)?);
+            let errors = issues
+                .iter()
+                .filter(|i| i.severity == Severity::Error)
+                .count();
+            let exit = if errors > 0 {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            };
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&validate::to_json(&issues))?
+                );
+                return Ok(exit);
+            }
             for i in issues
                 .iter()
                 .filter(|i| info || i.severity != Severity::Info)
@@ -73,7 +107,6 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
                 println!("{}:{i}", file.display());
             }
             let count = |s: Severity| issues.iter().filter(|i| i.severity == s).count();
-            let errors = count(Severity::Error);
             let notes = count(Severity::Info);
             eprintln!(
                 "{}: {errors} error(s), {} warning(s), {notes} info{}",
@@ -85,11 +118,7 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
                     " (--info to list)"
                 }
             );
-            Ok(if errors > 0 {
-                ExitCode::FAILURE
-            } else {
-                ExitCode::SUCCESS
-            })
+            Ok(exit)
         }
         Command::Convert { input, output } => {
             if extension(&input) != "dvw" {
@@ -99,7 +128,7 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
                 .with_context(|| format!("cannot parse {}", input.display()))?;
             let bytes = match extension(&output).as_str() {
                 "json" => {
-                    let mut out = serde_json::to_vec_pretty(&export::to_json(&dvw))?;
+                    let mut out = serde_json::to_vec_pretty(&plays::to_json(&dvw))?;
                     out.push(b'\n');
                     out
                 }
@@ -124,7 +153,7 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
             }
             let dvw = Dvw::parse(&read(&file)?)
                 .with_context(|| format!("cannot parse {}", file.display()))?;
-            let report = stats::report(&dvw, symbols);
+            let report = stats::report(&dvw, symbols.into());
             if json {
                 println!("{}", serde_json::to_string_pretty(&report.to_json())?);
             } else {

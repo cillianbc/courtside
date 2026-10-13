@@ -1,11 +1,10 @@
-//! `courtside stats`: set scores and per-team and per-player skill counts
+//! Statistics (`courtside stats`): set scores and per-team and per-player skill counts
 //! from vb-engine, as text or JSON. Rates name the symbol sets and the
 //! formula they use, because DataVolley and VolleyStation define
 //! "efficiency" differently.
 
 use std::fmt::Write as _;
 
-use clap::ValueEnum;
 use dvw_codec::Dvw;
 use serde_json::{Map, Value, json};
 use vb_engine::stats::{MatchStats, SKILLS, SkillCounts, SymbolSets, stats};
@@ -15,7 +14,7 @@ use vb_grammar::{Skill, Team};
 const POSITIVE_RATE: &str = "positive / total";
 const EFFICIENCY: &str = "(positive - negative) / total";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Symbols {
     /// DataVolley 4's default efficiency table
     Datavolley,
@@ -24,6 +23,15 @@ pub enum Symbols {
 }
 
 impl Symbols {
+    /// `"datavolley"` or `"volleystation"`.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "datavolley" => Some(Symbols::Datavolley),
+            "volleystation" => Some(Symbols::Volleystation),
+            _ => None,
+        }
+    }
+
     fn sets(self) -> &'static SymbolSets {
         match self {
             Symbols::Datavolley => &SymbolSets::DATAVOLLEY,

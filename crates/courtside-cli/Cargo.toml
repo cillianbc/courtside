@@ -20,10 +20,10 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+courtside-ffi.workspace = true
 dvw-codec.workspace = true
 serde_json.workspace = true
 vb-engine.workspace = true
-vb-grammar.workspace = true
 
 [lints]
 workspace = true

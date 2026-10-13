@@ -164,6 +164,7 @@ What the six rules (`vb_engine::validate`) report on the corpus, and why (`valid
 
 Agreed at the phase 1 review (task 8).
 
+- **One JSON surface (task 8, 2026-10-13):** the plays, stats and validation JSON live in `courtside-ffi`; the CLI and the WASM build both call it, and `tools/wasm/smoke.mjs` checks they agree on the corpus. The WASM functions take file bytes and return JSON strings (no serde-wasm-bindgen), so the web side parses one documented shape.
 - **Phase 2 validator gate (task 7, 2026-10-13):** on the bad-file set, Courtside's recall is at least `dv_validate`'s in every slip class and higher overall, and it adds no more noise. Recall alone would let a noisy validator win. `validator_beats_dv_validate` asserts it when the oracle output is current.
 
 - **Setter code without `>LUp`** (`aP11`) is a change of setter in vb-engine and feeds rotation and setter-position tracking; it is not a substitution. The JSON export keeps openvolley's `substitution` flag for compatibility.

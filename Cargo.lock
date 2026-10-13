@@ -149,10 +149,21 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
+ "courtside-ffi",
+ "dvw-codec",
+ "serde_json",
+ "vb-engine",
+]
+
+[[package]]
+name = "courtside-ffi"
+version = "0.1.1"
+dependencies = [
  "dvw-codec",
  "serde_json",
  "vb-engine",
  "vb-grammar",
+ "wasm-bindgen",
 ]
 
 [[package]]

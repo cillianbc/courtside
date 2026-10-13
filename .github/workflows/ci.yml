@@ -36,6 +36,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
+  # WebAssembly build of courtside-ffi (task 8) and a Node smoke test on a
+  # made-up fixture. The corpus comparison with the CLI runs locally.
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.129
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cargo clippy --target wasm32-unknown-unknown -p courtside-ffi -- -D warnings
+      - run: tools/wasm/build.sh
+      - run: node tools/wasm/smoke.mjs
+
   # Parity against openvolley (PRD I-03). Needs the private corpus, so it is
   # off until the testdata submodule exists and the repo variable
   # CORPUS_AVAILABLE is set to "true".

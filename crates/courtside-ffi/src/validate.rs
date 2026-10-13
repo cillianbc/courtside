@@ -1,4 +1,4 @@
-//! `courtside validate`: file-level checks (sections, team sheets,
+//! Validation (`courtside validate`): file-level checks (sections, team sheets,
 //! round trip), then vb-engine's match rules on the `[3SCOUT]` events.
 
 use std::fmt;
@@ -22,28 +22,50 @@ pub struct Issue {
 
 impl fmt::Display for Issue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let severity = match self.severity {
-            Severity::Info => "info",
-            Severity::Warning => "warning",
-            Severity::Error => "error",
-        };
         if let Some(line) = self.line {
             write!(f, "{line}: ")?;
         }
-        write!(f, "{severity}: ")?;
+        write!(f, "{}: ", severity_name(self.severity))?;
         if let Some(rule) = self.rule {
-            let rule = match rule {
-                Rule::Score => "score",
-                Rule::Rotation => "rotation",
-                Rule::BackRow => "back row",
-                Rule::Substitution => "substitution",
-                Rule::ServeReception => "serve/reception",
-                Rule::Code => "code",
-            };
-            write!(f, "{rule}: ")?;
+            write!(f, "{}: ", rule_name(rule))?;
         }
         f.write_str(&self.message)
     }
+}
+
+fn severity_name(s: Severity) -> &'static str {
+    match s {
+        Severity::Info => "info",
+        Severity::Warning => "warning",
+        Severity::Error => "error",
+    }
+}
+
+fn rule_name(r: Rule) -> &'static str {
+    match r {
+        Rule::Score => "score",
+        Rule::Rotation => "rotation",
+        Rule::BackRow => "back row",
+        Rule::Substitution => "substitution",
+        Rule::ServeReception => "serve/reception",
+        Rule::Code => "code",
+    }
+}
+
+/// Issues as a JSON array of `{severity, rule, line, message}`; `rule` and
+/// `line` are `null` when the issue has none.
+pub fn to_json(issues: &[Issue]) -> serde_json::Value {
+    issues
+        .iter()
+        .map(|i| {
+            serde_json::json!({
+                "severity": severity_name(i.severity),
+                "rule": i.rule.map(rule_name),
+                "line": i.line,
+                "message": i.message,
+            })
+        })
+        .collect()
 }
 
 fn issue(severity: Severity, line: Option<usize>, message: impl Into<String>) -> Issue {
