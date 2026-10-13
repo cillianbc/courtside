@@ -13,6 +13,14 @@ pub enum LogError {
     NotFound(EventId),
     #[error("event {0} is already superseded by {1}")]
     AlreadySuperseded(EventId, EventId),
+    #[error("event {id} has seq {seq}, expected {expected}")]
+    OutOfOrder {
+        id: EventId,
+        seq: u32,
+        expected: u32,
+    },
+    #[error("event {0} appears twice")]
+    Duplicate(EventId),
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -23,6 +31,43 @@ pub struct EventLog {
 impl EventLog {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A log from stored events, as [`EventLog::all`] returned them. Checks
+    /// what the log's own methods guarantee: `seq` runs 0, 1, 2…, ids are
+    /// unique, a correction or insertion points at an earlier event, an
+    /// insertion's anchor is not itself a correction, and no event is
+    /// corrected twice.
+    pub fn from_events(events: Vec<MatchEvent>) -> Result<Self, LogError> {
+        let mut seen: HashMap<EventId, bool> = HashMap::new();
+        let mut superseded: HashMap<EventId, EventId> = HashMap::new();
+        for (i, e) in events.iter().enumerate() {
+            let expected = u32::try_from(i).unwrap_or(u32::MAX);
+            if e.seq != expected {
+                return Err(LogError::OutOfOrder {
+                    id: e.id,
+                    seq: e.seq,
+                    expected,
+                });
+            }
+            if let Some(t) = e.supersedes {
+                if !seen.contains_key(&t) {
+                    return Err(LogError::NotFound(t));
+                }
+                if let Some(by) = superseded.insert(t, e.id) {
+                    return Err(LogError::AlreadySuperseded(t, by));
+                }
+            }
+            if let Some(anchor) = e.before
+                && seen.get(&anchor) != Some(&false)
+            {
+                return Err(LogError::NotFound(anchor));
+            }
+            if seen.insert(e.id, e.supersedes.is_some()).is_some() {
+                return Err(LogError::Duplicate(e.id));
+            }
+        }
+        Ok(EventLog { events })
     }
 
     /// Every event, including superseded ones and corrections, in log order.
@@ -303,6 +348,42 @@ mod tests {
                 }
                 prop_assert_eq!(codes(&log), list.clone());
             }
+            // What a store writes back gives the same log.
+            prop_assert_eq!(EventLog::from_events(log.all().to_vec()), Ok(log.clone()));
         }
+    }
+
+    #[test]
+    fn from_events_rejects_broken_logs() {
+        let mut ids = IdGen::new(0);
+        let mut log = EventLog::new();
+        let a = log.append(&mut ids, new("*12SH-"));
+        let c = log.correct(&mut ids, a, new("*12SH+")).expect("correct");
+        let events = log.all().to_vec();
+        // Out of order.
+        let swapped = vec![events[1].clone(), events[0].clone()];
+        assert!(matches!(
+            EventLog::from_events(swapped),
+            Err(LogError::OutOfOrder { .. })
+        ));
+        // A second correction of the same event.
+        let mut twice = events.clone();
+        let mut again = events[1].clone();
+        again.id = ids.next_id();
+        again.seq = 2;
+        twice.push(again);
+        assert_eq!(
+            EventLog::from_events(twice),
+            Err(LogError::AlreadySuperseded(a, c))
+        );
+        // An insertion anchored on a correction.
+        let mut anchored = events;
+        let mut insert = anchored[0].clone();
+        insert.id = ids.next_id();
+        insert.seq = 2;
+        insert.supersedes = None;
+        insert.before = Some(c);
+        anchored.push(insert);
+        assert_eq!(EventLog::from_events(anchored), Err(LogError::NotFound(c)));
     }
 }

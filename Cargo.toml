@@ -4,6 +4,7 @@ members = [
     "crates/dvw-codec",
     "crates/vb-grammar",
     "crates/vb-engine",
+    "crates/courtside-store",
     "crates/courtside-ffi",
     "crates/courtside-cli",
 ]
@@ -22,6 +23,7 @@ dvw-codec = { path = "crates/dvw-codec" }
 vb-grammar = { path = "crates/vb-grammar" }
 vb-engine = { path = "crates/vb-engine" }
 courtside-ffi = { path = "crates/courtside-ffi" }
+courtside-store = { path = "crates/courtside-store" }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
@@ -29,8 +31,11 @@ csv = "1"
 encoding_rs = "0.8"
 insta = "1"
 proptest = "1"
+# bundled: the same SQLite on every platform, no system library.
+rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+tempfile = "3"
 thiserror = "2"
 toml = "0.9"
 ulid = { version = "3", default-features = false }

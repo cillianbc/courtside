@@ -1,0 +1,29 @@
+[package]
+name = "courtside-store"
+description = "Season database: teams, players, matches and their event logs in SQLite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[package.metadata.dist]
+dist = false
+
+[dependencies]
+dvw-codec.workspace = true
+rusqlite.workspace = true
+thiserror.workspace = true
+ulid.workspace = true
+vb-engine.workspace = true
+vb-grammar.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+tempfile.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true
