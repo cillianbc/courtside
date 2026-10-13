@@ -8,6 +8,7 @@ pub mod fold;
 mod import;
 pub mod log;
 pub mod model;
+pub mod stats;
 pub mod validate;
 
 pub use event::{Body, EventId, EventKind, IdGen, MatchEvent, NewEvent, Producer};

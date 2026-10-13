@@ -1,22 +1,19 @@
-//! File-level checks for `courtside validate`. Match rules (score,
-//! rotation, substitutions) need vb-engine and arrive in phase 2.
+//! `courtside validate`: file-level checks (sections, team sheets,
+//! round trip), then vb-engine's match rules on the `[3SCOUT]` events.
 
 use std::fmt;
 use std::path::Path;
 
 use dvw_codec::text::decode_embedded;
 use dvw_codec::{Dvw, RawVsm};
-use vb_grammar::Code;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Severity {
-    Warning,
-    Error,
-}
+use vb_engine::validate::{Rule, Severity};
+use vb_engine::{IdGen, Match};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Issue {
     pub severity: Severity,
+    /// The match rule, for issues from vb-engine; `None` for file-level ones.
+    pub rule: Option<Rule>,
     /// 1-based file line, when the issue has one.
     pub line: Option<usize>,
     pub message: String,
@@ -25,19 +22,33 @@ pub struct Issue {
 impl fmt::Display for Issue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let severity = match self.severity {
+            Severity::Info => "info",
             Severity::Warning => "warning",
             Severity::Error => "error",
         };
-        match self.line {
-            Some(line) => write!(f, "{line}: {severity}: {}", self.message),
-            None => write!(f, "{severity}: {}", self.message),
+        if let Some(line) = self.line {
+            write!(f, "{line}: ")?;
         }
+        write!(f, "{severity}: ")?;
+        if let Some(rule) = self.rule {
+            let rule = match rule {
+                Rule::Score => "score",
+                Rule::Rotation => "rotation",
+                Rule::BackRow => "back row",
+                Rule::Substitution => "substitution",
+                Rule::ServeReception => "serve/reception",
+                Rule::Code => "code",
+            };
+            write!(f, "{rule}: ")?;
+        }
+        f.write_str(&self.message)
     }
 }
 
 fn issue(severity: Severity, line: Option<usize>, message: impl Into<String>) -> Issue {
     Issue {
         severity,
+        rule: None,
         line,
         message: message.into(),
     }
@@ -179,18 +190,22 @@ fn validate_dvw(bytes: &[u8]) -> Vec<Issue> {
         }
     }
 
-    let first = raw.header_line("3SCOUT").map_or(0, |l| l + 1);
-    for (i, line) in dvw.scout.iter().enumerate() {
-        if line.code().is_empty() {
-            continue;
-        }
-        if let Code::Unrecognised(code) = Code::parse(line.code()) {
-            issues.push(issue(
-                Severity::Warning,
-                Some(first + i),
-                format!("unrecognised code {code:?}"),
-            ));
-        }
+    // Match rules. Each event comes from one [3SCOUT] line.
+    let first = raw.header_line("3SCOUT").map(|l| l + 1);
+    let m = Match::from_dvw(&dvw, &mut IdGen::new(0));
+    let events = m.log.visible();
+    for i in vb_engine::validate::validate(&m) {
+        let line = events
+            .get(i.index)
+            .and_then(|e| e.source_line)
+            .zip(first)
+            .map(|(n, first)| first + n);
+        issues.push(Issue {
+            severity: i.severity,
+            rule: Some(i.rule),
+            line,
+            message: i.message,
+        });
     }
     issues.sort_by_key(|i| (i.line.unwrap_or(0), std::cmp::Reverse(i.severity)));
     issues
@@ -233,7 +248,7 @@ T2;Away;0;;;;\n\
             [
                 "10: error: shirt number 1 listed twice",
                 "10: warning: last name differs from its Unicode copy (file edited by another program?)",
-                "15: warning: unrecognised code \">ROT\"",
+                "15: warning: code: unrecognised code \">ROT\"",
             ]
         );
     }
@@ -261,9 +276,12 @@ T2;Away;0;;;;\n\
         );
     }
 
-    /// Every corpus file validates without errors or warnings.
+    /// Every corpus file passes the file-level checks. Match-rule issues
+    /// are expected (real scouting slips; see FORMAT-NOTES "Validator"),
+    /// so for those this only checks that the engine runs and every issue
+    /// has a file line.
     #[test]
-    fn corpus_is_clean() {
+    fn corpus_has_no_file_level_issues() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata");
         if !root.is_dir() {
             assert!(
@@ -286,7 +304,9 @@ T2;Away;0;;;;\n\
                 ) {
                     checked += 1;
                     for i in validate(&path, &std::fs::read(&path).unwrap()) {
-                        problems.push(format!("{}:{i}", path.display()));
+                        if i.rule.is_none() || i.line.is_none() {
+                            problems.push(format!("{}:{i}", path.display()));
+                        }
                     }
                 }
             }

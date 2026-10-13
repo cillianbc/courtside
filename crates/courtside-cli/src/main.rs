@@ -1,4 +1,5 @@
 mod export;
+mod stats;
 mod validate;
 
 use std::path::{Path, PathBuf};
@@ -8,7 +9,7 @@ use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use dvw_codec::Dvw;
 
-use validate::Severity;
+use vb_engine::validate::Severity;
 
 #[derive(Parser)]
 #[command(name = "courtside", version, about)]
@@ -20,14 +21,23 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Check a scouting file for errors. Exits 1 if any error is found.
-    Validate { file: PathBuf },
+    Validate {
+        file: PathBuf,
+        /// Also list info notes (e.g. rotations the scout corrected)
+        #[arg(long)]
+        info: bool,
+    },
     /// Convert a .dvw to .json (openvolley plays layout) or re-save as .dvw
     Convert { input: PathBuf, output: PathBuf },
-    /// Print match statistics
+    /// Print set scores and per-team and per-player skill statistics (.dvw)
     Stats {
         file: PathBuf,
+        /// Print JSON instead of a text summary
         #[arg(long)]
         json: bool,
+        /// Which positive/negative symbols the rates use
+        #[arg(long, value_enum, default_value_t = stats::Symbols::Datavolley)]
+        symbols: stats::Symbols,
     },
 }
 
@@ -54,19 +64,26 @@ fn extension(path: &Path) -> String {
 
 fn run(command: Command) -> anyhow::Result<ExitCode> {
     match command {
-        Command::Validate { file } => {
+        Command::Validate { file, info } => {
             let issues = validate::validate(&file, &read(&file)?);
-            for i in &issues {
+            for i in issues
+                .iter()
+                .filter(|i| info || i.severity != Severity::Info)
+            {
                 println!("{}:{i}", file.display());
             }
-            let errors = issues
-                .iter()
-                .filter(|i| i.severity == Severity::Error)
-                .count();
+            let count = |s: Severity| issues.iter().filter(|i| i.severity == s).count();
+            let errors = count(Severity::Error);
+            let notes = count(Severity::Info);
             eprintln!(
-                "{}: {errors} error(s), {} warning(s)",
+                "{}: {errors} error(s), {} warning(s), {notes} info{}",
                 file.display(),
-                issues.len() - errors
+                count(Severity::Warning),
+                if info || notes == 0 {
+                    ""
+                } else {
+                    " (--info to list)"
+                }
             );
             Ok(if errors > 0 {
                 ExitCode::FAILURE
@@ -97,6 +114,23 @@ fn run(command: Command) -> anyhow::Result<ExitCode> {
                 .with_context(|| format!("cannot write {}", output.display()))?;
             Ok(ExitCode::SUCCESS)
         }
-        Command::Stats { .. } => bail!("stats needs the match engine; coming in a later release"),
+        Command::Stats {
+            file,
+            json,
+            symbols,
+        } => {
+            if extension(&file) != "dvw" {
+                bail!("only .dvw input is supported so far");
+            }
+            let dvw = Dvw::parse(&read(&file)?)
+                .with_context(|| format!("cannot parse {}", file.display()))?;
+            let report = stats::report(&dvw, symbols);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report.to_json())?);
+            } else {
+                print!("{}", report.to_text());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
