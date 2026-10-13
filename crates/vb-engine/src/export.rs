@@ -10,20 +10,29 @@
 //! court (14–25).
 //!
 //! `[3SET]` scores (when a team first reaches 8, 16 and 21, or 5, 10 and
-//! 12 in a 15-point set, and the final score) and `[3TEAMS]` sets won come
-//! from the fold. A field that already holds the right value is kept as
-//! written; a new one follows the template's style (`8 -7` from DataVolley,
-//! ` 8- 7` from VolleyStation). Set durations and the player table's
-//! starting zones are written as in the template.
+//! 12 in a 15-point set, and the final score), set durations, `[3TEAMS]`
+//! sets won and the player tables' starting zones come from the match. A
+//! field that already holds the right value is kept as written; a new one
+//! follows the template's style (`8 -7` from DataVolley, ` 8- 7` from
+//! VolleyStation).
+//!
+//! - Duration: whole minutes from the first serve to the last point code,
+//!   as DataVolley counts them (FORMAT-NOTES "[3SET]"). VolleyStation's
+//!   durations don't follow its clock, so they are kept as written.
+//! - Starting zones: the team sheet's, plus `*` for a player a
+//!   substitution code brings on in a set they didn't start, and for a
+//!   libero who touches the ball in a set.
 
 use dvw_codec::Dvw;
 use dvw_codec::dvw::SetResult;
 use dvw_codec::scout::ScoutLine;
 use dvw_codec::text::Row;
 
-use crate::event::{Body, EventKind, MatchEvent};
+use vb_grammar::{Code, Skill, Team};
+
+use crate::event::{Body, ClockTime, EventKind, MatchEvent};
 use crate::fold::{Folded, Score, State, fold_events};
-use crate::model::Match;
+use crate::model::{Match, StartingZone};
 
 /// Fields in a `[3SCOUT]` line, counting the empty one after the trailing `;`.
 const WIDTH: usize = 27;
@@ -41,8 +50,10 @@ impl Match {
             .filter_map(|(e, st)| line(e, st, template))
             .collect();
         let sets = set_scores(self, &events, &folded);
-        write_sets(&mut dvw.sets, &sets);
+        let volleystation = template.header.get("GENERATOR-PRG") == Some("VolleyStation");
+        write_sets(&mut dvw.sets, &sets, !volleystation);
         write_sets_won(&mut dvw, &sets);
+        write_starting_zones(self, &mut dvw, &events, &folded);
         dvw
     }
 }
@@ -56,6 +67,22 @@ struct SetScores {
     /// A set end code closed the set.
     ended: bool,
     target: u8,
+    /// Clock of the first serve and of the last point code.
+    first_serve: Option<ClockTime>,
+    last_point: Option<ClockTime>,
+}
+
+impl SetScores {
+    /// Minutes as DataVolley writes them: rounded up, after taking off one
+    /// second (a set of 20:01 is 20 minutes, 20:02 is 21).
+    fn duration(&self) -> Option<u32> {
+        let secs = |c: ClockTime| {
+            u32::from(c.hour) * 3600 + u32::from(c.minute) * 60 + u32::from(c.second)
+        };
+        let (a, b) = (secs(self.first_serve?), secs(self.last_point?));
+        let elapsed = b.checked_sub(a)?;
+        Some(elapsed.saturating_sub(1).div_ceil(60))
+    }
 }
 
 impl SetScores {
@@ -96,6 +123,12 @@ fn set_scores(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Vec<SetScor
             }
         }
         s.last = Some(score);
+        s.last_point = events.get(r.last).and_then(|e| e.clock).or(s.last_point);
+        if s.first_serve.is_none() {
+            s.first_serve = (r.first..=r.last)
+                .find(|&i| matches!(events[i].code(), Some(Code::Touch(t)) if t.skill == Skill::Serve))
+                .and_then(|i| events[i].clock);
+        }
     }
     for (e, st) in events.iter().zip(&folded.states) {
         if e.kind() == EventKind::SetEnd
@@ -107,7 +140,7 @@ fn set_scores(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Vec<SetScor
     sets
 }
 
-fn write_sets(rows: &mut Vec<SetResult>, sets: &[SetScores]) {
+fn write_sets(rows: &mut Vec<SetResult>, sets: &[SetScores], durations: bool) {
     // VolleyStation pads both sides (` 7- 8`), DataVolley only the home
     // score (`7 -8`).
     let both_padded = rows
@@ -139,6 +172,12 @@ fn write_sets(rows: &mut Vec<SetResult>, sets: &[SetScores]) {
                 *field = want.map(format).unwrap_or_default();
             }
         }
+        if durations
+            && let Some(minutes) = set.and_then(SetScores::duration)
+            && fields[5].trim().parse::<u32>().ok() != Some(minutes)
+        {
+            fields[5] = minutes.to_string();
+        }
     }
 }
 
@@ -154,6 +193,75 @@ fn write_sets_won(dvw: &mut Dvw, sets: &[SetScores]) {
                 fields.resize(3, String::new());
             }
             fields[2] = won.to_string();
+        }
+    }
+}
+
+/// Starting zones as the import reads them, so a field is only rewritten
+/// when its meaning changes.
+fn read_zone(field: &str) -> StartingZone {
+    match field.trim() {
+        "*" => StartingZone::Substitute,
+        z => z
+            .parse::<u8>()
+            .ok()
+            .filter(|z| (1..=6).contains(z))
+            .map_or(StartingZone::None, StartingZone::Zone),
+    }
+}
+
+fn write_starting_zones(m: &Match, dvw: &mut Dvw, events: &[&MatchEvent], folded: &Folded) {
+    // (team, set, player) brought on by a substitution code, or a libero
+    // who touched the ball in the set (no code brings a libero on).
+    let mut came_on: Vec<(Team, u8, u8)> = Vec::new();
+    for (e, st) in events.iter().zip(&folded.states) {
+        match e.code() {
+            Some(Code::Substitution { team, r#in, .. }) => {
+                if let Some(n) = r#in.value().and_then(|v| u8::try_from(v).ok()) {
+                    came_on.push((*team, st.set, n));
+                }
+            }
+            Some(Code::Touch(t)) => {
+                if let vb_grammar::Player::Number(d) = &t.player
+                    && let Some(n) = d.value().and_then(|v| u8::try_from(v).ok())
+                    && m.teams.get(t.team).is_libero(n)
+                {
+                    came_on.push((t.team, st.set, n));
+                }
+            }
+            _ => {}
+        }
+    }
+    for (team, rows) in [
+        (Team::Home, &mut dvw.players_home),
+        (Team::Visiting, &mut dvw.players_visiting),
+    ] {
+        let sheet = m.teams.get(team);
+        for row in rows.iter_mut() {
+            let Some(n) = row.number() else { continue };
+            let zones = sheet.player(n).map(|p| p.starting_zones);
+            for set in 1..=5u8 {
+                let from_sheet = zones.map_or(StartingZone::None, |z| z[usize::from(set) - 1]);
+                let want = match from_sheet {
+                    StartingZone::None if came_on.contains(&(team, set, n)) => {
+                        StartingZone::Substitute
+                    }
+                    z => z,
+                };
+                let field = 2 + usize::from(set);
+                if read_zone(row.0.get(field)) == want {
+                    continue;
+                }
+                let fields = &mut row.0.0;
+                if fields.len() <= field {
+                    fields.resize(field + 1, String::new());
+                }
+                fields[field] = match want {
+                    StartingZone::Zone(z) => z.to_string(),
+                    StartingZone::Substitute => "*".to_owned(),
+                    StartingZone::None => String::new(),
+                };
+            }
         }
     }
 }
@@ -252,5 +360,56 @@ mod tests {
         let lines: Vec<String> = out.scout.iter().map(|l| l.0.to_line()).collect();
         assert_eq!(lines[2], "*08SM-;;;;;;;15.30.10;1;1;;;;;8;12;;;;;;;;;;;");
         assert_eq!(lines[3], "*c12:05;;;;;;;15.30.15;1;1;;;12;;8;5;;;;;;;;;;;");
+    }
+
+    const SETS: &str = "[3DATAVOLLEYSCOUT]\r\nFILEFORMAT: 2.0\r\n[3SET]\r\nTrue;;;;;;\r\n\
+        [3PLAYERS-H]\r\n0;8;1;1;;;;;h8;Placeholder;A;;;5;False;h8;;\r\n\
+        0;12;2;2;;;;;h12;Placeholder;B;;;2;False;h12;;\r\n0;5;3;;;;;;h5;Placeholder;C;;;2;False;h5;;\r\n\
+        [3SCOUT]\r\n*P08>LUp;;;;;;;15.30.00;1;1;;;;;8;12;;;;;;;;;;;\r\n\
+        *z1>LUp;;;;;;;15.30.01;1;1;;;;;8;12;;;;;;;;;;;\r\n\
+        *08SH#;;;;;;;15.30.10;1;1;;;;;8;12;;;;;;;;;;;\r\n";
+
+    fn with(codes: &[(&str, (u8, u8, u8))]) -> Dvw {
+        let dvw = Dvw::parse(SETS.as_bytes()).expect("parse");
+        let mut m = Match::from_dvw(&dvw, &mut IdGen::new(0));
+        let mut ids = IdGen::new(1);
+        for (code, (hour, minute, second)) in codes {
+            m.log.append(
+                &mut ids,
+                NewEvent {
+                    clock: Some(ClockTime {
+                        hour: *hour,
+                        minute: *minute,
+                        second: *second,
+                    }),
+                    ..NewEvent::code(Code::parse(code), Producer::Keyboard)
+                },
+            );
+        }
+        m.to_dvw(&dvw)
+    }
+
+    #[test]
+    fn set_duration_rounds_up_after_one_second() {
+        // First serve 15:30:10; 20:01 later is 20 minutes, 20:02 is 21.
+        let d = with(&[("*p01:00", (15, 50, 11))]);
+        assert_eq!(d.sets[0].0.to_line(), "True;;;;1 -0;20;");
+        let d = with(&[("*p01:00", (15, 50, 12))]);
+        assert_eq!(d.sets[0].0.to_line(), "True;;;;1 -0;21;");
+    }
+
+    #[test]
+    fn substitutes_are_marked_in_the_player_table() {
+        let d = with(&[("*p01:00", (15, 31, 0)), ("*c12:05", (15, 31, 5))]);
+        let row = |n: u8| {
+            d.players_home
+                .iter()
+                .find(|p| p.number() == Some(n))
+                .expect("player")
+                .0
+                .to_line()
+        };
+        assert_eq!(row(5), "0;5;3;*;;;;;h5;Placeholder;C;;;2;False;h5;;");
+        assert_eq!(row(12), "0;12;2;2;;;;;h12;Placeholder;B;;;2;False;h12;;");
     }
 }

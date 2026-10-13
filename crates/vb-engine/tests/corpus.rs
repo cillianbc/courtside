@@ -199,24 +199,47 @@ fn dvw_round_trips_through_the_engine() {
         assert_eq!(out.scout.len(), dvw.scout.len(), "{}", entry.path);
         // Everything outside [3SCOUT], including the regenerated [3SET]
         // scores and [3TEAMS] sets won, is byte-exact on every file.
+        let name = entry.path.rsplit('/').next().unwrap_or(&entry.path);
         let mut headers = out.clone();
         headers.scout = dvw.scout.clone();
-        if headers.to_bytes().expect("write") != bytes {
-            report.push(format!("{}: headers differ", entry.path));
+        let changed = player_rows_changed(&bytes, &headers.to_bytes().expect("write"));
+        if changed != Some(allowed(HEADER_REWRITES, name)) {
+            report.push(format!("{}: headers differ: {changed:?}", entry.path));
         }
-        // And they really are regenerated: blank set 1's scores and both
-        // teams' sets won in the template, and the engine writes them back.
+        // And they really are regenerated: blank set 1's scores and
+        // duration, both teams' sets won and every `*` (came on as a
+        // substitute) in the template, and the engine writes them back.
+        // VolleyStation's durations are kept as written, so not blanked.
+        let volleystation = dvw.header.get("GENERATOR-PRG") == Some("VolleyStation");
         let mut blank = dvw.clone();
-        for f in &mut blank.sets[0].0.0[1..5] {
+        let blanked = if volleystation { 1..5 } else { 1..6 };
+        for f in &mut blank.sets[0].0.0[blanked] {
             f.clear();
         }
         for t in &mut blank.teams {
             t.0.0[2].clear();
         }
-        let mut regen = m.to_dvw(&blank);
+        for p in blank
+            .players_home
+            .iter_mut()
+            .chain(&mut blank.players_visiting)
+        {
+            for f in p.0.0.iter_mut().skip(3).take(5) {
+                if f.trim() == "*" {
+                    f.clear();
+                }
+            }
+        }
+        let regen_match = Match::from_dvw(&blank, &mut IdGen::new(0));
+        let mut regen = regen_match.to_dvw(&blank);
         regen.scout = dvw.scout.clone();
-        if regen.to_bytes().expect("write") != bytes {
-            report.push(format!("{}: regenerated headers differ", entry.path));
+        let changed = player_rows_changed(&bytes, &regen.to_bytes().expect("write"));
+        let expected = allowed(HEADER_REWRITES, name) + allowed(SUBSTITUTES_ONLY_ON_SHEET, name);
+        if changed != Some(expected) {
+            report.push(format!(
+                "{}: regenerated headers differ: {changed:?}",
+                entry.path
+            ));
         }
         let mut changed = 0;
         for (i, (a, b)) in dvw.scout.iter().zip(&out.scout).enumerate() {
@@ -235,7 +258,6 @@ fn dvw_round_trips_through_the_engine() {
                 ));
             }
         }
-        let name = entry.path.rsplit('/').next().unwrap_or(&entry.path);
         eprintln!("{name}: {changed} lines rewritten");
         if changed == 0 {
             let written = out.to_bytes().expect("write");
@@ -255,6 +277,48 @@ fn dvw_round_trips_through_the_engine() {
     assert!(files > 0, "no .dvw files");
     assert!(report.is_empty(), "round trip:\n{}", report.join("\n"));
 }
+
+/// Lines outside `[3SCOUT]` that differ, if all are player-table rows
+/// (`Some(n)`); `None` if any other line differs or the line count changes.
+fn player_rows_changed(a: &[u8], b: &[u8]) -> Option<usize> {
+    let (a, b) = (String::from_utf8_lossy(a), String::from_utf8_lossy(b));
+    let (a, b): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
+    if a.len() != b.len() {
+        return None;
+    }
+    let mut section = "";
+    let mut n = 0;
+    for (x, y) in a.iter().zip(&b) {
+        if x.starts_with('[') {
+            section = x;
+        }
+        if x != y {
+            if !section.starts_with("[3PLAYERS-") {
+                return None;
+            }
+            n += 1;
+        }
+    }
+    Some(n)
+}
+
+fn allowed(list: &[(&str, usize)], name: &str) -> usize {
+    list.iter()
+        .filter(|(f, _)| name.starts_with(f))
+        .map(|(_, n)| n)
+        .sum()
+}
+
+/// Player rows the engine rewrites: a libero who touches the ball in set 1
+/// is marked as having played it, though the team sheet says not (the file
+/// whose set 1 sheet is known to be wrong, see `ACCEPTED`).
+const HEADER_REWRITES: &[(&str, usize)] = &[("&corpus-file", 1)];
+
+/// Player rows whose `*` (came on as a substitute) only the team sheet
+/// knows: no substitution code brings the player on (FORMAT-NOTES
+/// "Validator": missing substitution codes), so blanking it loses it.
+const SUBSTITUTES_ONLY_ON_SHEET: &[(&str, usize)] =
+    &[("&corpus-file", 1), ("&corpus-file", 1), ("&corpus-file", 2)];
 
 /// Files whose derived columns the engine rewrites, and how many lines:
 /// the `ACCEPTED` glitches plus VolleyStation rotation lines written with

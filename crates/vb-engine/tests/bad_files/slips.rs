@@ -2,8 +2,9 @@
 //!
 //! Each slip class finds the places in the match where it can be planted
 //! (its sites), picks one by seed or line, and edits the event log the way
-//! a scout's mistake would have: the derived columns, `[3SET]` and
-//! `[3TEAMS]` are then written by the engine, as DataVolley would have.
+//! a scout's mistake would have: the derived columns, `[3SET]`, `[3TEAMS]`
+//! and the player tables are then written by the engine, as DataVolley
+//! would have.
 //! A match with no site for a class is an error, never a silent skip.
 
 use dvw_codec::Dvw;
@@ -99,9 +100,6 @@ enum Edit {
     Insert {
         codes: Vec<(EventId, String)>,
         slip_at: usize,
-        /// (team, player, set) whose team-sheet entry becomes "came on as
-        /// a substitute".
-        came_on: Vec<(Team, u8, u8)>,
     },
 }
 
@@ -153,7 +151,6 @@ pub fn plant(
 
     let mut ids = IdGen::new(1);
     let new = |code: &str| NewEvent::code(Code::parse(code), Producer::Keyboard);
-    let mut came_on = Vec::new();
     let slip_id = match site.edit {
         Edit::Correct(changes) => {
             let mut first = None;
@@ -174,12 +171,7 @@ pub fn plant(
             }
             slip
         }
-        Edit::Insert {
-            codes,
-            slip_at,
-            came_on: on,
-        } => {
-            came_on = on;
+        Edit::Insert { codes, slip_at } => {
             let mut slip = None;
             for (i, (before, code)) in codes.into_iter().enumerate() {
                 let target = m.log.get(before).ok_or("insertion anchor")?;
@@ -200,22 +192,8 @@ pub fn plant(
         }
     };
 
-    let mut dvw = m.to_dvw(source);
-    for (team, number, set) in came_on {
-        let players = match team {
-            Team::Home => &mut dvw.players_home,
-            Team::Visiting => &mut dvw.players_visiting,
-        };
-        let p = players
-            .iter_mut()
-            .find(|p| p.number() == Some(number))
-            .ok_or("substitute not on the team sheet")?;
-        let field = 2 + usize::from(set);
-        if p.0.0.len() <= field {
-            p.0.0.resize(field + 1, String::new());
-        }
-        p.0.0[field] = "*".to_owned();
-    }
+    // The engine marks inserted substitutes `*` in the player table.
+    let dvw = m.to_dvw(source);
     let lines: Vec<&MatchEvent> = m
         .log
         .visible()
@@ -472,7 +450,6 @@ impl Cx<'_> {
                     !sheet.is_libero(n) && !sheet.played_in(n, set) && !court.contains(&Some(n))
                 });
                 let mut codes = Vec::new();
-                let mut came_on = Vec::new();
                 let mut starters = court.iter().flatten().copied().filter(|&n| {
                     Some(n) != setter && !sheet.is_libero(n) && !used_subs.contains(&n)
                 });
@@ -494,7 +471,6 @@ impl Cx<'_> {
                     let c = team.as_char();
                     codes.push((self.ev[s1].id, format!("{c}c{x:02}:{y:02}")));
                     codes.push((self.ev[s2].id, format!("{c}c{y:02}:{x:02}")));
-                    came_on.push((team, y, set));
                 }
                 if ok {
                     sites.push(Site {
@@ -503,7 +479,6 @@ impl Cx<'_> {
                             // The team's seventh substitution in the set.
                             slip_at: 6 - subs.len(),
                             codes,
-                            came_on,
                         },
                     });
                 }
@@ -575,7 +550,6 @@ impl Cx<'_> {
                                 format!("{}c{c:02}:{a:02}", team.as_char()),
                             )],
                             slip_at: 0,
-                            came_on: Vec::new(),
                         },
                     })
                 });
