@@ -10,3 +10,8 @@
 /testdata/
 *.dvw
 *.vsm
+
+# Competitor installers used for docs/research (never commit)
+datavolley4_setup.exe
+VolleyStation-Pro-*.exe
+VolleyStation-Pro-*.dmg
