@@ -1,6 +1,6 @@
 //! A match: the two team sheets and the event log.
 
-use vb_grammar::Team;
+use vb_grammar::{Skill, Team};
 
 use crate::log::EventLog;
 
@@ -20,6 +20,7 @@ pub struct RosterPlayer {
     pub number: u8,
     /// Sets 1–5.
     pub starting_zones: [StartingZone; 5],
+    pub libero: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -28,6 +29,14 @@ pub struct TeamSheet {
 }
 
 impl TeamSheet {
+    pub fn player(&self, number: u8) -> Option<&RosterPlayer> {
+        self.players.iter().find(|p| p.number == number)
+    }
+
+    pub fn is_libero(&self, number: u8) -> bool {
+        self.player(number).is_some_and(|p| p.libero)
+    }
+
     /// Players in zones 1–6 at the start of `set` (1-based). Zones nobody
     /// starts in are `None`.
     pub fn starting_lineup(&self, set: u8) -> [Option<u8>; 6] {
@@ -77,9 +86,95 @@ pub struct Conventions {
     pub setter_change_follows_rotation: bool,
 }
 
+/// Scoring system, from `[3MATCH]`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Regulation {
+    /// Rally point, sets to 25 (deciding set 15), best of five.
+    #[default]
+    IndoorRallyPoint,
+    /// Side-out scoring: only the serving team scores.
+    IndoorSideout,
+    /// Sets to 21 (deciding set 15), best of three.
+    Beach,
+}
+
+impl Regulation {
+    /// Sets needed to win the match.
+    pub fn sets_to_win(self) -> u8 {
+        match self {
+            Regulation::Beach => 2,
+            _ => 3,
+        }
+    }
+
+    /// Points needed to win `set` (1-based), with a two-point lead.
+    pub fn set_target(self, set: u8) -> u8 {
+        let deciding = set == self.sets_to_win() * 2 - 1;
+        match self {
+            _ if deciding => 15,
+            Regulation::Beach => 21,
+            Regulation::IndoorSideout => 15,
+            Regulation::IndoorRallyPoint => 25,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// The touching team wins the rally.
+    Win,
+    /// The touching team loses the rally.
+    Lose,
+}
+
+/// Which evaluations end a rally, per skill (`[3WINNINGSYMBOLS]`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WinningSymbols {
+    /// (skill, losing symbols, winning symbols)
+    table: Vec<(Skill, Vec<char>, Vec<char>)>,
+}
+
+impl Default for WinningSymbols {
+    /// DataVolley's defaults, as in every corpus file.
+    fn default() -> Self {
+        let row =
+            |skill, lose: &str, win: &str| (skill, lose.chars().collect(), win.chars().collect());
+        WinningSymbols {
+            table: vec![
+                row(Skill::Serve, "=", "#"),
+                row(Skill::Reception, "=", ""),
+                row(Skill::Attack, "=/", "#"),
+                row(Skill::Block, "=/", "#"),
+                row(Skill::Dig, "=", ""),
+                row(Skill::Set, "=", ""),
+                row(Skill::Freeball, "=", ""),
+            ],
+        }
+    }
+}
+
+impl WinningSymbols {
+    pub fn new(table: Vec<(Skill, Vec<char>, Vec<char>)>) -> Self {
+        WinningSymbols { table }
+    }
+
+    pub fn outcome(&self, skill: Skill, evaluation: char) -> Option<Outcome> {
+        let (_, lose, win) = self.table.iter().find(|(s, ..)| *s == skill)?;
+        if win.contains(&evaluation) {
+            Some(Outcome::Win)
+        } else if lose.contains(&evaluation) {
+            Some(Outcome::Lose)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Match {
     pub teams: Sides<TeamSheet>,
+    pub regulation: Regulation,
+    pub winning_symbols: WinningSymbols,
     pub conventions: Conventions,
     pub log: EventLog,
 }
@@ -93,6 +188,7 @@ mod tests {
         let p = |number, zones: [StartingZone; 5]| RosterPlayer {
             number,
             starting_zones: zones,
+            libero: false,
         };
         use StartingZone::{None as N, Substitute as S, Zone as Z};
         let sheet = TeamSheet {
@@ -112,5 +208,24 @@ mod tests {
         );
         assert_eq!(sheet.starting_lineup(0), [None; 6]);
         assert_eq!(sheet.starting_lineup(6), [None; 6]);
+    }
+
+    #[test]
+    fn set_targets() {
+        let r = Regulation::IndoorRallyPoint;
+        assert_eq!(
+            (r.set_target(1), r.set_target(4), r.set_target(5)),
+            (25, 25, 15)
+        );
+        let b = Regulation::Beach;
+        assert_eq!((b.set_target(2), b.set_target(3)), (21, 15));
+    }
+
+    #[test]
+    fn default_winning_symbols() {
+        let w = WinningSymbols::default();
+        assert_eq!(w.outcome(Skill::Serve, '#'), Some(Outcome::Win));
+        assert_eq!(w.outcome(Skill::Attack, '/'), Some(Outcome::Lose));
+        assert_eq!(w.outcome(Skill::Reception, '#'), None);
     }
 }

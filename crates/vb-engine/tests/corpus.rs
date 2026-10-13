@@ -237,8 +237,34 @@ fn dvw_round_trips_through_the_engine() {
 /// Files whose derived columns the engine rewrites, and how many lines:
 /// the `ACCEPTED` glitches plus VolleyStation rotation lines written with
 /// the following substitution already applied.
-const ROUND_TRIP_REWRITES: &[(&str, usize)] = &[
-    ("&corpus-file", 10),
-    ("&corpus-file", 274),
-    ("2024-03-23 corpus-file", 7),
-];
+const ROUND_TRIP_REWRITES: &[(&str, usize)] =
+    &[("&corpus-file", 10), ("&corpus-file", 274), ("2024-03-23 corpus-file", 7)];
+
+/// The validator runs on every corpus file. Prints issue counts per rule
+/// and message so false positives show up in review; real scouting slips
+/// are expected, so nothing is asserted beyond running cleanly.
+#[test]
+fn validator_runs_on_the_corpus() {
+    let Some((root, manifest)) = corpus() else {
+        return;
+    };
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for entry in manifest.file.iter().filter(|e| e.path.ends_with(".dvw")) {
+        let bytes = std::fs::read(root.join(&entry.path)).expect("read corpus file");
+        let dvw = Dvw::parse(&bytes).expect("parse corpus file");
+        let m = Match::from_dvw(&dvw, &mut IdGen::new(0));
+        for issue in vb_engine::validate::validate(&m) {
+            let shape: String = issue
+                .message
+                .chars()
+                .map(|c| if c.is_ascii_digit() { '#' } else { c })
+                .collect();
+            *counts
+                .entry(format!("{:?} {:?}: {shape}", issue.severity, issue.rule))
+                .or_default() += 1;
+        }
+    }
+    for (k, n) in &counts {
+        eprintln!("{n:6} {k}");
+    }
+}

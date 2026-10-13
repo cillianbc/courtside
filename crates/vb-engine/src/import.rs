@@ -1,11 +1,13 @@
 //! `.dvw` to [`Match`]: one event per `[3SCOUT]` line, in file order.
 
 use dvw_codec::Dvw;
-use dvw_codec::dvw::Player;
-use vb_grammar::Code;
+use dvw_codec::dvw::{Player, Regulation as DvwRegulation, Role};
+use vb_grammar::{Code, Skill};
 
 use crate::event::{ClockTime, IdGen, ImportFormat, NewEvent, Producer};
-use crate::model::{Conventions, Match, RosterPlayer, Sides, StartingZone, TeamSheet};
+use crate::model::{
+    Conventions, Match, Regulation, RosterPlayer, Sides, StartingZone, TeamSheet, WinningSymbols,
+};
 
 impl Match {
     /// Every `[3SCOUT]` line becomes one event (an empty line becomes an
@@ -18,6 +20,12 @@ impl Match {
                 home: sheet(&dvw.players_home),
                 visiting: sheet(&dvw.players_visiting),
             },
+            regulation: match dvw.match_info.regulation() {
+                Some(DvwRegulation::IndoorSideout) => Regulation::IndoorSideout,
+                Some(DvwRegulation::BeachRallyPoint) => Regulation::Beach,
+                Some(DvwRegulation::IndoorRallyPoint) | None => Regulation::IndoorRallyPoint,
+            },
+            winning_symbols: winning_symbols(dvw),
             conventions: Conventions {
                 setter_change_follows_rotation: dvw.header.get("GENERATOR-PRG")
                     == Some("VolleyStation"),
@@ -64,8 +72,31 @@ fn sheet(players: &[Player]) -> TeamSheet {
                             None => StartingZone::None,
                         }
                     }),
+                    libero: p.special_role().trim() == "L" || p.role() == Some(Role::Libero),
                 })
             })
             .collect(),
     }
+}
+
+/// The file's `[3WINNINGSYMBOLS]`, or DataVolley's defaults if it has
+/// none or it can't be read.
+fn winning_symbols(dvw: &Dvw) -> WinningSymbols {
+    let skills = [
+        Skill::Serve,
+        Skill::Reception,
+        Skill::Attack,
+        Skill::Block,
+        Skill::Dig,
+        Skill::Set,
+        Skill::Freeball,
+    ];
+    let table: Option<Vec<_>> = skills
+        .iter()
+        .map(|s| {
+            let (lose, win) = dvw.winning_symbols.for_skill(s.as_char())?;
+            Some((*s, lose, win))
+        })
+        .collect();
+    table.map_or_else(WinningSymbols::default, WinningSymbols::new)
 }
