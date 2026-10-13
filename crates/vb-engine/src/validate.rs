@@ -675,13 +675,25 @@ impl Validator<'_> {
                 }
                 // A blocked attack and a block point come together (both
                 // products check it, docs/research). Their other pairing
-                // check, "R/ means the opponent won", is left out: an
+                // check, "R/ means the opponent won", is only a hint: an
                 // overpass rally is often won by the receiving team (22 in
                 // the corpus, e.g. R/ then the server's attack error).
                 let prev = j.checked_sub(1).and_then(|p| touches.get(p));
                 let is = |t: &vb_grammar::Touch, skill, eval| {
                     t.skill == skill && t.evaluation() == Some(eval)
                 };
+                if is(t, Skill::Reception, '/') && r.won_by == Some(t.team) {
+                    self.push(
+                        *i,
+                        Severity::Info,
+                        Rule::ServeReception,
+                        format!(
+                            "{} is an overpass but {} won the rally; check the evaluation",
+                            Code::Touch(t.clone()),
+                            side(t.team)
+                        ),
+                    );
+                }
                 if is(t, Skill::Attack, '/')
                     && !next.is_some_and(|(_, n)| n.team != t.team && is(n, Skill::Block, '#'))
                 {
@@ -1079,6 +1091,35 @@ mod tests {
                 "7 ServeReception: the rally continues after a18AH/ ended it",
                 "12 ServeReception: block point *13BH# without a blocked attack (A/) from the other team before it",
             ]
+        );
+    }
+
+    #[test]
+    fn overpass_won_by_the_receiver_is_a_hint() {
+        let issues = with_lineup(&["*08SH-", "a16RH/", "*13AH=", "ap00:01"]);
+        assert_eq!(
+            issues,
+            [
+                "5 ServeReception: a16RH/ is an overpass but visiting won the rally; check the evaluation"
+            ]
+        );
+        let m = {
+            let mut m = Match::default();
+            let mut ids = IdGen::new(0);
+            for c in LINEUP
+                .iter()
+                .chain(&["*08SH-", "a16RH/", "*13AH=", "ap00:01"])
+            {
+                m.log
+                    .append(&mut ids, NewEvent::code(Code::parse(c), Producer::Keyboard));
+            }
+            m
+        };
+        assert!(
+            validate(&m)
+                .iter()
+                .filter(|i| i.message.contains("overpass"))
+                .all(|i| i.severity == Severity::Info)
         );
     }
 
