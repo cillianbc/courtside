@@ -9,7 +9,7 @@ File references are relative to `testdata/`. `corpus-file` = `dvw/datavolley4/co
 
 - All 18 seed files have the same 14 sections in the same order: `3DATAVOLLEYSCOUT`, `3MATCH`, `3TEAMS`, `3MORE`, `3COMMENTS`, `3SET`, `3PLAYERS-H`, `3PLAYERS-V`, `3ATTACKCOMBINATION`, `3SETTERCALL`, `3WINNINGSYMBOLS`, `3RESERVE`, `3VIDEO`, `3SCOUT`. No lines before the first header. (all)
 - Empty sections are just the header line followed by the next header (`3ATTACKCOMBINATION`, `3SETTERCALL`, `3RESERVE`, `3VIDEO` in corpus-file, corpus-file).
-- `[3SET]` always has 5 rows; unplayed sets are `True;;;;;;`. Partial scores may be space-padded: `8 -7` (corpus-file), ` 7- 8` (corpus-file).
+- `[3SET]` always has 5 rows; unplayed sets are `True;;;;;;`. Partial scores may be space-padded: `8 -7` (corpus-file), ` 7- 8` (corpus-file). DataVolley pads only the home score to two characters (`{home:<2}-{visiting}`: `8 -7`, `16-7`, `7 -10`); VolleyStation right-aligns both (` 7- 8`, `12-16`). Partial scores are the score after the point on which either team first reaches 8, 16 and 21, or 5, 10 and 12 in a deciding set (`3 -5;7 -10;7 -12;11-15`, corpus-file set 5). Unplayed sets may carry a duration of `0` (`True;;;;;0;`, corpus-file). vb-engine regenerates the scores and `[3TEAMS]` sets won from the fold and reproduces them byte-exact on all 18 seed .dvw files (`dvw_round_trips_through_the_engine`).
 - `[3VIDEO]` line is `Camera0=<absolute local path>` (corpus-file). That path is personal data; don't echo it into exports by default.
 
 ## Header ([3DATAVOLLEYSCOUT])
@@ -121,6 +121,31 @@ What the six rules (`vb_engine::validate`) report on the corpus, and why (`valid
 - **"Player N is not on court"** (52 left after the exemptions; none are liberos) are scouting slips, not engine errors: a wrong shirt number (corpus-file line 633: `*12SH#` with 15 in zone 1, the next serve is `*15SH=`) or a missing substitution code (corpus-file set 3: the team sheet has 5 coming on, no `c` brings them on; set 2 line 507 `*c15:08` puts 8 on court twice). The message says which by checking the team sheet's starting zones for that set. Players missing from the team sheet get only the Code error.
 - **Setter-position changes away from a side-out step are corrections, not mistakes.** DataVolley renumbers `z` codes after a setter change and scouts re-enter `z` by hand; VolleyStation writes a `z` for every setter-zone change (docs/research). Typical corpus case, a double switch: `*c13:08`, `*c21:04`, `*P4`, `*z1` (corpus-file line 282; also corpus-file, corpus-file). Only the `z` codes straight after the point code count as the side-out step: if they contradict the side-out rule it is a warning (10 in the corpus: the wrong team rotated, e.g. corpus-file lines 882 and 887, or the knock-on of a missing point code, corpus-file line 79); any other change is `Info` (36). "Won a side-out but didn't rotate" stays an error.
 - What remains as errors looks like real scouting slips: missing point codes (second serve in one rally), skipped scores, missed rotations, wrong team on the point code.
+- **Block pairing (task 7):** a blocked attack (`A/`) must be followed by the other team's block point (`B#`), and a `B#` preceded by the other team's `A/` (warnings, ServeReception). Both products check this (docs/research); openvolley's `dv_validate` does not. Corpus: 6, all real slips (`a11AH/` followed by the opponent's set in corpus-file; `a13AH+ a10BH#`, a block coded for the attacking team, in corpus-file).
+- **`R/` is not "opponent wins".** The research's other pairing check (DataVolley offers to fix `R/` when the opponent didn't win) would flag 22 corpus rallies that are fine: an overpass the serving team then attacks into the net or out (`*03SH/ a03RH/ *12AH=`, corpus-file; also VolleyStation's corpus-file). Not adopted.
+- **Knock-ons are Info.** An issue that follows from an earlier one is downgraded to Info with `cause` pointing at it (`courtside validate --info` prints "follows from line N"): after a point code given to the wrong team, the next rally's rotation issues and set-end issues that giving the point to the other team would fix; after a score error, a score issue on the next point code; after "won a side-out but didn't rotate", that team's rotation issues until the scout's next `z` correction. Rotation issues after a score-only error are not knock-ons (the score doesn't change who won).
+
+### Bad-file set (task 7)
+
+`crates/vb-engine/tests/bad_files` plants one slip per copy of a corpus .dvw (recipes in local `testdata/bad/recipes.toml`; the engine writes the file, so derived columns, `[3SET]` and `[3TEAMS]` are what DataVolley would have written) and compares Courtside with openvolley's `dv_validate` (validation level 3, `tools/parity/run.sh validate`). Terms in CONTEXT.md: a hit is a new Warning/Error between the slip's line and the next rally's serve; noise is any other new issue (issues already reported at the mapped line of the clean source don't count either way). datavolley 1.18.5, 30 files:
+
+| Slip class | Courtside recall | dv_validate recall | Courtside noise | dv_validate noise |
+|---|---|---|---|---|
+| missing point code | 3/3 | 3/3 | 0 | 10 |
+| skipped score | 3/3 | 3/3 | 0 | 7 |
+| missed rotation | 3/3 | 3/3 | 0 | 4 |
+| wrong-team point (rest of set renumbered) | 3/3 | 0/3 | 1 | 5 |
+| 7th substitution | 3/3 | 0/3 | 0 | 0 |
+| illegal re-entry | 3/3 | 0/3 | 0 | 0 |
+| set ends 25:24 / 15:14 | 3/3 | 0/3 | 0 | 0 |
+| libero attack | 3/3 | 3/3 | 0 | 0 |
+| back-row block | 3/3 | 3/3 | 0 | 0 |
+| `A/` written `A-` (opponent `B#` unpaired) | 3/3 | 0/3 | 0 | 0 |
+| **Total** | **30/30** | **15/30** | **1** | **26** |
+
+- Before the pairing check and knock-on suppression: Courtside 27/30, noise 22.
+- `dv_validate` gets a point attributed against the touches only when the point code's score is also wrong ("Point assigned to incorrect team or scores incorrect"); a consistently renumbered set passes. Most of its noise is its level-3 style checks and "match result summary does not match the points recorded" after a missing point code.
+- The one Courtside noise issue: wrong-team renumbering carries a set past 25 (set ends 28:21), which the knock-on rule doesn't trace back.
 
 ## Scout code grammar (vb-grammar)
 
@@ -138,6 +163,8 @@ What the six rules (`vb_engine::validate`) report on the corpus, and why (`valid
 ## Decisions
 
 Agreed at the phase 1 review (task 8).
+
+- **Phase 2 validator gate (task 7, 2026-10-13):** on the bad-file set, Courtside's recall is at least `dv_validate`'s in every slip class and higher overall, and it adds no more noise. Recall alone would let a noisy validator win. `validator_beats_dv_validate` asserts it when the oracle output is current.
 
 - **Setter code without `>LUp`** (`aP11`) is a change of setter in vb-engine and feeds rotation and setter-position tracking; it is not a substitution. The JSON export keeps openvolley's `substitution` flag for compatibility.
 - **Lenient parsing.** The codec and grammar never reject a file: odd values are kept as written (`Code::Unrecognised`, `Role::Unknown`, unparsed dates) and `courtside validate` reports them. Rule checks belong to the validator and vb-engine, not the reader.

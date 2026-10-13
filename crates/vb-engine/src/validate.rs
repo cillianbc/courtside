@@ -43,6 +43,10 @@ pub struct Issue {
     /// Index into the visible events.
     pub index: usize,
     pub message: String,
+    /// For a knock-on: the event (index into the visible events) whose
+    /// issue this one follows from. Knock-ons are downgraded to Info, so
+    /// one slip is reported once (CONTEXT.md "Knock-on").
+    pub cause: Option<usize>,
 }
 
 fn side(team: Team) -> &'static str {
@@ -92,6 +96,9 @@ struct Validator<'a> {
     events: &'a [&'a MatchEvent],
     f: &'a Folded,
     issues: Vec<Issue>,
+    /// "Won a side-out but didn't rotate" errors: (event, team, position
+    /// in `issues`).
+    missed_rotations: Vec<(usize, Team, usize)>,
 }
 
 impl Validator<'_> {
@@ -102,6 +109,7 @@ impl Validator<'_> {
             event: self.events[i].id,
             index: i,
             message,
+            cause: None,
         });
     }
 
@@ -357,6 +365,8 @@ impl Validator<'_> {
                         ),
                     )
                 } else if rotates && q == p {
+                    self.missed_rotations
+                        .push((check_at, team, self.issues.len()));
                     (
                         Severity::Error,
                         format!("{} won a side-out but didn't rotate", side(team)),
@@ -663,6 +673,41 @@ impl Validator<'_> {
                     }
                     _ => {}
                 }
+                // A blocked attack and a block point come together (both
+                // products check it, docs/research). Their other pairing
+                // check, "R/ means the opponent won", is left out: an
+                // overpass rally is often won by the receiving team (22 in
+                // the corpus, e.g. R/ then the server's attack error).
+                let prev = j.checked_sub(1).and_then(|p| touches.get(p));
+                let is = |t: &vb_grammar::Touch, skill, eval| {
+                    t.skill == skill && t.evaluation() == Some(eval)
+                };
+                if is(t, Skill::Attack, '/')
+                    && !next.is_some_and(|(_, n)| n.team != t.team && is(n, Skill::Block, '#'))
+                {
+                    self.push(
+                        *i,
+                        Severity::Warning,
+                        Rule::ServeReception,
+                        format!(
+                            "{} was blocked but the other team has no block point (B#) after it",
+                            Code::Touch(t.clone())
+                        ),
+                    );
+                }
+                if is(t, Skill::Block, '#')
+                    && !prev.is_some_and(|(_, p)| p.team != t.team && is(p, Skill::Attack, '/'))
+                {
+                    self.push(
+                        *i,
+                        Severity::Warning,
+                        Rule::ServeReception,
+                        format!(
+                            "block point {} without a blocked attack (A/) from the other team before it",
+                            Code::Touch(t.clone())
+                        ),
+                    );
+                }
                 // DataVolley records a decided rally as a pair: the touch
                 // and the other team's matching one (ace then reception
                 // error, blocked attack then block point).
@@ -724,6 +769,134 @@ impl Validator<'_> {
     }
 }
 
+impl Validator<'_> {
+    /// Downgrades issues that follow from an earlier one to Info:
+    /// - after a point code with a Score or ServeReception error (wrong
+    ///   score, wrong team), a score issue on the next point code;
+    /// - after a point given to the wrong team, the rotation issues of the
+    ///   next rally, and set-end issues in that set (a point after the set
+    ///   was "won", a set end at a losing score) that giving the point to
+    ///   the other team would fix;
+    /// - after "won a side-out but didn't rotate", that team's rotation
+    ///   issues in the set up to the scout's next `z` correction.
+    fn knock_ons(&mut self) {
+        let mut downgrade: Vec<(usize, usize)> = Vec::new();
+        // Point codes with an error, and whether it says the wrong team won.
+        let mut seeds: Vec<(usize, bool)> = Vec::new();
+        for i in &self.issues {
+            if i.severity == Severity::Error
+                && matches!(i.rule, Rule::Score | Rule::ServeReception)
+                && self.events[i.index].kind() == EventKind::Point
+            {
+                let wrong_team = i.rule == Rule::ServeReception;
+                match seeds.iter_mut().find(|(p, _)| *p == i.index) {
+                    Some(seed) => seed.1 |= wrong_team,
+                    None => seeds.push((i.index, wrong_team)),
+                }
+            }
+        }
+        for (p, wrong_team) in seeds {
+            let Some(k) = self.f.states[p].rally else {
+                continue;
+            };
+            let set = self.f.rallies[k].set;
+            // The score had the seed point gone to the other team.
+            let won_by_home = self.f.states[p].score.home > self.score_before(p).home;
+            let flip = |s: Score| {
+                if won_by_home {
+                    Score {
+                        home: s.home.saturating_sub(1),
+                        visiting: s.visiting + 1,
+                    }
+                } else {
+                    Score {
+                        home: s.home + 1,
+                        visiting: s.visiting.saturating_sub(1),
+                    }
+                }
+            };
+            let next_rally = self.f.rallies.get(k + 1).filter(|n| n.set == set);
+            let next_point = (p + 1..self.events.len())
+                .find(|&j| self.events[j].kind() == EventKind::Point)
+                .filter(|&j| {
+                    self.f.states[j]
+                        .rally
+                        .is_some_and(|r| self.f.rallies[r].set == set)
+                });
+            for (n, issue) in self.issues.iter().enumerate() {
+                let j = issue.index;
+                if issue.severity < Severity::Warning || j <= p {
+                    continue;
+                }
+                let follows = match issue.rule {
+                    Rule::Rotation => {
+                        wrong_team && next_rally.is_some_and(|r| (r.first..=r.last).contains(&j))
+                    }
+                    Rule::Score => match self.events[j].kind() {
+                        EventKind::SetEnd => {
+                            wrong_team
+                                && self.f.states[j].set.saturating_sub(1) == set
+                                && self.won(set, flip(self.f.states[j].score))
+                        }
+                        EventKind::Point => {
+                            let in_set = self.f.states[j]
+                                .rally
+                                .is_some_and(|r| self.f.rallies[r].set == set);
+                            let before = self.score_before(j);
+                            in_set
+                                && (Some(j) == next_point
+                                    || wrong_team
+                                        && self.won(set, before)
+                                        && !self.won(set, flip(before)))
+                        }
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                if follows {
+                    downgrade.push((n, p));
+                }
+            }
+        }
+        for (e, team, seed) in self.missed_rotations.clone() {
+            let set = self.f.states[e].set;
+            // Rotation messages name the team they are about first; the
+            // setter ones sit on the next serve, which may be the other
+            // team's.
+            let about = format!("{} ", side(team));
+            let mut later: Vec<(usize, usize)> = self
+                .issues
+                .iter()
+                .enumerate()
+                .filter(|&(n, i)| {
+                    n != seed
+                        && i.rule == Rule::Rotation
+                        && i.severity >= Severity::Warning
+                        && i.index >= e
+                        && self.f.states[i.index].set == set
+                        && i.message.starts_with(&about)
+                })
+                .map(|(n, i)| (i.index, n))
+                .collect();
+            later.sort_unstable();
+            for (_, n) in later {
+                downgrade.push((n, e));
+                // The scout's `z` correction ends the chain.
+                if self.issues[n].message.contains(" setter ") {
+                    break;
+                }
+            }
+        }
+        for (n, cause) in downgrade {
+            let issue = &mut self.issues[n];
+            if issue.cause.is_none() {
+                issue.severity = Severity::Info;
+                issue.cause = Some(cause);
+            }
+        }
+    }
+}
+
 /// Every issue in the match, in event order.
 pub fn validate(m: &Match) -> Vec<Issue> {
     let events = m.log.visible();
@@ -738,6 +911,7 @@ pub fn validate_folded(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Ve
         events,
         f: folded,
         issues: Vec::new(),
+        missed_rotations: Vec::new(),
     };
     v.codes();
     v.score();
@@ -746,6 +920,7 @@ pub fn validate_folded(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Ve
     v.substitutions();
     v.liberos();
     v.serve_reception();
+    v.knock_ons();
     let mut issues = v.issues;
     issues.sort_by_key(|i| (i.index, std::cmp::Reverse(i.severity), i.rule));
     issues
@@ -792,7 +967,10 @@ mod tests {
         }
         validate(&m)
             .iter()
-            .map(|i| format!("{} {:?}: {}", i.index, i.rule, i.message))
+            .map(|i| match i.cause {
+                Some(c) => format!("{} {:?}: {} (knock-on of {c})", i.index, i.rule, i.message),
+                None => format!("{} {:?}: {}", i.index, i.rule, i.message),
+            })
             .collect()
     }
 
@@ -809,7 +987,7 @@ mod tests {
             with_lineup(&[
                 "*08SH-", "a16RH#", "a18AH#", "ap00:01", // side-out
                 "az1", "a11SH=", "*p01:01", // serve error
-                "*z6", "*12SH+", "a18RH-", "a11EH+", "a10AH-", "*13BH#", "a$$&H=", "*p02:01",
+                "*z6", "*12SH+", "a18RH-", "a11EH+", "a10AH/", "*13BH#", "a$$&H=", "*p02:01",
             ]),
             Vec::<String>::new()
         );
@@ -885,6 +1063,50 @@ mod tests {
                 "8 ServeReception: a serve should be followed by the other team's reception",
                 "10 Rotation: visiting won a side-out but didn't rotate",
                 "10 Code: unrecognised code \"%%\"",
+            ]
+        );
+    }
+
+    #[test]
+    fn blocked_attack_and_block_point_pair_up() {
+        assert_eq!(
+            with_lineup(&[
+                "*08SH-", "a16RH#", "a18AH/", "*13EH+", "*p01:00", // A/ without B#
+                "*08SH-", "a16RH#", "a18AH-", "*13BH#", "*p02:00", // B# without A/
+            ]),
+            [
+                "6 ServeReception: a18AH/ was blocked but the other team has no block point (B#) after it",
+                "7 ServeReception: the rally continues after a18AH/ ended it",
+                "12 ServeReception: block point *13BH# without a blocked attack (A/) from the other team before it",
+            ]
+        );
+    }
+
+    #[test]
+    fn knock_ons_are_info() {
+        // A point given to the wrong team: the scout carries on as the
+        // touches say, so the next rally's rotation issues follow from it.
+        assert_eq!(
+            with_lineup(&["*08SH#", "ap00:01", "*08SH-", "a16RH#", "a18AH#", "ap00:02"]),
+            [
+                "5 ServeReception: point to visiting but *08SH# means home won the rally",
+                "6 Rotation: home serves but visiting won the last rally (knock-on of 5)",
+                "6 Rotation: visiting won a side-out but didn't rotate (knock-on of 5)",
+            ]
+        );
+        // A missed rotation: the server is out of zone 1 until the scout's
+        // `z` correction.
+        assert_eq!(
+            with_lineup(&[
+                "*08SH-", "a16RH#", "a18AH#", "ap00:01", "a11SH-", "*12RH+", "*13AH#", "*p01:01",
+                "*z6", "*12SH-", "a16RH+", "a18AH=", "*p02:01", "az1", "*12SH-", "a11RH+",
+                "a18AH#", "ap02:02", "a11SH-",
+            ]),
+            [
+                "8 Rotation: visiting won a side-out but didn't rotate",
+                "8 Rotation: visiting server 11 is in zone 2, not zone 1 (knock-on of 8)",
+                "18 Rotation: visiting setter moved from zone 2 to 1; expected 2 (knock-on of 8)",
+                "22 Rotation: visiting won a side-out but didn't rotate",
             ]
         );
     }

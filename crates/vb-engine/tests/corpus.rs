@@ -179,6 +179,7 @@ fn fold_is_fast_enough_to_run_on_every_change() {
 }
 
 /// Phase 2 task 5: `.dvw` → engine → `.dvw` gives back the same bytes,
+/// headers on every file,
 /// except on lines where the file's own derived columns contradict it
 /// (see `ACCEPTED` above and the VolleyStation rotation-line quirk), which
 /// the engine writes corrected. Only derived columns may differ.
@@ -196,6 +197,27 @@ fn dvw_round_trips_through_the_engine() {
         let out = m.to_dvw(&dvw);
         files += 1;
         assert_eq!(out.scout.len(), dvw.scout.len(), "{}", entry.path);
+        // Everything outside [3SCOUT], including the regenerated [3SET]
+        // scores and [3TEAMS] sets won, is byte-exact on every file.
+        let mut headers = out.clone();
+        headers.scout = dvw.scout.clone();
+        if headers.to_bytes().expect("write") != bytes {
+            report.push(format!("{}: headers differ", entry.path));
+        }
+        // And they really are regenerated: blank set 1's scores and both
+        // teams' sets won in the template, and the engine writes them back.
+        let mut blank = dvw.clone();
+        for f in &mut blank.sets[0].0.0[1..5] {
+            f.clear();
+        }
+        for t in &mut blank.teams {
+            t.0.0[2].clear();
+        }
+        let mut regen = m.to_dvw(&blank);
+        regen.scout = dvw.scout.clone();
+        if regen.to_bytes().expect("write") != bytes {
+            report.push(format!("{}: regenerated headers differ", entry.path));
+        }
         let mut changed = 0;
         for (i, (a, b)) in dvw.scout.iter().zip(&out.scout).enumerate() {
             let (a, b) = (&a.0.0, &b.0.0);

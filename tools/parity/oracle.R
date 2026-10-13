@@ -1,10 +1,39 @@
 # Writes openvolley's view of every .dvw under <corpus>/dvw as one CSV per
 # file in <out>, named after the path relative to <corpus> with "/" -> "__".
 # Usage: Rscript oracle.R <corpus> <out>
+#        Rscript oracle.R validate <dir> <out>
+# The validate mode writes dv_validate's messages (validation level 3,
+# default options) for every .dvw under <dir>, named the same way.
 
 suppressPackageStartupMessages(library(datavolley))
 
 args <- commandArgs(trailingOnly = TRUE)
+if (length(args) == 3 && args[1] == "validate") {
+    dir <- normalizePath(args[2])
+    out_dir <- args[3]
+    dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+    files <- list.files(dir, pattern = "\\.dvw$", recursive = TRUE,
+                        ignore.case = TRUE, full.names = TRUE)
+    failed <- 0L
+    for (f in files) {
+        rel <- sub(paste0("^", dir, "/"), "", normalizePath(f), fixed = FALSE)
+        out <- file.path(out_dir, paste0(gsub("/", "__", rel, fixed = TRUE), ".csv"))
+        res <- tryCatch({
+            x <- dv_read(f, insert_technical_timeouts = FALSE, do_warn = FALSE)
+            v <- dv_validate(x, validation_level = 3)
+            v <- v[, c("file_line_number", "message"), drop = FALSE]
+            write.csv(v, out, row.names = FALSE, na = "", fileEncoding = "UTF-8")
+            sprintf("ok   %s (%d messages)", rel, nrow(v))
+        }, error = function(e) {
+            failed <<- failed + 1L
+            sprintf("FAIL %s: %s", rel, conditionMessage(e))
+        })
+        cat(res, "\n")
+    }
+    cat(sprintf("datavolley %s dv_validate, %d files, %d failed\n",
+                packageVersion("datavolley"), length(files), failed))
+    quit(status = if (failed > 0) 1 else 0)
+}
 corpus <- normalizePath(args[1])
 out_dir <- args[2]
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)

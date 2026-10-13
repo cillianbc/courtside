@@ -206,17 +206,23 @@ fn validate_dvw(bytes: &[u8]) -> Vec<Issue> {
     let first = raw.header_line("3SCOUT").map(|l| l + 1);
     let m = Match::from_dvw(&dvw, &mut IdGen::new(0));
     let events = m.log.visible();
-    for i in vb_engine::validate::validate(&m) {
-        let line = events
-            .get(i.index)
+    let file_line = |index: usize| {
+        events
+            .get(index)
             .and_then(|e| e.source_line)
             .zip(first)
-            .map(|(n, first)| first + n);
+            .map(|(n, first)| first + n)
+    };
+    for i in vb_engine::validate::validate(&m) {
+        let message = match i.cause.and_then(file_line) {
+            Some(cause) => format!("{} (follows from line {cause})", i.message),
+            None => i.message,
+        };
         issues.push(Issue {
             severity: i.severity,
             rule: Some(i.rule),
-            line,
-            message: i.message,
+            line: file_line(i.index),
+            message,
         });
     }
     issues.sort_by_key(|i| (i.line.unwrap_or(0), std::cmp::Reverse(i.severity)));
