@@ -68,6 +68,8 @@ pub struct Snapshot {
     pub setter_zone: Pair<Option<u8>>,
     /// The team has no six on court: enter its lineup before play.
     pub needs_lineup: Pair<bool>,
+    /// A team has won the match: no set follows the last one.
+    pub match_over: bool,
     /// Used in the current set.
     pub timeouts: Pair<u8>,
     pub substitutions: Pair<u8>,
@@ -374,7 +376,18 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
     for v in &mut sets {
         v.finished = v.number < set;
     }
-    if sets.last().is_none_or(|v| v.number < set) {
+    // Sets won so far; when one team has enough, the match is over and
+    // the set end the console wrote opens no new set.
+    let won = |home: bool| {
+        sets.iter()
+            .filter(|v| v.finished && (v.score.home > v.score.visiting) == home)
+            .count()
+    };
+    let needed = usize::from(game.regulation.sets_to_win());
+    let match_over = won(true) >= needed || won(false) >= needed;
+    if match_over {
+        groups.retain(|g| g.closed || !g.rows.is_empty());
+    } else if sets.last().is_none_or(|v| v.number < set) {
         sets.push(SetView {
             number: set,
             score: score.clone(),
@@ -411,7 +424,12 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             home: team_view(&teams.0),
             visiting: team_view(&teams.1),
         },
-        set,
+        // The last set played once the match is over.
+        set: if match_over {
+            set.saturating_sub(1).max(1)
+        } else {
+            set
+        },
         score,
         serving,
         sets,
@@ -430,7 +448,8 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             },
             |s| Pair::from(&s.setter_position),
         ),
-        needs_lineup: Pair::from_fn(|team| court(team).iter().all(Option::is_none)),
+        needs_lineup: Pair::from_fn(|team| !match_over && court(team).iter().all(Option::is_none)),
+        match_over,
         timeouts: count(EventKind::Timeout),
         substitutions: count(EventKind::Substitution),
         groups,

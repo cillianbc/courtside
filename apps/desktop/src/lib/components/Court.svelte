@@ -60,6 +60,9 @@
       >
     </div>
   </div>
+  {#if snap.matchOver}
+    <p class="empty-note">Match over. Corrections still work; export the .dvw from the top bar.</p>
+  {/if}
   <div class="courts" class:end={ui.endView}>
     {@render half(ui.order[0] ?? "home", nets[0])}
     <div class="net" aria-hidden="true"></div>

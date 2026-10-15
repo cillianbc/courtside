@@ -38,20 +38,23 @@
 </script>
 
 <section class="panel codes" aria-label="Codes">
-  <div class="set-tabs" role="tablist" aria-label="Sets">
-    {#each snap.sets as s (s.number)}
-      <button
-        class="tab"
-        role="tab"
-        type="button"
-        aria-selected={s.number === shown}
-        tabindex={s.number === shown ? 0 : -1}
-        onclick={() => (ui.shownSet = s.number === snap.set ? null : s.number)}
-      >
-        Set {s.number}
-        {#if s.finished}<span class="rate">{s.score.home}:{s.score.visiting}</span>{/if}
-      </button>
-    {/each}
+  <div class="set-tabs">
+    <div class="set-list" role="tablist" aria-label="Sets">
+      {#each snap.sets as s (s.number)}
+        <button
+          class="tab"
+          role="tab"
+          type="button"
+          aria-label="Set {s.number}"
+          aria-selected={s.number === shown}
+          tabindex={s.number === shown ? 0 : -1}
+          onclick={() => (ui.shownSet = s.number === snap.set ? null : s.number)}
+        >
+          S{s.number}
+          {#if s.finished}<span class="rate">{s.score.home}:{s.score.visiting}</span>{/if}
+        </button>
+      {/each}
+    </div>
     <span class="stream-tools">
       <button
         class="btn"

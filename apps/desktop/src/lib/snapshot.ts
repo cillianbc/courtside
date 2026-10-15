@@ -89,6 +89,8 @@ export interface Snapshot {
   setterZone: Pair<number | null>;
   /** The team has no six on court: enter its lineup before play. */
   needsLineup: Pair<boolean>;
+  /** A team has won the match; no set follows. */
+  matchOver: boolean;
   timeouts: Pair<number>;
   substitutions: Pair<number>;
   groups: Group[];

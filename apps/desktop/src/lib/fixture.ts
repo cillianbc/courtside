@@ -122,6 +122,7 @@ export function fixture(): Snapshot {
     setter: { home: 1, visiting: 15 },
     setterZone: { home: 3, visiting: 1 },
     needsLineup: { home: false, visiting: false },
+    matchOver: false,
     timeouts: { home: 1, visiting: 0 },
     substitutions: { home: 2, visiting: 4 },
     groups,

@@ -269,7 +269,9 @@ body {
 .right {
   display: grid;
   gap: 10px;
-  grid-template-rows: auto minmax(0, 1fr);
+  /* The court panel takes what it needs and scrolls past that; checks
+     always keep room for a few issues. */
+  grid-template-rows: minmax(0, auto) minmax(180px, 1fr);
   min-height: 0;
   min-width: 0;
 }
@@ -788,9 +790,23 @@ body {
 .set-tabs {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   padding: 6px 8px 0;
   border-bottom: 1px solid var(--line);
+}
+/* Set tabs scroll sideways in a narrow panel; undo and redo stay put. */
+.set-list {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.set-list .tab {
+  flex: none;
+  white-space: nowrap;
+  padding-inline: 8px;
 }
 .tabs {
   display: flex;
@@ -1166,6 +1182,7 @@ body {
 
 /* Editing earlier codes */
 .stream-tools {
+  flex: none;
   margin-left: auto;
   margin-bottom: 4px;
   display: inline-flex;

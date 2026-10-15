@@ -775,6 +775,56 @@ fn correcting_one_half_of_a_pair_updates_the_other() {
     assert_eq!(changed, [("a14EH#".to_string(), "a14EH+".to_string())]);
 }
 
+/// The match file with its scout section replaced by `codes`.
+fn file_with(codes: &[&str]) -> String {
+    let base = file();
+    let head = &base[..base.find("[3SCOUT]").expect("scout")];
+    let mut s = format!("{head}[3SCOUT]\r\n");
+    for c in codes {
+        s.push_str(&format!("{c};;;;;;;;1;;;;;;;;;;;;;;;;;;;\r\n"));
+    }
+    s
+}
+
+fn open_file(text: &str) -> (Session, tempfile::TempDir) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let dvw = dir.path().join("m.dvw");
+    std::fs::write(&dvw, text).expect("write");
+    let mut session = Session::new();
+    session
+        .create_season(&dir.path().join("s.courtside"), "s", 1)
+        .expect("season");
+    let id = session.import_file(&dvw, 1_000).expect("import");
+    session.open_match(id, 2_000).expect("open");
+    (session, dir)
+}
+
+#[test]
+fn no_set_follows_a_won_match() {
+    let sets = |n: u8| {
+        (1..=n)
+            .flat_map(|s| [format!("*p25:{:02}", 10 + s), format!("**{s}set")])
+            .collect::<Vec<_>>()
+    };
+    let three = sets(3);
+    let (session, _dir) = open_file(&file_with(
+        &three.iter().map(String::as_str).collect::<Vec<_>>(),
+    ));
+    let snap = session.snapshot().expect("snapshot");
+    assert!(snap.match_over);
+    assert_eq!(snap.set, 3);
+    assert_eq!(snap.sets.len(), 3, "no set 4 tab");
+    assert!(!snap.needs_lineup.home && !snap.needs_lineup.visiting);
+
+    let two = sets(2);
+    let (session, _dir) = open_file(&file_with(
+        &two.iter().map(String::as_str).collect::<Vec<_>>(),
+    ));
+    let snap = session.snapshot().expect("snapshot");
+    assert!(!snap.match_over);
+    assert_eq!((snap.set, snap.sets.len()), (3, 3));
+}
+
 #[test]
 fn a_new_combination_retargets_the_set_before_it() {
     let (mut session, _dir) = opened();
