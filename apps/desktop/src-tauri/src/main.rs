@@ -8,8 +8,8 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use courtside_console::{
-    ClockTime, MatchId, Settings, MatchItem, PlayerDetail, PlayerListItem, Preview, Resume, Session,
-    Snapshot, Team, TeamDetail, TeamForm, TeamImportView,
+    ClockTime, MatchId, MatchItem, PlayerDetail, PlayerListItem, Preview, Resume, Session,
+    Settings, Snapshot, Team, TeamDetail, TeamForm, TeamImportView,
 };
 use tauri::{AppHandle, Manager, State};
 
