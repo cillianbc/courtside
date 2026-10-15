@@ -10,8 +10,9 @@ pub mod snapshot;
 use std::path::Path;
 
 use courtside_store::Season;
+use vb_engine::log::{EventLog, LogError};
 use vb_engine::model::Outcome;
-use vb_engine::{Body, IdGen, Match, NewEvent, Producer, fold};
+use vb_engine::{Body, EventId, IdGen, Match, MatchEvent, NewEvent, Producer, fold};
 use vb_grammar::Code;
 
 pub use courtside_store::{Error as StoreError, MatchId};
@@ -30,6 +31,8 @@ pub enum Error {
     NoMatch,
     #[error("{0}")]
     BadCode(String),
+    #[error(transparent)]
+    Log(#[from] LogError),
     #[error("lineup: {0}")]
     BadLineup(String),
     #[error("can't write {path}: {source}")]
@@ -53,6 +56,9 @@ struct Current {
     teams: (courtside_store::Team, courtside_store::Team),
     /// New event ids; the time part is when the match was opened.
     ids: IdGen,
+    /// What undo took off, newest last, for redo. Any other change
+    /// clears it. Kept in memory only.
+    redo: Vec<Vec<MatchEvent>>,
 }
 
 /// Whether `score` wins `set` under the match's regulation.
@@ -75,6 +81,19 @@ fn other(t: Team) -> Team {
 impl Current {
     fn names(&self) -> (&str, &str) {
         (&self.teams.0.name, &self.teams.1.name)
+    }
+
+    /// Saves the log after a change that added the events from `before`
+    /// on; if saving fails, takes them off again. A change clears redo.
+    fn persist(&mut self, season: &mut Season, before: usize) -> Result<()> {
+        if let Err(e) = season.save(self.id, &self.game.log) {
+            while self.game.log.len() > before {
+                self.game.log.undo();
+            }
+            return Err(e.into());
+        }
+        self.redo.clear();
+        Ok(())
     }
 
     fn add(&mut self, code: Code, producer: Producer, clock: Option<ClockTime>) {
@@ -145,6 +164,7 @@ impl Session {
             game: open.game,
             teams,
             ids: IdGen::new(now_ms),
+            redo: Vec::new(),
         });
         self.snapshot()
     }
@@ -227,12 +247,7 @@ impl Session {
                 }
             }
         }
-        if let Err(e) = season.save(c.id, &c.game.log) {
-            while c.game.log.len() > before {
-                c.game.log.undo();
-            }
-            return Err(e.into());
-        }
+        c.persist(season, before)?;
         self.snapshot()
     }
 
@@ -287,12 +302,132 @@ impl Session {
             Producer::Repair,
             clock,
         );
+        c.persist(season, before)?;
+        self.snapshot()
+    }
+
+    /// Takes back the scout's last action: the codes the console wrote
+    /// after it (point, rotation, set end, lineup codes) and the action
+    /// itself, one code or the six. Nothing to undo is not an error.
+    pub fn undo(&mut self) -> Result<Snapshot> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let mut taken = Vec::new();
+        while let Some(e) = c.game.log.undo() {
+            let auto = e.producer == Producer::Repair;
+            taken.push(e);
+            if !auto {
+                break;
+            }
+        }
+        if taken.is_empty() {
+            return self.snapshot();
+        }
+        taken.reverse();
+        if let Err(e) = season.save(c.id, &c.game.log) {
+            for event in taken {
+                // Puts back exactly what was taken off, so it fits.
+                let _ = c.game.log.redo(event);
+            }
+            return Err(e.into());
+        }
+        c.redo.push(taken);
+        self.snapshot()
+    }
+
+    /// Puts back what the last undo took off.
+    pub fn redo(&mut self) -> Result<Snapshot> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let Some(events) = c.redo.pop() else {
+            return self.snapshot();
+        };
+        let before = c.game.log.len();
+        for event in events.iter().cloned() {
+            if let Err(e) = c.game.log.redo(event) {
+                while c.game.log.len() > before {
+                    c.game.log.undo();
+                }
+                return Err(Error::Log(e));
+            }
+        }
         if let Err(e) = season.save(c.id, &c.game.log) {
             while c.game.log.len() > before {
                 c.game.log.undo();
             }
+            c.redo.push(events);
             return Err(e.into());
         }
+        self.snapshot()
+    }
+
+    /// Replaces an earlier code with `text` (one code), in place.
+    pub fn correct(&mut self, id: &str, text: &str, clock: Option<ClockTime>) -> Result<Snapshot> {
+        self.edit(id, Some(text), clock, |log, ids, target, new| match new {
+            Some(new) => log.correct(ids, target, new),
+            None => Err(LogError::NotFound(target)),
+        })
+    }
+
+    /// Adds `text` (one code) just before an earlier code.
+    pub fn insert_before(
+        &mut self,
+        id: &str,
+        text: &str,
+        clock: Option<ClockTime>,
+    ) -> Result<Snapshot> {
+        self.edit(id, Some(text), clock, |log, ids, target, new| match new {
+            Some(new) => log.insert_before(ids, target, new),
+            None => Err(LogError::NotFound(target)),
+        })
+    }
+
+    /// Takes an earlier code out of the match.
+    pub fn remove(&mut self, id: &str) -> Result<Snapshot> {
+        self.edit(id, None, None, |log, ids, target, _| {
+            log.remove(ids, target, Producer::Keyboard)
+        })
+    }
+
+    fn edit(
+        &mut self,
+        id: &str,
+        text: Option<&str>,
+        clock: Option<ClockTime>,
+        change: impl FnOnce(
+            &mut EventLog,
+            &mut IdGen,
+            EventId,
+            Option<NewEvent>,
+        ) -> std::result::Result<EventId, LogError>,
+    ) -> Result<Snapshot> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let target = ulid::Ulid::from_string(id)
+            .map(EventId)
+            .map_err(|_| Error::BadCode(format!("no event {id:?}")))?;
+        let new = match text {
+            None => None,
+            Some(text) => {
+                let text = text.trim();
+                if text.split_whitespace().count() != 1 {
+                    return Err(Error::BadCode("One code at a time here.".into()));
+                }
+                let read = readback::read(text, &c.game, c.names());
+                if let Some(e) = read.error {
+                    return Err(Error::BadCode(format!("{text}: {e}")));
+                }
+                Some(NewEvent {
+                    body: Body::Code(Code::parse(text)),
+                    video_ms: None,
+                    clock,
+                    producer: Producer::Keyboard,
+                })
+            }
+        };
+        let before = c.game.log.len();
+        change(&mut c.game.log, &mut c.ids, target, new)?;
+        c.persist(season, before)?;
         self.snapshot()
     }
 

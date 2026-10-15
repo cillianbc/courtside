@@ -12,11 +12,25 @@
   import { ui } from "./lib/ui.svelte";
 
   let loaded = $state(false);
+
+  // Undo and redo from anywhere; the command line's own text undo is
+  // only lost while it holds text the scout hasn't entered.
+  function onkeydown(e: KeyboardEvent) {
+    if (!ui.snapshot || !(e.ctrlKey || e.metaKey)) return;
+    const key = e.key.toLowerCase();
+    const redo = (key === "z" && e.shiftKey) || key === "y";
+    if (key !== "z" && key !== "y") return;
+    if (ui.code.trim() && document.activeElement?.classList.contains("code-input")) return;
+    e.preventDefault();
+    void (redo ? ui.redo() : ui.undo());
+  }
   onMount(async () => {
     ui.snapshot = await backend.snapshot();
     loaded = true;
   });
 </script>
+
+<svelte:window {onkeydown} />
 
 {#if ui.snapshot}
   {@const snap = ui.snapshot}

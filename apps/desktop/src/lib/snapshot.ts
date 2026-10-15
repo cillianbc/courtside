@@ -49,6 +49,8 @@ export interface Row {
   meaning: string;
   /** Written by the console (a point code or rotation), not typed. */
   auto: boolean;
+  /** A correction of an earlier code, or a code inserted later. */
+  edited: boolean;
   severity: Severity | null;
 }
 

@@ -127,6 +127,8 @@ pub struct Row {
     pub meaning: String,
     /// Written by the console (a point code or rotation), not typed.
     pub auto: bool,
+    /// A correction of an earlier code, or a code inserted later.
+    pub edited: bool,
     /// The worst issue on this code.
     pub severity: Option<&'static str>,
 }
@@ -288,6 +290,7 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
                 _ => String::new(),
             },
             auto: e.producer == Producer::Repair,
+            edited: e.supersedes.is_some() || e.before.is_some(),
             severity: worst.get(i).copied().flatten().map(severity_name),
         });
         let ended = rally_end.get(i).copied().flatten();

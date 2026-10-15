@@ -58,3 +58,34 @@ export async function setLineup(team: Side, court: number[], setter: number): Pr
 export async function exportDvw(path: string): Promise<void> {
   await invoke("export_dvw", { path });
 }
+
+function needsApp(): void {
+  if (!inTauri) throw new Error("Coding needs the desktop app.");
+}
+
+export async function undo(): Promise<Snapshot> {
+  needsApp();
+  return invoke<Snapshot>("undo");
+}
+
+export async function redo(): Promise<Snapshot> {
+  needsApp();
+  return invoke<Snapshot>("redo");
+}
+
+/** Replaces an earlier code (by event id) with `text`. */
+export async function correct(id: string, text: string): Promise<Snapshot> {
+  needsApp();
+  return invoke<Snapshot>("code_correct", { id, text, clock: clock() });
+}
+
+/** Adds `text` just before an earlier code. */
+export async function insertBefore(id: string, text: string): Promise<Snapshot> {
+  needsApp();
+  return invoke<Snapshot>("code_insert", { id, text, clock: clock() });
+}
+
+export async function remove(id: string): Promise<Snapshot> {
+  needsApp();
+  return invoke<Snapshot>("code_remove", { id });
+}

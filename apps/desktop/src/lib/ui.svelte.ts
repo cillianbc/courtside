@@ -5,6 +5,14 @@ import * as backend from "./backend";
 import type { Hint } from "./hint";
 import type { Side, Snapshot } from "./snapshot";
 
+/** The command bar is editing an earlier code rather than adding one. */
+export interface Editing {
+  mode: "correct" | "insert";
+  id: string;
+  /** The code being corrected, or the one the new code goes before. */
+  text: string;
+}
+
 class Ui {
   snapshot = $state<Snapshot | null>(null);
   /** Away team drawn first (left / bottom). */
@@ -18,6 +26,9 @@ class Ui {
   /** The result of the last action, shown in the command bar until the scout types again. */
   result = $state<Hint | null>(null);
   focusCode = $state(0);
+  /** The code picked in the stream, by event id. */
+  selected = $state<string | null>(null);
+  editing = $state<Editing | null>(null);
 
   get order(): Side[] {
     return this.swapped ? ["visiting", "home"] : ["home", "visiting"];
@@ -44,6 +55,49 @@ class Ui {
   /** Adds codes as if typed on the command bar. */
   commit(text: string): Promise<boolean> {
     return this.apply(`Added ${text}`, () => backend.commit(text));
+  }
+
+  undo(): Promise<boolean> {
+    return this.apply("Undone", backend.undo);
+  }
+
+  redo(): Promise<boolean> {
+    return this.apply("Redone", backend.redo);
+  }
+
+  /** Starts correcting a code, or adding one before it, on the command bar. */
+  startEdit(mode: Editing["mode"], id: string, text: string) {
+    this.editing = { mode, id, text };
+    this.code = mode === "correct" ? text : "";
+    this.result = null;
+    this.focusCode += 1;
+  }
+
+  cancelEdit() {
+    this.editing = null;
+    this.code = "";
+  }
+
+  /** Enter on the command bar: add, correct or insert. */
+  async submit(text: string): Promise<boolean> {
+    const e = this.editing;
+    const ok = !e
+      ? await this.commit(text)
+      : e.mode === "correct"
+        ? await this.apply(`Corrected ${e.text} to ${text}`, () => backend.correct(e.id, text))
+        : await this.apply(`Added ${text} before ${e.text}`, () =>
+            backend.insertBefore(e.id, text),
+          );
+    if (ok) {
+      this.editing = null;
+      this.selected = null;
+    }
+    return ok;
+  }
+
+  remove(id: string, text: string): Promise<boolean> {
+    this.selected = null;
+    return this.apply(`Removed ${text}`, () => backend.remove(id));
   }
 
   /** Puts `text` in the command bar and focuses it. */

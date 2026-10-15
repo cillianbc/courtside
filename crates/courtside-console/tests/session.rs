@@ -338,3 +338,101 @@ fn timeouts_and_substitutions_count_per_set() {
     );
     assert!(snap.court.home.contains(&Some(7)));
 }
+
+#[test]
+fn undo_takes_back_a_code_with_what_the_console_wrote() {
+    let (mut session, _dir) = opened();
+    let start = texts(&session.snapshot().expect("snapshot"));
+    session.commit("a16RM+", None).expect("reception");
+    session.commit("a14EH+ a13AH#", None).expect("attack");
+    // a13AH# with its point and rotation, then a14EH+, then a16RM+.
+    let snap = session.undo().expect("undo");
+    assert_eq!(texts(&snap).last().map(String::as_str), Some("a14EH+"));
+    assert_eq!(
+        snap.score,
+        Pair {
+            home: 1,
+            visiting: 1
+        }
+    );
+    session.undo().expect("undo");
+    let snap = session.undo().expect("undo");
+    assert_eq!(texts(&snap), start);
+
+    let snap = session.redo().expect("redo");
+    assert_eq!(texts(&snap).last().map(String::as_str), Some("a16RM+"));
+    session.redo().expect("redo");
+    let snap = session.redo().expect("redo");
+    assert_eq!(
+        snap.score,
+        Pair {
+            home: 1,
+            visiting: 2
+        }
+    );
+    assert_eq!(snap.court.visiting[0], Some(13));
+    // Nothing left to redo; a new code clears redo.
+    session.redo().expect("nothing to redo");
+    session.undo().expect("undo");
+    session.commit("a13AH=", None).expect("new code");
+    let snap = session.redo().expect("redo is empty");
+    assert_eq!(texts(&snap).last().map(String::as_str), Some("*p02:01"));
+}
+
+#[test]
+fn corrections_insertions_and_removals() {
+    let (mut session, dir) = opened();
+    let snap = session.snapshot().expect("snapshot");
+    let find = |snap: &courtside_console::Snapshot, text: &str| {
+        snap.groups
+            .iter()
+            .flat_map(|g| &g.rows)
+            .find(|r| r.text == text)
+            .map(|r| r.id.clone())
+            .expect(text)
+    };
+    // Rally 1: the kill was by 12, not 13.
+    let snap = session
+        .correct(&find(&snap, "a13AH#"), "a12AH#", None)
+        .expect("correct");
+    assert!(texts(&snap).contains(&"a12AH#".to_string()));
+    assert!(!texts(&snap).contains(&"a13AH#".to_string()));
+    let row = snap.groups[0]
+        .rows
+        .iter()
+        .find(|r| r.text == "a12AH#")
+        .expect("row");
+    assert!(row.edited);
+    // A dig was missed before the set.
+    let snap = session
+        .insert_before(&find(&snap, "a14EH+"), "a11DH+", None)
+        .expect("insert");
+    let t = texts(&snap);
+    let at = t.iter().position(|c| c == "a11DH+").expect("inserted");
+    assert_eq!(t[at + 1], "a14EH+");
+    // The timeout never happened.
+    let snap = session.remove(&find(&snap, "*T")).expect("remove");
+    assert!(!texts(&snap).contains(&"*T".to_string()));
+    assert_eq!(snap.timeouts.home, 0);
+
+    assert!(
+        session
+            .correct(&find(&snap, "a12AH#"), "a12AH# *T", None)
+            .is_err()
+    );
+    assert!(session.correct(&find(&snap, "a12AH#"), "x", None).is_err());
+
+    // All of it is saved.
+    let mut reopened = Session::new();
+    reopened
+        .open_season(&dir.path().join("season.courtside"))
+        .expect("open season");
+    let id = reopened.matches().expect("matches")[0]
+        .id
+        .parse()
+        .expect("id");
+    assert_eq!(
+        texts(&reopened.open_match(id, 3_000).expect("open")),
+        texts(&snap)
+    );
+}

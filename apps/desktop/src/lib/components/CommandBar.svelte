@@ -39,12 +39,13 @@
       return;
     }
     busy = true;
-    if (await ui.commit(text)) ui.code = "";
+    if (await ui.submit(text)) ui.code = "";
     busy = false;
   }
 
   function onkeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
+      if (ui.editing) ui.cancelEdit();
       ui.code = "";
       ui.result = null;
     } else if (e.key === "Enter") {
@@ -55,7 +56,13 @@
 </script>
 
 <section class="cmd" class:bad={hint.bad} aria-label="Command bar">
-  <span class="prompt" aria-hidden="true">›</span>
+  {#if ui.editing}
+    <span class="edit-tag"
+      >{ui.editing.mode === "correct" ? "Correct" : "Before"} <code>{ui.editing.text}</code></span
+    >
+  {:else}
+    <span class="prompt" aria-hidden="true">›</span>
+  {/if}
   <input
     class="code-input"
     bind:this={input}

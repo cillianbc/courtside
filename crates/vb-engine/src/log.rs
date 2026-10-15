@@ -170,6 +170,37 @@ impl EventLog {
         self.events.pop()
     }
 
+    /// Puts back an event that [`EventLog::undo`] removed (redo). It must
+    /// fit at the tail as it did: the next `seq`, an id not in the log, and
+    /// a correction or insertion target that is in the log and still free.
+    /// A rejected event leaves the log unchanged.
+    pub fn redo(&mut self, event: MatchEvent) -> Result<(), LogError> {
+        let expected = u32::try_from(self.events.len()).unwrap_or(u32::MAX);
+        if event.seq != expected {
+            return Err(LogError::OutOfOrder {
+                id: event.id,
+                seq: event.seq,
+                expected,
+            });
+        }
+        if self.get(event.id).is_some() {
+            return Err(LogError::Duplicate(event.id));
+        }
+        if let Some(t) = event.supersedes {
+            self.get(t).ok_or(LogError::NotFound(t))?;
+            if let Some(by) = self.events.iter().find(|e| e.supersedes == Some(t)) {
+                return Err(LogError::AlreadySuperseded(t, by.id));
+            }
+        }
+        if let Some(anchor) = event.before
+            && !self.get(anchor).is_some_and(|a| a.supersedes.is_none())
+        {
+            return Err(LogError::NotFound(anchor));
+        }
+        self.events.push(event);
+        Ok(())
+    }
+
     /// The original or inserted event a correction chain starts from.
     fn root(&self, id: EventId) -> Option<EventId> {
         let mut cur = self.get(id)?;
@@ -259,6 +290,32 @@ mod tests {
         );
         log.undo();
         assert_eq!(codes(&log), ["*12SH-", "a08RH#", "a07AH#"]);
+    }
+
+    #[test]
+    fn redo_puts_undone_events_back() {
+        let mut ids = IdGen::new(0);
+        let mut log = EventLog::new();
+        log.append(&mut ids, new("*12SH-"));
+        let r = log.append(&mut ids, new("a07RH#"));
+        log.correct(&mut ids, r, new("a08RH#")).expect("correct");
+        let full = log.clone();
+        let c = log.undo().expect("undo correction");
+        let a = log.undo().expect("undo append");
+        // Out of order: the correction's target isn't back yet.
+        assert!(log.redo(c.clone()).is_err());
+        assert_eq!(log.len(), 1, "a rejected redo changes nothing");
+        log.redo(a.clone()).expect("redo append");
+        assert_eq!(
+            log.redo(a),
+            Err(LogError::OutOfOrder {
+                id: r,
+                seq: 1,
+                expected: 2
+            })
+        );
+        log.redo(c).expect("redo correction");
+        assert_eq!(log, full);
     }
 
     #[test]

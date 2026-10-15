@@ -496,6 +496,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "ulid",
  "vb-engine",
  "vb-grammar",
 ]

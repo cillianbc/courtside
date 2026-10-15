@@ -104,6 +104,43 @@ fn lineup_set(
 }
 
 #[tauri::command]
+fn undo(state: State<'_, Shared>) -> Reply<Snapshot> {
+    with(&state, |s| s.undo())
+}
+
+#[tauri::command]
+fn redo(state: State<'_, Shared>) -> Reply<Snapshot> {
+    with(&state, |s| s.redo())
+}
+
+/// Replaces the code with event id `id` by `text`.
+#[tauri::command]
+fn code_correct(
+    state: State<'_, Shared>,
+    id: String,
+    text: String,
+    clock: Option<[u8; 3]>,
+) -> Reply<Snapshot> {
+    with(&state, |s| s.correct(&id, &text, clock_time(clock)))
+}
+
+/// Adds `text` before the code with event id `id`.
+#[tauri::command]
+fn code_insert(
+    state: State<'_, Shared>,
+    id: String,
+    text: String,
+    clock: Option<[u8; 3]>,
+) -> Reply<Snapshot> {
+    with(&state, |s| s.insert_before(&id, &text, clock_time(clock)))
+}
+
+#[tauri::command]
+fn code_remove(state: State<'_, Shared>, id: String) -> Reply<Snapshot> {
+    with(&state, |s| s.remove(&id))
+}
+
+#[tauri::command]
 fn export_dvw(state: State<'_, Shared>, path: PathBuf) -> Reply<()> {
     with(&state, |s| s.export_dvw(&path))
 }
@@ -128,6 +165,11 @@ fn main() {
             preview,
             commit,
             lineup_set,
+            undo,
+            redo,
+            code_correct,
+            code_insert,
+            code_remove,
             export_dvw
         ])
         .run(tauri::generate_context!());

@@ -41,7 +41,17 @@ function row(text: string, kind: Row["kind"] = "touch", severity: Row["severity"
       ? "visiting"
       : null;
   seq += 1;
-  return { id: `fixture-${seq}`, index: seq - 1, text, team, kind, meaning: "", auto, severity };
+  return {
+    id: `fixture-${seq}`,
+    index: seq - 1,
+    text,
+    team,
+    kind,
+    meaning: "",
+    auto,
+    edited: false,
+    severity,
+  };
 }
 
 function rally(

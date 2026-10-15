@@ -17,6 +17,7 @@ courtside-ffi.workspace = true
 courtside-store.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+ulid.workspace = true
 vb-engine.workspace = true
 vb-grammar.workspace = true
 
