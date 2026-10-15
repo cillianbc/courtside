@@ -497,6 +497,67 @@ fn compound(
     })
 }
 
+/// Whether `first` then `second` is a compound pair: a serve and the other
+/// team's reception, or an attack and the other team's block or dig.
+pub fn is_pair(first: &Touch, second: &Touch) -> bool {
+    first.team != second.team
+        && matches!(
+            (first.skill, second.skill),
+            (Skill::Serve, Skill::Reception) | (Skill::Attack, Skill::Block | Skill::Dig)
+        )
+}
+
+/// One half of a pair was corrected from `old` to `new`; the other half,
+/// `partner`, follows what changed, as when the pair was typed: the type,
+/// the evaluation through the pairing table, the zones (a block's start
+/// zone mirrors the attack's). `edited_first` says which half was edited.
+/// `None` when nothing follows or the edit broke the pair.
+pub fn follow_pair(old: &Touch, new: &Touch, partner: &Touch, edited_first: bool) -> Option<Touch> {
+    let (first, second) = if edited_first {
+        (new, partner)
+    } else {
+        (partner, new)
+    };
+    if !is_pair(first, second) {
+        return None;
+    }
+    let mut p = partner.clone();
+    if new.skill_type() != old.skill_type()
+        && let Some(t) = new.skill_type()
+    {
+        p = p.with_skill_type(t);
+    }
+    if new.evaluation() != old.evaluation()
+        && let Some(e) = new.evaluation()
+    {
+        let derived = if edited_first {
+            second_from_first(first.skill, second.skill, e)
+        } else {
+            first_from_second(first.skill, second.skill, e)
+        };
+        if let Some(d) = derived {
+            p = p.with_evaluation(d);
+        }
+    }
+    let slot = |z: Option<char>| z.unwrap_or('~');
+    if second.skill == Skill::Block {
+        if new.start_zone() != old.start_zone() {
+            p = p.with_start_zone(new.start_zone().map_or('~', mirror));
+        }
+    } else {
+        if new.start_zone() != old.start_zone() {
+            p = p.with_start_zone(slot(new.start_zone()));
+        }
+        if new.end_zone() != old.end_zone() {
+            p = p.with_end_zone(slot(new.end_zone()));
+        }
+        if new.end_subzone() != old.end_subzone() {
+            p = p.with_end_subzone(slot(new.end_subzone()));
+        }
+    }
+    (p != *partner).then_some(p)
+}
+
 fn other(t: Team) -> Team {
     match t {
         Team::Home => Team::Visiting,
@@ -596,6 +657,54 @@ mod tests {
         );
         assert_eq!(exp("5A.a12D#", None), ["*05AH-", "a12DH#"]);
         assert_eq!(exp("5A#.a12D", None), ["*05AH#", "a12DH="]);
+    }
+
+    fn touch(s: &str) -> Touch {
+        match Code::parse(s) {
+            Code::Touch(t) => t,
+            _ => panic!("not a touch: {s}"),
+        }
+    }
+
+    fn follow(old: &str, new: &str, partner: &str, edited_first: bool) -> Option<String> {
+        follow_pair(&touch(old), &touch(new), &touch(partner), edited_first).map(|t| t.to_string())
+    }
+
+    #[test]
+    fn corrected_pairs_follow() {
+        // The reception was really perfect: the serve becomes `-`.
+        assert_eq!(
+            follow("a12RH+", "a12RH#", "*05SH!", false).as_deref(),
+            Some("*05SH-")
+        );
+        // The serve was an ace: the reception becomes an error.
+        assert_eq!(
+            follow("*05SH-", "*05SH#", "a12RH#", true).as_deref(),
+            Some("a12RH=")
+        );
+        // A jump serve, not a float: the reception's type follows.
+        assert_eq!(
+            follow("*05SM-", "*05SQ-", "a12RM#", true).as_deref(),
+            Some("a12RQ#")
+        );
+        // Zones are shared; a block's zone mirrors the attack's.
+        assert_eq!(
+            follow("*05SH-~~~16", "*05SH-~~~56C", "a12RH#~~~16", true).as_deref(),
+            Some("a12RH#~~~56C")
+        );
+        assert_eq!(
+            follow("a5AH/~~~3", "a5AH/~~~4", "*12BH#~~~3", true).as_deref(),
+            Some("*12BH#~~~2")
+        );
+        assert_eq!(
+            follow("a5AH-", "a5AH+", "*12DH#", true).as_deref(),
+            Some("*12DH-")
+        );
+        // A change of player only, or a broken pair, changes nothing.
+        assert_eq!(follow("*05SH-", "*07SH-", "a12RH#", true), None);
+        assert_eq!(follow("*05SH-", "*05AH-", "a12RH#", true), None);
+        assert!(is_pair(&touch("*05AH-"), &touch("a12DH#")));
+        assert!(!is_pair(&touch("*05AH-"), &touch("*12DH#")));
     }
 
     #[test]

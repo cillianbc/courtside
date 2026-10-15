@@ -707,3 +707,64 @@ fn from_an_empty_season_to_an_exported_match() {
         "late player exported"
     );
 }
+
+/// Correcting one half of a pair corrects the other, and one undo takes
+/// back both. Rally 1 of the fixture starts `*01SM- a12RM+`.
+#[test]
+fn correcting_one_half_of_a_pair_updates_the_other() {
+    let (mut session, _dir) = opened();
+    let id = |snap: &courtside_console::Snapshot, text: &str| {
+        snap.groups
+            .iter()
+            .flat_map(|g| &g.rows)
+            .find(|r| r.text == text)
+            .map(|r| r.id.clone())
+            .expect(text)
+    };
+    let snap = session.snapshot().expect("snapshot");
+    // The reception was poor: the serve was good.
+    let snap = session
+        .correct(&id(&snap, "a12RM+"), "a12RM-", None)
+        .expect("correct reception");
+    let rally: Vec<&str> = snap.groups[0]
+        .rows
+        .iter()
+        .map(|r| r.text.as_str())
+        .collect();
+    assert_eq!(rally[4..6], ["*01SM+", "a12RM-"]);
+    let serve = snap.groups[0]
+        .rows
+        .iter()
+        .find(|r| r.text == "*01SM+")
+        .expect("serve");
+    assert!(
+        serve.auto && serve.edited,
+        "written by the console as a correction"
+    );
+
+    // A jump serve, not a float: the reception's type follows.
+    let snap = session
+        .correct(&id(&snap, "*01SM+"), "*01SQ+", None)
+        .expect("correct serve");
+    assert!(texts(&snap).contains(&"a12RQ-".to_string()));
+
+    // One undo takes back the serve correction and what followed it.
+    let snap = session.undo().expect("undo");
+    let t = texts(&snap);
+    assert!(
+        t.contains(&"*01SM+".to_string()) && t.contains(&"a12RM-".to_string()),
+        "{t:?}"
+    );
+
+    // A code outside a pair leaves its neighbours alone.
+    let before = texts(&snap);
+    let snap = session
+        .correct(&id(&snap, "a14EH+"), "a14EH#", None)
+        .expect("correct set");
+    let changed: Vec<_> = texts(&snap)
+        .into_iter()
+        .zip(before)
+        .filter(|(a, b)| a != b)
+        .collect();
+    assert_eq!(changed, [("a14EH#".to_string(), "a14EH+".to_string())]);
+}

@@ -15,7 +15,7 @@ use courtside_store::Season;
 use vb_engine::log::{EventLog, LogError};
 use vb_engine::model::Outcome;
 use vb_engine::{Body, EventId, IdGen, Match, MatchEvent, NewEvent, Producer, fold};
-use vb_grammar::expand::Defaults;
+use vb_grammar::expand::{Defaults, follow_pair, is_pair};
 use vb_grammar::{Code, Touch};
 
 pub use courtside_store::{Error as StoreError, MatchId};
@@ -76,6 +76,39 @@ fn won(game: &Match, set: u8, score: vb_engine::Score) -> bool {
         score.home.min(score.visiting),
     );
     hi >= target && hi - lo >= 2
+}
+
+fn touch_of(e: &MatchEvent) -> Option<Touch> {
+    match e.code() {
+        Some(Code::Touch(t)) => Some(t.clone()),
+        _ => None,
+    }
+}
+
+/// The visible event `target` (or what now stands in its place) forms a
+/// pair with, and whether `target` is the pair's first half.
+fn pair_partner(log: &EventLog, target: EventId) -> Option<(EventId, bool)> {
+    let visible = log.visible();
+    let i = visible.iter().position(|e| {
+        let mut cur = Some(e.id);
+        while let Some(id) = cur {
+            if id == target {
+                return true;
+            }
+            cur = log.get(id).and_then(|x| x.supersedes);
+        }
+        false
+    })?;
+    let me = touch_of(visible[i])?;
+    if let Some(prev) = i.checked_sub(1).and_then(|j| visible.get(j))
+        && let Some(p) = touch_of(prev)
+        && is_pair(&p, &me)
+    {
+        return Some((prev.id, false));
+    }
+    let next = visible.get(i + 1)?;
+    let n = touch_of(next)?;
+    is_pair(&me, &n).then_some((next.id, true))
 }
 
 /// The first touch walking back through `events` before a point code or
@@ -553,10 +586,39 @@ impl Session {
     }
 
     /// Replaces an earlier code with `text` (one code), in place.
+    ///
+    /// When the code is one half of a pair (a serve and the other team's
+    /// reception, an attack and the other team's block or dig, one straight
+    /// after the other), the other half follows what changed: type,
+    /// evaluation through the pairing table, zones. That follow-up is
+    /// written by the console, so one undo takes back both.
     pub fn correct(&mut self, id: &str, text: &str, clock: Option<ClockTime>) -> Result<Snapshot> {
-        self.edit(id, Some(text), clock, |log, ids, target, new| match new {
-            Some(new) => log.correct(ids, target, new),
-            None => Err(LogError::NotFound(target)),
+        self.edit(id, Some(text), clock, |log, ids, target, new| {
+            let Some(new) = new else {
+                return Err(LogError::NotFound(target));
+            };
+            let partner = pair_partner(log, target);
+            let id = log.correct(ids, target, new)?;
+            if let Some((partner, edited_first)) = partner {
+                let old = log.get(target).and_then(touch_of);
+                let now = log.get(id).and_then(touch_of);
+                let other = log.get(partner).and_then(touch_of);
+                if let (Some(old), Some(now), Some(other)) = (old, now, other)
+                    && let Some(updated) = follow_pair(&old, &now, &other, edited_first)
+                {
+                    log.correct(
+                        ids,
+                        partner,
+                        NewEvent {
+                            body: Body::Code(Code::Touch(updated)),
+                            video_ms: None,
+                            clock,
+                            producer: Producer::Repair,
+                        },
+                    )?;
+                }
+            }
+            Ok(id)
         })
     }
 
