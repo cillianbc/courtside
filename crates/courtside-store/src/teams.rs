@@ -427,7 +427,8 @@ impl Season {
     }
 
     /// Replaces one side's roster for this match only (a late addition, a
-    /// corrected number). Matches imported from a file keep the file's.
+    /// corrected name). For an imported match the file's player rows follow
+    /// on open and export.
     pub fn save_match_roster(
         &mut self,
         id: MatchId,
@@ -443,12 +444,8 @@ impl Season {
                 |r| r.get(0),
             )
             .optional()?;
-        match imported {
-            None => return Err(Error::NoMatch(id)),
-            Some(true) => {
-                return Err(invalid("an imported match keeps the rosters from its file"));
-            }
-            Some(false) => {}
+        if imported.is_none() {
+            return Err(Error::NoMatch(id));
         }
         let side = u8::from(!home);
         tx.execute(

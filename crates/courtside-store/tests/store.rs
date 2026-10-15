@@ -304,3 +304,64 @@ fn corpus_round_trips_through_the_store() {
     }
     assert_eq!(season.matches().expect("matches").len(), n);
 }
+
+/// An imported match's roster can be edited for that match: the file's
+/// player rows follow, untouched rows stay as they were.
+#[test]
+fn an_imported_match_roster_can_be_edited() {
+    use courtside_store::PlayerInput;
+    let mut season = Season::in_memory("2026/27", 1).expect("season");
+    let id = season
+        .import_dvw("m.dvw", FILE.as_bytes(), 1_000)
+        .expect("import");
+    let (home, _) = season.match_roster(id).expect("roster");
+    let mut rows: Vec<PlayerInput> = home
+        .iter()
+        .map(|p| PlayerInput {
+            id: Some(p.id.clone()),
+            number: p.number,
+            code: p.code.clone(),
+            last_name: p.last_name.clone(),
+            first_name: p.first_name.clone(),
+            role: p.role,
+            libero: p.libero,
+            ..PlayerInput::default()
+        })
+        .collect();
+    rows[0].last_name = "Renamed".into();
+    rows.push(PlayerInput {
+        number: 20,
+        last_name: "Late".into(),
+        first_name: "Arrival".into(),
+        ..PlayerInput::default()
+    });
+    season
+        .save_match_roster(id, true, &rows)
+        .expect("edit roster");
+
+    let open = season.open_match(id).expect("open");
+    assert!(
+        open.game.teams.home.player(20).is_some(),
+        "the engine sees #20"
+    );
+    let text = String::from_utf8_lossy(&season.export_dvw(id).expect("export")).into_owned();
+    let original = |prefix: &str| {
+        FILE.split("\r\n")
+            .find(|l| l.starts_with(prefix))
+            .map(str::to_owned)
+    };
+    let line = |prefix: &str| {
+        text.split("\r\n")
+            .find(|l| l.starts_with(prefix))
+            .map(str::to_owned)
+    };
+    assert!(line("0;8;").expect("#8").contains(";Renamed;"));
+    assert_eq!(
+        line("0;12;"),
+        original("0;12;"),
+        "an untouched row is kept as it was"
+    );
+    let late = line("0;20;").expect("#20");
+    assert!(late.contains(";Late;Arrival;"), "{late}");
+    assert_eq!(line("1;16;"), original("1;16;"));
+}

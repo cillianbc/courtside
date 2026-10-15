@@ -8,6 +8,7 @@
 //! writes the difference: rows past the first event that differs are
 //! replaced, in one transaction.
 
+mod roster;
 mod teams;
 mod template;
 
@@ -412,11 +413,17 @@ impl Season {
             )
             .optional()?;
         let source = source.ok_or(Error::NoMatch(id))?;
+        let imported = source.is_some();
         let bytes = match source {
             Some(bytes) => bytes,
             None => self.blank_template(id)?,
         };
-        let template = Dvw::parse(&bytes)?;
+        let mut template = Dvw::parse(&bytes)?;
+        if imported {
+            // The match's roster as edited in the console.
+            let (home, visiting) = self.match_roster(id)?;
+            roster::apply(&mut template, &home, &visiting);
+        }
         let mut game = Match::from_dvw(&template, &mut IdGen::new(0));
         game.log = EventLog::from_events(read_events(&self.conn, id)?)?;
         Ok(OpenMatch { id, game, template })
@@ -604,7 +611,7 @@ fn migrate_2_to_3(conn: &Connection) -> Result<()> {
     }
 }
 
-fn role_number(r: dvw_codec::dvw::Role) -> u8 {
+pub(crate) fn role_number(r: dvw_codec::dvw::Role) -> u8 {
     use dvw_codec::dvw::Role;
     match r {
         Role::Libero => 1,
