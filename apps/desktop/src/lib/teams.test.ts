@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { blankPlayer, guessPairs, nextNumber, rosterProblems, suggestCode } from "./teams";
+import {
+  blankPlayer,
+  describeImport,
+  guessPairs,
+  nextNumber,
+  rosterProblems,
+  suggestCode,
+} from "./teams";
 
 const p = (number: number, lastName: string, firstName = "", code = "") => ({
   ...blankPlayer(number),
@@ -55,5 +62,21 @@ describe("merge pairs", () => {
       ["Bellamy-2", "Bellamy-5"],
       ["Corrin-3", "Corrin-3"],
     ]);
+  });
+});
+
+describe("team import summary", () => {
+  it("says what happened", () => {
+    const r = {
+      teamId: "t",
+      teamName: "Northgate",
+      created: true,
+      playersAdded: 1,
+      playersKept: 0,
+    };
+    expect(describeImport(r)).toBe("Added Northgate with 1 player.");
+    expect(describeImport({ ...r, created: false, playersAdded: 2, playersKept: 12 })).toBe(
+      "Northgate was already here: added 2 players, kept 12 players as they were.",
+    );
   });
 });

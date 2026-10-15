@@ -1,7 +1,7 @@
 //! Team and roster management as the UI sees it: camelCase views and the
 //! forms it sends back. `apps/desktop/src/lib/teams.ts` mirrors these.
 
-use courtside_store::{Player, PlayerInput, SeasonPlayer, Team, TeamInput};
+use courtside_store::{Player, PlayerInput, SeasonPlayer, Team, TeamImport, TeamInput};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -135,6 +135,29 @@ impl From<&PlayerDetail> for PlayerInput {
             foreign: p.foreign,
             birth_date: p.birth_date.clone().filter(|d| !d.is_empty()),
             height_cm: p.height_cm,
+        }
+    }
+}
+
+/// What importing a team file did, for the message the scout sees.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamImportView {
+    pub team_id: String,
+    pub team_name: String,
+    pub created: bool,
+    pub players_added: usize,
+    pub players_kept: usize,
+}
+
+impl From<TeamImport> for TeamImportView {
+    fn from(t: TeamImport) -> Self {
+        TeamImportView {
+            team_id: t.team_id,
+            team_name: t.team_name,
+            created: t.created,
+            players_added: t.players_added,
+            players_kept: t.players_kept,
         }
     }
 }

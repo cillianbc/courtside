@@ -12,7 +12,8 @@ mod teams;
 mod template;
 
 pub use teams::{
-    Player, PlayerInput, SeasonPlayer, Team, TeamInput, suggest_player_code, suggest_team_code,
+    Player, PlayerInput, SeasonPlayer, Team, TeamImport, TeamInput, suggest_player_code,
+    suggest_team_code,
 };
 
 use std::path::Path;
@@ -296,7 +297,7 @@ impl Season {
                     birth_date: None,
                     height_cm: None,
                 };
-                let (player_id, code) = teams::find_or_add_player(&tx, &team_id, &row, now_ms)?;
+                let (player_id, code, _) = teams::find_or_add_player(&tx, &team_id, &row, now_ms)?;
                 rows.push((player_id, code, row));
             }
             rosters.push(rows);

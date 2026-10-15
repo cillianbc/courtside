@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { open } from "@tauri-apps/plugin-dialog";
   import * as backend from "../backend";
-  import type { TeamDetail } from "../teams";
+  import { describeImport, type TeamDetail } from "../teams";
   import MergeTeams from "./MergeTeams.svelte";
   import TeamEditor from "./TeamEditor.svelte";
 
@@ -13,6 +14,27 @@
   let view = $state<View>({ kind: "list" });
   let error = $state("");
   let confirmDelete = $state<string | null>(null);
+  let note = $state("");
+
+  async function importFiles() {
+    error = "";
+    note = "";
+    try {
+      const picked = await open({
+        multiple: true,
+        filters: [
+          { name: "Team file (DataVolley .sq, VolleyStation .vst)", extensions: ["sq", "vst"] },
+        ],
+      });
+      const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+      const done: string[] = [];
+      for (const path of paths) done.push(describeImport(await backend.importTeam(path)));
+      note = done.join(" ");
+      if (paths.length) await onchange();
+    } catch (e) {
+      error = String(e);
+    }
+  }
 
   async function done(changed: boolean) {
     view = { kind: "list" };
@@ -44,8 +66,10 @@
     <button class="btn primary" type="button" onclick={() => (view = { kind: "edit", team: null })}
       >New team</button
     >
+    <button class="btn" type="button" onclick={importFiles}>Import team file</button>
   </div>
   {#if error}<p class="error">{error}</p>{/if}
+  {#if note}<p class="sub-note">{note}</p>{/if}
   {#if teams.length}
     <table class="list">
       <thead>

@@ -315,3 +315,49 @@ fn a_team_and_its_roster_save_together_or_not_at_all() {
         ("Harbour City VC", "HAR", 2)
     );
 }
+
+#[test]
+fn team_files_add_a_team_or_fill_in_its_roster() {
+    let mut season = Season::in_memory("s", 1).expect("season");
+    // VolleyStation-style .sq (made-up team).
+    let sq = "DV-Team-2\nHCV\tHarbour City\tMarlow Dennis\tOkafor Tess\tHCV\t1252\n\
+              3\tHCV-ARD\tArdent\t\t\t\t\t\tJonah\t2\t\t\tFalse\n\
+              7\tHCV-QUI\tQuill\t\t\t\tL\t\tMaya\t1\t\t\tTrue";
+    let first = season
+        .import_team_file("HCV.sq", sq.as_bytes(), 2)
+        .expect("import");
+    assert!(first.created);
+    assert_eq!((first.players_added, first.players_kept), (2, 0));
+    let t = season.team(&first.team_id).expect("team");
+    assert_eq!(
+        (t.name.as_str(), t.code.as_str(), t.coach.as_str()),
+        ("Harbour City", "HCV", "Marlow Dennis")
+    );
+    assert!(
+        t.players
+            .iter()
+            .any(|p| p.code == "HCV-QUI" && p.libero && p.foreign)
+    );
+
+    // The same team as .vst, with one more player: reused, filled in.
+    let vst = r#"{"code":"HCV","name":"Harbour City","players":[
+        {"code":"HCV-ARD","lastName":"Ardent","firstName":"Jonah","shirtNumber":3,"position":1},
+        {"code":"HCV-BRA","lastName":"Brannigan","firstName":"Nell","shirtNumber":11,"position":4,"height":181}]}"#;
+    let second = season
+        .import_team_file("HCV.vst", vst.as_bytes(), 3)
+        .expect("import");
+    assert!(!second.created);
+    assert_eq!(second.team_id, first.team_id);
+    assert_eq!((second.players_added, second.players_kept), (1, 1));
+    let t = season.team(&first.team_id).expect("team");
+    let b = t.players.iter().find(|p| p.number == 11).expect("#11");
+    assert_eq!((b.role, b.height_cm), (Some(5), Some(181)));
+
+    assert_eq!(
+        season
+            .import_team_file("x.sq", b"hello", 4)
+            .unwrap_err()
+            .to_string(),
+        "not a team file: the first line isn't DV-Team-2"
+    );
+}

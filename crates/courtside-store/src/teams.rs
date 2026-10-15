@@ -697,13 +697,14 @@ pub(crate) fn insert_match_player(
 
 /// For an imported `.dvw` player: the season player it is (same code in
 /// the team, else same shirt number), or a new one. Returns its id and
-/// code. Season data already there is left as it is.
+/// code, and whether it was added. Season data already there is left as
+/// it is.
 pub(crate) fn find_or_add_player(
     tx: &Transaction<'_>,
     team_id: &str,
     r: &PlayerInput,
     now_ms: u64,
-) -> Result<(String, String)> {
+) -> Result<(String, String, bool)> {
     let code = r.code.trim();
     let by_code: Option<(String, String)> = if code.is_empty() {
         None
@@ -725,8 +726,8 @@ pub(crate) fn find_or_add_player(
             )
             .optional()?,
     };
-    if let Some(f) = found {
-        return Ok(f);
+    if let Some((id, code)) = found {
+        return Ok((id, code, false));
     }
     let taken = codes_in(tx, "SELECT code FROM player WHERE id <> ?1", "")?;
     let code = if !code.is_empty() && !taken.contains(code) {
@@ -753,7 +754,117 @@ pub(crate) fn find_or_add_player(
             r.foreign
         ],
     )?;
-    Ok((id, code))
+    if r.birth_date.is_some() || r.height_cm.is_some() {
+        tx.execute(
+            "UPDATE player SET birth_date = ?2, height_cm = ?3 WHERE id = ?1",
+            params![id, r.birth_date, r.height_cm],
+        )?;
+    }
+    Ok((id, code, true))
+}
+
+/// What importing a team file did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamImport {
+    pub team_id: String,
+    pub team_name: String,
+    /// The team wasn't in the season yet.
+    pub created: bool,
+    pub players_added: usize,
+    /// Players already on the roster (by code or shirt number), left as
+    /// they are.
+    pub players_kept: usize,
+}
+
+impl Season {
+    /// Imports a team file (`.sq` or `.vst`): a team already in the season
+    /// (same code, else same name) is reused and gains the players it
+    /// lacks; players it has, by code or shirt number, are left as they
+    /// are.
+    pub fn import_team_file(
+        &mut self,
+        file_name: &str,
+        bytes: &[u8],
+        now_ms: u64,
+    ) -> Result<TeamImport> {
+        let is_json = file_name.to_ascii_lowercase().ends_with(".vst")
+            || bytes.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{');
+        let file = if is_json {
+            dvw_codec::team_file::parse_vst(bytes)
+        } else {
+            dvw_codec::team_file::parse_sq(bytes)
+        }
+        .map_err(|e| invalid(e.to_string()))?;
+        let name = if file.name.is_empty() {
+            file.code.clone()
+        } else {
+            file.name.clone()
+        };
+        let tx = self.conn.transaction()?;
+        let existing: Option<String> = match file.code.as_str() {
+            "" => None,
+            code => tx
+                .query_row("SELECT id FROM team WHERE code = ?1", [code], |r| r.get(0))
+                .optional()?,
+        };
+        let existing = match existing {
+            Some(id) => Some(id),
+            None => tx
+                .query_row("SELECT id FROM team WHERE name = ?1", [&name], |r| r.get(0))
+                .optional()?,
+        };
+        let created = existing.is_none();
+        let team_id = match existing {
+            Some(id) => id,
+            None => {
+                let taken = codes_in(&tx, "SELECT code FROM team WHERE id <> ?1", "")?;
+                let code = match file.code.as_str() {
+                    c if !c.is_empty() && !taken.contains(c) => c.to_owned(),
+                    _ => String::new(),
+                };
+                team_create_in(
+                    &tx,
+                    &TeamInput {
+                        name: name.clone(),
+                        code,
+                        coach: file.coach.clone(),
+                        assistant: file.assistant.clone(),
+                    },
+                    now_ms,
+                )?
+            }
+        };
+        let (mut added, mut kept) = (0, 0);
+        for p in &file.players {
+            let row = PlayerInput {
+                id: None,
+                number: p.number,
+                code: p.code.clone(),
+                last_name: p.last_name.clone(),
+                first_name: p.first_name.clone(),
+                nickname: p.nickname.clone(),
+                role: p.role,
+                libero: p.libero,
+                captain: p.captain,
+                foreign: p.foreign,
+                birth_date: p.birth_date.clone(),
+                height_cm: p.height_cm,
+            };
+            if find_or_add_player(&tx, &team_id, &row, now_ms)?.2 {
+                added += 1;
+            } else {
+                kept += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(TeamImport {
+            team_id,
+            team_name: name,
+            created,
+            players_added: added,
+            players_kept: kept,
+        })
+    }
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use courtside_console::{
     ClockTime, MatchId, MatchItem, PlayerDetail, PlayerListItem, Preview, Resume, Session,
-    Snapshot, Team, TeamDetail, TeamForm,
+    Snapshot, Team, TeamDetail, TeamForm, TeamImportView,
 };
 use tauri::{AppHandle, Manager, State};
 
@@ -98,6 +98,12 @@ fn team_save(
     with(&state, |s| {
         s.save_team(id.as_deref(), &team, &players, now_ms())
     })
+}
+
+/// Imports a team file (`.sq` or `.vst`).
+#[tauri::command]
+fn team_import(state: State<'_, Shared>, path: PathBuf) -> Reply<TeamImportView> {
+    with(&state, |s| s.import_team_file(&path, now_ms()))
 }
 
 #[tauri::command]
@@ -283,6 +289,7 @@ fn main() {
             teams,
             team_save,
             team_delete,
+            team_import,
             teams_merge,
             players,
             players_merge,

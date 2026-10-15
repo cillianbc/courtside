@@ -5,7 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { fixture } from "./fixture";
 import type { MatchItem, Preview, Side, Snapshot } from "./snapshot";
-import type { PlayerDetail, PlayerListItem, TeamDetail, TeamForm } from "./teams";
+import type { PlayerDetail, PlayerListItem, TeamDetail, TeamForm, TeamImportView } from "./teams";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -31,6 +31,11 @@ export async function saveTeam(
   players: PlayerDetail[],
 ): Promise<TeamDetail> {
   return invoke<TeamDetail>("team_save", { id, team, players });
+}
+
+/** Imports a team file (`.sq` or `.vst`). */
+export async function importTeam(path: string): Promise<TeamImportView> {
+  return invoke<TeamImportView>("team_import", { path });
 }
 
 export async function deleteTeam(id: string): Promise<void> {

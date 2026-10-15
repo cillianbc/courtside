@@ -136,3 +136,19 @@ export function guessPairs(from: PlayerDetail[], into: PlayerDetail[]): Map<stri
   }
   return pairs;
 }
+
+export interface TeamImportView {
+  teamId: string;
+  teamName: string;
+  created: boolean;
+  playersAdded: number;
+  playersKept: number;
+}
+
+/** The scout-facing summary of a team file import. */
+export function describeImport(r: TeamImportView): string {
+  const players = (n: number) => `${n} player${n === 1 ? "" : "s"}`;
+  return r.created
+    ? `Added ${r.teamName} with ${players(r.playersAdded)}.`
+    : `${r.teamName} was already here: added ${players(r.playersAdded)}, kept ${players(r.playersKept)} as they were.`;
+}

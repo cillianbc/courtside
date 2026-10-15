@@ -18,7 +18,7 @@ use vb_engine::{Body, EventId, IdGen, Match, MatchEvent, NewEvent, Producer, fol
 use vb_grammar::Code;
 
 pub use courtside_store::{Error as StoreError, MatchId};
-pub use manage::{PlayerDetail, PlayerListItem, TeamDetail, TeamForm};
+pub use manage::{PlayerDetail, PlayerListItem, TeamDetail, TeamForm, TeamImportView};
 pub use readback::Preview;
 pub use resume::Resume;
 pub use snapshot::{MatchItem, Snapshot};
@@ -170,6 +170,22 @@ impl Session {
         let season = self.season_mut()?;
         let id = season.save_team(id, &team.into(), &rows, now_ms)?;
         Ok(season.team(&id)?.into())
+    }
+
+    /// Imports a team file (`.sq` or `.vst`) into the open season.
+    pub fn import_team_file(&mut self, path: &Path, now_ms: u64) -> Result<TeamImportView> {
+        let bytes = std::fs::read(path).map_err(|source| Error::Read {
+            path: path.display().to_string(),
+            source,
+        })?;
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        Ok(self
+            .season_mut()?
+            .import_team_file(&name, &bytes, now_ms)?
+            .into())
     }
 
     pub fn delete_team(&mut self, id: &str) -> Result<()> {
