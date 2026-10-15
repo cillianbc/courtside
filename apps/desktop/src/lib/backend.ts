@@ -95,8 +95,9 @@ export async function matches(): Promise<MatchItem[]> {
   return invoke<MatchItem[]>("matches");
 }
 
-export async function importMatch(path: string): Promise<MatchItem[]> {
-  return invoke<MatchItem[]>("match_import", { path });
+/** Imports a `.dvw` and opens it. */
+export async function importMatch(path: string): Promise<Snapshot> {
+  return invoke<Snapshot>("match_import", { path });
 }
 
 export async function openMatch(id: string): Promise<Snapshot> {

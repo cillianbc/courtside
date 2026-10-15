@@ -195,13 +195,16 @@ fn matches(state: State<'_, Shared>) -> Reply<Vec<MatchItem>> {
     with(&state, |s| s.matches())
 }
 
-/// Imports a `.dvw` file and returns the season's matches.
+/// Imports a `.dvw` file and opens it, as the scout imports a file to
+/// work on it.
 #[tauri::command]
-fn match_import(state: State<'_, Shared>, path: PathBuf) -> Reply<Vec<MatchItem>> {
-    with(&state, |s| {
-        s.import_file(&path, now_ms())?;
-        s.matches()
-    })
+fn match_import(app: AppHandle, state: State<'_, Shared>, path: PathBuf) -> Reply<Snapshot> {
+    let snap = with(&state, |s| {
+        let id = s.import_file(&path, now_ms())?;
+        s.open_match(id, now_ms())
+    })?;
+    remember(&app, &state);
+    Ok(snap)
 }
 
 #[tauri::command]

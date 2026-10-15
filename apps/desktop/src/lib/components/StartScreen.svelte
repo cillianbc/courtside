@@ -59,8 +59,8 @@
     run(async () => {
       const path = await open({ filters: [{ name: "DataVolley scout", extensions: ["dvw"] }] });
       if (typeof path !== "string") return;
-      list = await backend.importMatch(path);
-      teams = await backend.teams();
+      ui.snapshot = await backend.importMatch(path);
+      await ui.loadKeymap();
     });
 
   const openMatch = (id: string) =>
