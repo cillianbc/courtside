@@ -871,6 +871,53 @@ fn no_set_follows_a_won_match() {
 }
 
 #[test]
+fn a_golden_set_after_the_match() {
+    let three: Vec<String> = (1..=3u8)
+        .flat_map(|s| [format!("*p25:{:02}", 10 + s), format!("**{s}set")])
+        .collect();
+    let (mut session, dir) = open_file(&file_with(
+        &three.iter().map(String::as_str).collect::<Vec<_>>(),
+    ));
+    assert!(session.snapshot().expect("snapshot").match_over);
+
+    let snap = session.start_golden_set(None).expect("golden set");
+    assert!(!snap.match_over);
+    assert_eq!((snap.golden_set, snap.set), (Some(4), 4));
+    assert!(snap.needs_lineup.home && snap.needs_lineup.visiting);
+    assert!(session.start_golden_set(None).is_err(), "only one");
+
+    session
+        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, None)
+        .expect("home six");
+    session
+        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 14, None)
+        .expect("away six");
+    // 15 wins a golden set, not 25.
+    let snap = session.commit("p14:13", None).expect("14:13");
+    assert!(!snap.match_over);
+    let snap = session.commit("p15:13", None).expect("15:13");
+    assert!(
+        texts(&snap).contains(&"**4set".to_string()),
+        "set end written"
+    );
+    assert!(snap.match_over);
+    assert!(session.start_golden_set(None).is_err(), "only one");
+
+    // The golden set doesn't count as a set won.
+    let out = dir.path().join("golden.dvw");
+    session.export_dvw(&out).expect("export");
+    let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
+    assert!(text.contains("T1;Harbour City;3;"), "{text}");
+
+    // Undo takes the golden set back like any code.
+    for _ in 0..5 {
+        session.undo().expect("undo");
+    }
+    let snap = session.snapshot().expect("snapshot");
+    assert!(snap.match_over && snap.golden_set.is_none());
+}
+
+#[test]
 fn a_new_combination_retargets_the_set_before_it() {
     let (mut session, _dir) = opened();
     let snap = session.commit("a12RH+ a14EH+ a13AX5", None).expect("rally");

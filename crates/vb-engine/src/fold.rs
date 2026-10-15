@@ -91,6 +91,23 @@ pub struct Folded {
     /// One per visible event, in the same order.
     pub states: Vec<State>,
     pub rallies: Vec<Rally>,
+    /// The set played as a golden set, if one was started.
+    pub golden_set: Option<u8>,
+}
+
+/// Points that win a golden set.
+pub const GOLDEN_SET_TARGET: u8 = 15;
+
+impl Folded {
+    /// Points needed to win `set`, with a two-point lead: the regulation's,
+    /// or [`GOLDEN_SET_TARGET`] for a golden set.
+    pub fn set_target(&self, m: &Match, set: u8) -> u8 {
+        if self.golden_set == Some(set) {
+            GOLDEN_SET_TARGET
+        } else {
+            m.regulation.set_target(set)
+        }
+    }
 }
 
 pub fn fold(m: &Match) -> Folded {
@@ -101,6 +118,7 @@ pub fn fold_events(m: &Match, events: &[&MatchEvent]) -> Folded {
     let evaluations = EvaluationTable::new(Dialect::Standard);
     let mut states: Vec<State> = Vec::with_capacity(events.len());
     let mut rallies: Vec<Rally> = Vec::new();
+    let mut golden_set = None;
     let mut st = State {
         set: 1,
         score: Score::default(),
@@ -140,7 +158,8 @@ pub fn fold_events(m: &Match, events: &[&MatchEvent]) -> Folded {
             | EventKind::SetEnd
             | EventKind::Comment
             | EventKind::Removed
-            | EventKind::StartingSix => None,
+            | EventKind::StartingSix
+            | EventKind::GoldenSet => None,
             _ => Some(*open_rally.get_or_insert_with(|| {
                 rallies.push(Rally {
                     set: st.set,
@@ -157,6 +176,9 @@ pub fn fold_events(m: &Match, events: &[&MatchEvent]) -> Folded {
 
         if let Body::StartingSix { team, court } = &ev.body {
             *st.court.get_mut(*team) = court.map(Some);
+        }
+        if ev.body == Body::GoldenSet {
+            golden_set = Some(st.set);
         }
         match code {
             Some(Code::Point {
@@ -296,7 +318,11 @@ pub fn fold_events(m: &Match, events: &[&MatchEvent]) -> Folded {
         }
     }
 
-    Folded { states, rallies }
+    Folded {
+        states,
+        rallies,
+        golden_set,
+    }
 }
 
 /// A setter change for `team` written straight after the rotation at

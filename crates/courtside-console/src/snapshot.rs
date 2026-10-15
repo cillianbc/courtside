@@ -68,8 +68,11 @@ pub struct Snapshot {
     pub setter_zone: Pair<Option<u8>>,
     /// The team has no six on court: enter its lineup before play.
     pub needs_lineup: Pair<bool>,
-    /// A team has won the match: no set follows the last one.
+    /// A team has won the match (and the golden set, if one was played):
+    /// no set follows the last one.
     pub match_over: bool,
+    /// The set played as a golden set, if one was started.
+    pub golden_set: Option<u8>,
     /// Each team's six and setter as the set in progress started, once
     /// anything is coded in it; what the lineup editor starts from.
     pub starting: Pair<Option<StartingView>>,
@@ -199,6 +202,7 @@ fn kind_name(k: EventKind) -> &'static str {
         EventKind::Removed => "removed",
         EventKind::Unrecognised => "unrecognised",
         EventKind::StartingSix => "startingSix",
+        EventKind::GoldenSet => "goldenSet",
     }
 }
 
@@ -247,7 +251,7 @@ fn starting(
         }
         let lineup = matches!(
             e.kind(),
-            EventKind::Lineup | EventKind::StartingSix | EventKind::Comment
+            EventKind::Lineup | EventKind::StartingSix | EventKind::Comment | EventKind::GoldenSet
         );
         if at.is_none() || lineup {
             at = Some(i);
@@ -323,6 +327,7 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
                 vb_engine::Body::Comment(t) => t.clone(),
                 vb_engine::Body::Removed => String::new(),
                 vb_engine::Body::StartingSix { .. } => "six".into(),
+                vb_engine::Body::GoldenSet => "golden".into(),
             },
             team: match &e.body {
                 vb_engine::Body::StartingSix { team, .. } => Some(Side::from(*team)),
@@ -339,6 +344,7 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
                     },
                     court.map(|n| n.to_string()).join(" ")
                 ),
+                vb_engine::Body::GoldenSet => "Golden set next (to 15)".into(),
                 _ => String::new(),
             },
             auto: e.producer == Producer::Repair,
@@ -426,7 +432,11 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             .count()
     };
     let needed = usize::from(game.regulation.sets_to_win());
-    let match_over = won(true) >= needed || won(false) >= needed;
+    // With a golden set started, the match is over once that set ends.
+    let match_over = match folded.golden_set {
+        Some(g) => set > g,
+        None => won(true) >= needed || won(false) >= needed,
+    };
     if match_over {
         groups.retain(|g| g.closed || !g.rows.is_empty());
     } else if sets.last().is_none_or(|v| v.number < set) {
@@ -492,6 +502,7 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
         ),
         needs_lineup: Pair::from_fn(|team| !match_over && court(team).iter().all(Option::is_none)),
         match_over,
+        golden_set: folded.golden_set,
         starting: Pair::from_fn(|team| starting(&events, &folded, set, team)),
         timeouts: count(EventKind::Timeout),
         substitutions: count(EventKind::Substitution),

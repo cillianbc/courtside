@@ -33,7 +33,7 @@ use vb_grammar::Code;
 use vb_grammar::Team as Side;
 
 /// Schema version, kept in SQLite's `user_version`.
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 
 const SCHEMA: &str = "
 CREATE TABLE season (
@@ -72,8 +72,9 @@ CREATE TABLE event (
     seq INTEGER NOT NULL,
     id TEXT NOT NULL,
     -- A starting six's text is the team prefix and six shirt numbers in
-    -- zone order, e.g. '* 8 12 13 11 3 14'.
-    kind TEXT NOT NULL CHECK (kind IN ('code', 'comment', 'removed', 'six')),
+    -- zone order, e.g. '* 8 12 13 11 3 14'. 'golden' (empty text): the
+    -- next set is a golden set.
+    kind TEXT NOT NULL CHECK (kind IN ('code', 'comment', 'removed', 'six', 'golden')),
     text TEXT NOT NULL,
     video_ms INTEGER,
     clock TEXT,
@@ -226,16 +227,18 @@ impl Season {
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         match version {
             VERSION => {}
-            1 => {
-                migrate_1_to_2(&conn)?;
-                migrate_2_to_3(&conn)?;
-                migrate_3_to_4(&conn)?;
+            1..=4 => {
+                if version < 2 {
+                    migrate_1_to_2(&conn)?;
+                }
+                if version < 3 {
+                    migrate_2_to_3(&conn)?;
+                }
+                if version < 4 {
+                    migrate_3_to_4(&conn)?;
+                }
+                migrate_4_to_5(&conn)?;
             }
-            2 => {
-                migrate_2_to_3(&conn)?;
-                migrate_3_to_4(&conn)?;
-            }
-            3 => migrate_3_to_4(&conn)?,
             _ => return Err(Error::Version(version)),
         }
         Self::configure(&conn)?;
@@ -650,6 +653,34 @@ fn migrate_3_to_4(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Version 5 lets event rows mark a golden set (kind `golden`); the table
+/// is rebuilt for the new CHECK constraint, as in version 2.
+fn migrate_4_to_5(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "BEGIN;
+         CREATE TABLE event_v5 (
+             match_id TEXT NOT NULL REFERENCES match(id),
+             seq INTEGER NOT NULL,
+             id TEXT NOT NULL,
+             kind TEXT NOT NULL CHECK (kind IN ('code', 'comment', 'removed', 'six', 'golden')),
+             text TEXT NOT NULL,
+             video_ms INTEGER,
+             clock TEXT,
+             producer TEXT NOT NULL,
+             supersedes TEXT,
+             before TEXT,
+             source_line INTEGER,
+             PRIMARY KEY (match_id, seq)
+         );
+         INSERT INTO event_v5 SELECT * FROM event;
+         DROP TABLE event;
+         ALTER TABLE event_v5 RENAME TO event;
+         PRAGMA user_version = 5;
+         COMMIT;",
+    )?;
+    Ok(())
+}
+
 pub(crate) fn role_number(r: dvw_codec::dvw::Role) -> u8 {
     use dvw_codec::dvw::Role;
     match r {
@@ -687,6 +718,7 @@ fn write_events(conn: &Connection, id: MatchId, events: &[MatchEvent], from: usi
             Body::Comment(t) => ("comment", t.clone()),
             Body::Removed => ("removed", String::new()),
             Body::StartingSix { team, court } => ("six", six_text(*team, court)),
+            Body::GoldenSet => ("golden", String::new()),
         };
         let seq = i64::try_from(from + i).unwrap_or(i64::MAX);
         stmt.execute(params![
@@ -747,6 +779,7 @@ fn read_events(conn: &Connection, id: MatchId) -> Result<Vec<MatchEvent>> {
             "comment" => Body::Comment(text),
             "removed" => Body::Removed,
             "six" => parse_six(&text)?,
+            "golden" => Body::GoldenSet,
             other => return Err(Error::BadRow(format!("event kind {other:?}"))),
         };
         Ok(MatchEvent {

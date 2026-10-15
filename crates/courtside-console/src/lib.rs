@@ -70,9 +70,10 @@ struct Current {
     defaults: Defaults,
 }
 
-/// Whether `score` wins `set` under the match's regulation.
-fn won(game: &Match, set: u8, score: vb_engine::Score) -> bool {
-    let target = game.regulation.set_target(set);
+/// Whether `score` wins `set` under the match's regulation (a golden set
+/// goes to 15).
+fn won(game: &Match, folded: &vb_engine::Folded, set: u8, score: vb_engine::Score) -> bool {
+    let target = folded.set_target(game, set);
     let (hi, lo) = (
         score.home.max(score.visiting),
         score.home.min(score.visiting),
@@ -620,7 +621,7 @@ impl Session {
             let end = after.states.last();
             let set = end.map_or(1, |s| s.set);
             let score = end.map(|s| s.score).unwrap_or_default();
-            if won(&c.game, set, score) {
+            if won(&c.game, &after, set, score) {
                 c.add(Code::parse(&format!("**{set}set")), Producer::Repair, clock);
             } else {
                 // Side-out: the winner rotates, its setter one zone on.
@@ -729,6 +730,31 @@ impl Session {
         self.snapshot()
     }
 
+    /// Starts a golden set once the match is over: an event of its own,
+    /// so undo takes it back. The set goes to 15 and needs lineups.
+    pub fn start_golden_set(&mut self, clock: Option<ClockTime>) -> Result<Snapshot> {
+        let snap = self.snapshot()?;
+        if !snap.match_over || snap.golden_set.is_some() {
+            return Err(Error::BadCode(
+                "A golden set is played once the match is over, and only one.".into(),
+            ));
+        }
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let before = c.game.log.len();
+        c.game.log.append(
+            &mut c.ids,
+            NewEvent {
+                body: Body::GoldenSet,
+                video_ms: None,
+                clock,
+                producer: Producer::Keyboard,
+            },
+        );
+        c.persist(season, before)?;
+        self.snapshot()
+    }
+
     /// Corrects `team`'s starting six for the set in progress (zones 1–6)
     /// and its setter; the rest of the set replays from it. The six entered
     /// for the set is corrected, or for a set whose six came from the team
@@ -778,7 +804,10 @@ impl Session {
         let lineup = |e: &&&MatchEvent| {
             matches!(
                 e.kind(),
-                EventKind::Lineup | EventKind::StartingSix | EventKind::Comment
+                EventKind::Lineup
+                    | EventKind::StartingSix
+                    | EventKind::Comment
+                    | EventKind::GoldenSet
             )
         };
         let t = team.as_char();

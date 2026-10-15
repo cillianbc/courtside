@@ -40,6 +40,7 @@
   // A lineup row is modified in the lineup form, which works on the set in
   // progress only.
   function canModify(r: Row, g: Group): boolean {
+    if (r.kind === "goldenSet") return false;
     return r.kind !== "startingSix" || (g.set === snap.set && !snap.matchOver && r.team !== null);
   }
 
@@ -67,7 +68,7 @@
           tabindex={s.number === shown ? 0 : -1}
           onclick={() => (ui.shownSet = s.number === snap.set ? null : s.number)}
         >
-          S{s.number}
+          {s.number === snap.goldenSet ? "GS" : `S${s.number}`}
           {#if s.finished}<span class="rate">{s.score.home}:{s.score.visiting}</span>{/if}
         </button>
       {/each}

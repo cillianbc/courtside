@@ -228,7 +228,7 @@ impl Validator<'_> {
     }
 
     fn won(&self, set: u8, s: Score) -> bool {
-        let target = self.m.regulation.set_target(set);
+        let target = self.f.set_target(self.m, set);
         let (hi, lo) = (s.home.max(s.visiting), s.home.min(s.visiting));
         hi >= target && hi - lo >= 2 && (hi == target || hi - lo == 2)
     }

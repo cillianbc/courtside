@@ -42,7 +42,8 @@
   <div class="sets" aria-label="Sets">
     {#each snap.sets as s (s.number)}
       <span class="set-chip" class:now={s.number === snap.set}
-        >S{s.number} {s.score.home}:{s.score.visiting}</span
+        >{s.number === snap.goldenSet ? "GS" : `S${s.number}`}
+        {s.score.home}:{s.score.visiting}</span
       >
     {/each}
   </div>

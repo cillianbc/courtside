@@ -67,6 +67,8 @@ struct SetScores {
     /// A set end code closed the set.
     ended: bool,
     target: u8,
+    /// Played as a golden set.
+    golden: bool,
     /// Clock of the first serve and of the last point code.
     first_serve: Option<ClockTime>,
     last_point: Option<ClockTime>,
@@ -97,18 +99,24 @@ impl SetScores {
 }
 
 fn set_scores(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Vec<SetScores> {
-    fn get<'a>(m: &Match, sets: &'a mut Vec<SetScores>, set: u8) -> Option<&'a mut SetScores> {
+    fn get<'a>(
+        m: &Match,
+        folded: &Folded,
+        sets: &'a mut Vec<SetScores>,
+        set: u8,
+    ) -> Option<&'a mut SetScores> {
         let i = usize::from(set.checked_sub(1)?);
         if sets.len() <= i {
             sets.resize_with(i + 1, SetScores::default);
         }
         let s = &mut sets[i];
-        s.target = m.regulation.set_target(set);
+        s.target = folded.set_target(m, set);
+        s.golden = folded.golden_set == Some(set);
         Some(s)
     }
     let mut sets: Vec<SetScores> = Vec::new();
     for r in folded.rallies.iter().filter(|r| r.won_by.is_some()) {
-        let Some(s) = get(m, &mut sets, r.set) else {
+        let Some(s) = get(m, folded, &mut sets, r.set) else {
             continue;
         };
         let checkpoints = if s.target == 15 {
@@ -132,7 +140,10 @@ fn set_scores(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Vec<SetScor
     }
     for (e, st) in events.iter().zip(&folded.states) {
         if e.kind() == EventKind::SetEnd
-            && let Some(s) = st.set.checked_sub(1).and_then(|set| get(m, &mut sets, set))
+            && let Some(s) = st
+                .set
+                .checked_sub(1)
+                .and_then(|set| get(m, folded, &mut sets, set))
         {
             s.ended = true;
         }
@@ -185,7 +196,8 @@ fn write_sets_won(dvw: &mut Dvw, sets: &[SetScores]) {
     for (team, home) in dvw.teams.iter_mut().zip([true, false]) {
         let won = sets
             .iter()
-            .filter(|s| s.winner_is_home() == Some(home))
+            // A golden set decides the tie, not the match: not a set won.
+            .filter(|s| !s.golden && s.winner_is_home() == Some(home))
             .count();
         if team.sets_won().map(usize::from) != Some(won) {
             let fields = &mut team.0.0;

@@ -41,7 +41,8 @@ export type RowKind =
   | "comment"
   | "removed"
   | "unrecognised"
-  | "startingSix";
+  | "startingSix"
+  | "goldenSet";
 
 export interface Row {
   id: string;
@@ -95,8 +96,10 @@ export interface Snapshot {
   setterZone: Pair<number | null>;
   /** The team has no six on court: enter its lineup before play. */
   needsLineup: Pair<boolean>;
-  /** A team has won the match; no set follows. */
+  /** A team has won the match (and the golden set, if played); no set follows. */
   matchOver: boolean;
+  /** The set played as a golden set, if one was started. */
+  goldenSet: number | null;
   /** Each team's six and setter as the set in progress started. */
   starting: Pair<StartingView | null>;
   timeouts: Pair<number>;

@@ -126,6 +126,12 @@ export async function setLineup(team: Side, court: number[], setter: number): Pr
   return invoke<Snapshot>("lineup_set", { team, court, setter, clock: clock() });
 }
 
+/** Starts a golden set once the match is over. */
+export async function startGoldenSet(): Promise<Snapshot> {
+  if (!inTauri) throw new Error("Coding needs the desktop app.");
+  return invoke<Snapshot>("golden_set_start", { clock: clock() });
+}
+
 /** Corrects a team's six and setter for the set in progress. */
 export async function correctLineup(
   team: Side,

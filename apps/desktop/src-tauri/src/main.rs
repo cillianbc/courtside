@@ -246,6 +246,12 @@ fn lineup_set(
     })
 }
 
+/// Starts a golden set after the match is over.
+#[tauri::command]
+fn golden_set_start(state: State<'_, Shared>, clock: Option<[u8; 3]>) -> Reply<Snapshot> {
+    with(&state, |s| s.start_golden_set(clock_time(clock)))
+}
+
 /// Corrects a team's six and setter for the set in progress; the rest of
 /// the set replays from it.
 #[tauri::command]
@@ -347,6 +353,7 @@ fn main() {
             commit,
             lineup_set,
             lineup_correct,
+            golden_set_start,
             undo,
             redo,
             code_correct,

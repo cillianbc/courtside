@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as backend from "../backend";
   import { LAYOUT, columns, type Net } from "../court";
   import { rotationCode, timeoutCode } from "../codes";
   import type { Side, Snapshot } from "../snapshot";
@@ -61,9 +62,22 @@
     </div>
   </div>
   {#if snap.matchOver}
-    <p class="empty-note">
-      Match over. Codes can still be modified; export the .dvw from the top bar.
-    </p>
+    <div class="match-over">
+      <p class="empty-note">
+        Match over. Codes can still be modified; export the .dvw from the top bar.
+      </p>
+      {#if snap.goldenSet === null}
+        <button
+          class="btn"
+          type="button"
+          title="A deciding set to 15 after a two-legged tie (CEV)"
+          onclick={() => ui.apply("Golden set started", backend.startGoldenSet)}
+          >Play golden set</button
+        >
+      {/if}
+    </div>
+  {:else if snap.goldenSet === snap.set}
+    <p class="empty-note">Golden set: first to 15, two clear.</p>
   {/if}
   <div class="courts" class:end={ui.endView}>
     {@render half(ui.order[0] ?? "home", nets[0])}

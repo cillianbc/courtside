@@ -78,6 +78,11 @@ pub enum Body {
         team: Team,
         court: [u8; 6],
     },
+    /// The set after it is a golden set (CEV two-legged ties): played
+    /// after the match is decided, to 15. Entered in the console. How
+    /// DataVolley marks one in a `.dvw` is not known yet (research
+    /// DATAVOLLEY4.md §1 item 10); export writes no `[3SCOUT]` line for it.
+    GoldenSet,
 }
 
 /// What an event means to the fold, derived from its [`Body`].
@@ -100,6 +105,8 @@ pub enum EventKind {
     Removed,
     /// See [`Body::StartingSix`].
     StartingSix,
+    /// See [`Body::GoldenSet`].
+    GoldenSet,
     Unrecognised,
 }
 
@@ -127,7 +134,7 @@ impl MatchEvent {
     pub fn code(&self) -> Option<&Code> {
         match &self.body {
             Body::Code(c) => Some(c),
-            Body::Comment(_) | Body::Removed | Body::StartingSix { .. } => None,
+            Body::Comment(_) | Body::Removed | Body::StartingSix { .. } | Body::GoldenSet => None,
         }
     }
 
@@ -136,6 +143,7 @@ impl MatchEvent {
             return match self.body {
                 Body::Removed => EventKind::Removed,
                 Body::StartingSix { .. } => EventKind::StartingSix,
+                Body::GoldenSet => EventKind::GoldenSet,
                 _ => EventKind::Comment,
             };
         };
