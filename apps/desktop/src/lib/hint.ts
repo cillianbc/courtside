@@ -7,7 +7,8 @@ export interface Hint {
   bad: boolean;
 }
 
-export const IDLE = "Enter adds the code · Esc clears · several codes can go on one line";
+export const IDLE =
+  "Enter adds the code · Esc clears · shorthand like a10 or 5S.a12# is filled in · several codes per line";
 
 export function hintFor(line: string, preview: Preview | null): Hint {
   if (!line.trim()) return { text: IDLE, bad: false };
@@ -17,5 +18,8 @@ export function hintFor(line: string, preview: Preview | null): Hint {
     const where = preview.codes.length > 1 ? `${wrong.text}: ` : "";
     return { text: where + (wrong.error ?? ""), bad: true };
   }
-  return { text: preview.codes.map((c) => c.meaning).join(" · "), bad: false };
+  // Shorthand shows the full code it becomes before what it means.
+  const read = (c: Preview["codes"][number]) =>
+    c.typed === c.text ? c.meaning : `${c.text} ${c.meaning}`;
+  return { text: preview.codes.map(read).join(" · "), bad: false };
 }

@@ -5,13 +5,20 @@ use serde::Serialize;
 use vb_engine::Match;
 use vb_engine::model::Outcome;
 use vb_grammar::code::Digits;
+use vb_grammar::expand::{Defaults, expand};
 use vb_grammar::{Code, Player, Skill, Team, Touch};
 
 /// One code of the command line, read back.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Readback {
+    /// What the scout typed (a dot code gives two read-backs for one).
+    pub typed: String,
+    /// The full code it becomes.
     pub text: String,
+    /// What expansion filled in ("skill predicted", "type from the
+    /// serve" …), on the first code of a token.
+    pub filled: Vec<String>,
     /// What the code means; empty when it can't be read.
     pub meaning: String,
     /// Why the code can't be read, or what's missing.
@@ -27,11 +34,44 @@ pub struct Preview {
     pub ok: bool,
 }
 
-pub fn preview(text: &str, game: &Match, names: (&str, &str)) -> Preview {
-    let codes: Vec<Readback> = text
-        .split_whitespace()
-        .map(|t| read(t, game, names))
-        .collect();
+/// Reads back the command line: each token expanded (shorthand, dot
+/// codes) with the rally so far as context, then each code explained.
+/// `before` is the last touch of the open rally.
+pub fn preview(
+    text: &str,
+    game: &Match,
+    names: (&str, &str),
+    before: Option<&Touch>,
+    defaults: &Defaults,
+) -> Preview {
+    let mut codes = Vec::new();
+    let mut last = before.cloned();
+    for token in text.split_whitespace() {
+        match expand(token, last.as_ref(), defaults) {
+            Err(e) => codes.push(Readback {
+                typed: token.to_owned(),
+                text: token.to_owned(),
+                filled: Vec::new(),
+                meaning: String::new(),
+                error: Some(e),
+            }),
+            Ok(x) => {
+                for (i, code) in x.codes.iter().enumerate() {
+                    let mut r = read(&code.to_string(), game, names);
+                    r.typed = token.to_owned();
+                    if i == 0 {
+                        r.filled.clone_from(&x.filled);
+                    }
+                    codes.push(r);
+                    if let Code::Touch(t) = code {
+                        last = Some(t.clone());
+                    } else if matches!(code, Code::Point { .. }) {
+                        last = None;
+                    }
+                }
+            }
+        }
+    }
     let ok = !codes.is_empty() && codes.iter().all(|c| c.error.is_none());
     Preview { codes, ok }
 }
@@ -70,7 +110,9 @@ pub fn read(text: &str, game: &Match, names: (&str, &str)) -> Readback {
         Code::SetEnd { set, .. } => (format!("End of set {}", number(set)), None),
     };
     Readback {
+        typed: text.to_owned(),
         text: text.to_owned(),
+        filled: Vec::new(),
         meaning,
         error,
     }

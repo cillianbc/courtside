@@ -1,0 +1,641 @@
+//! What the scout types → full codes (PRD F-11).
+//!
+//! The command line takes shorthand and fills in the rest:
+//! - no team prefix means home (`7` is `*07`); one-digit numbers are padded;
+//! - a missing skill is predicted from the touch before it in the rally
+//!   (serve → the other team's reception → set → attack → the other team's
+//!   dig …), else [`Defaults::skill`];
+//! - a missing type is copied from the touch it answers (reception from the
+//!   serve, block and dig from the attack), else the per-skill default;
+//! - a missing evaluation is the per-skill default;
+//! - compound ("dot") codes: `serve.reception`, `attack.block`,
+//!   `attack.dig`. The second half is the other team, its skill implied
+//!   (an attack pairs with a block unless `D` is typed), the type copied,
+//!   the zones shared (a block's zone mirrors the attack's, 4 ↔ 2), and
+//!   whichever evaluation is missing derived from the other one
+//!   (docs/research/DATAVOLLEY4.md §3, VOLLEYSTATION.md §5);
+//! - commands (`T`, `c6.7`, `z3`, `P5`, `p25:23`) work without the `*`;
+//!   substitution and point numbers are padded to two digits, a setter
+//!   number is kept as typed (DataVolley writes `aP2`).
+//!
+//! Expansion only writes codes; whether they make sense is the validator's
+//! job.
+
+use crate::code::{Code, Skill, Team, Touch};
+
+/// The season's typing defaults (PRD F-03); set in the season settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Defaults {
+    /// Skill when none is typed and the rally predicts none.
+    pub skill: Skill,
+    /// Type per skill when none is typed or inherited, in the order
+    /// serve, reception, set, attack, block, dig, freeball.
+    pub types: [char; 7],
+    /// Evaluation per skill when none is typed, same order.
+    pub evaluations: [char; 7],
+    /// Predict the skill from the touch before.
+    pub predict: bool,
+}
+
+impl Default for Defaults {
+    fn default() -> Self {
+        Defaults {
+            skill: Skill::Attack,
+            types: ['H'; 7],
+            evaluations: ['+'; 7],
+            predict: true,
+        }
+    }
+}
+
+fn slot(s: Skill) -> usize {
+    match s {
+        Skill::Serve => 0,
+        Skill::Reception => 1,
+        Skill::Set => 2,
+        Skill::Attack => 3,
+        Skill::Block => 4,
+        Skill::Dig => 5,
+        Skill::Freeball | Skill::Green => 6,
+    }
+}
+
+/// What a typed token became.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Expanded {
+    pub codes: Vec<Code>,
+    /// What was filled in, in words: "skill predicted", "type from the
+    /// serve", "evaluation default" …; empty when everything was typed.
+    pub filled: Vec<String>,
+}
+
+const TYPES: &str = "HMQTUNO";
+const EVALUATIONS: &str = "=/-!+#";
+
+/// Expands one token of the command line. `before` is the last touch of
+/// the rally so far (for predicting the skill and inheriting the type).
+pub fn expand(token: &str, before: Option<&Touch>, d: &Defaults) -> Result<Expanded, String> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err("Type a code first.".into());
+    }
+    if token.starts_with("**") {
+        return Ok(Expanded {
+            codes: vec![Code::parse(token)],
+            filled: Vec::new(),
+        });
+    }
+    if let Some(cmd) = command(token) {
+        return Ok(Expanded {
+            codes: vec![Code::parse(&cmd)],
+            filled: Vec::new(),
+        });
+    }
+    match token.split_once('.') {
+        Some((first, second)) => compound(first, second, before, d),
+        None => {
+            let typed = typed_touch(token, false)?;
+            let mut filled = Vec::new();
+            let touch = complete(&typed, before, d, &mut filled)?;
+            Ok(Expanded {
+                codes: vec![Code::Touch(touch)],
+                filled,
+            })
+        }
+    }
+}
+
+/// `T`, `c6.7`, `z3`, `P5`, `p25:23` with or without the team prefix.
+fn command(token: &str) -> Option<String> {
+    let (team, rest) = split_team(token);
+    let mut chars = rest.chars();
+    let letter = chars.next()?;
+    let tail = chars.as_str();
+    let two = |s: &str| -> Option<String> {
+        let n: u8 = s.parse().ok()?;
+        Some(format!("{n:02}"))
+    };
+    let t = team.as_char();
+    match letter {
+        'T' if tail.is_empty() => Some(format!("{t}T")),
+        'c' | 'C' => {
+            let (out, inn) = tail.split_once(['.', ':'])?;
+            Some(format!("{t}c{}:{}", two(out)?, two(inn)?))
+        }
+        'z' | 'Z' if tail.len() == 1 && tail.chars().all(|c| ('1'..='6').contains(&c)) => {
+            Some(format!("{t}z{tail}"))
+        }
+        // Kept as typed: DataVolley writes setter changes as `aP2`.
+        'P' if !tail.is_empty() && tail.len() <= 2 && tail.chars().all(|c| c.is_ascii_digit()) => {
+            Some(format!("{t}P{tail}"))
+        }
+        'p' => {
+            let (h, v) = tail.split_once(':')?;
+            Some(format!("{t}p{}:{}", two(h)?, two(v)?))
+        }
+        _ => None,
+    }
+}
+
+fn split_team(token: &str) -> (Team, &str) {
+    if let Some(rest) = token.strip_prefix('a') {
+        (Team::Visiting, rest)
+    } else if let Some(rest) = token.strip_prefix('*') {
+        (Team::Home, rest)
+    } else {
+        (Team::Home, token)
+    }
+}
+
+/// A touch as typed: what is there, nothing filled yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Typed {
+    /// `None` when no prefix was typed (home unless a pair says otherwise).
+    team: Option<Team>,
+    player: String,
+    skill: Option<Skill>,
+    skill_type: Option<char>,
+    evaluation: Option<char>,
+    /// Positions 7 on, as typed.
+    rest: String,
+}
+
+/// `implied`: the skill may be left out though more follows (a dot
+/// code's halves, whose skill the pair implies).
+fn typed_touch(token: &str, implied: bool) -> Result<Typed, String> {
+    let team = match token.chars().next() {
+        Some('a') => Some(Team::Visiting),
+        Some('*') => Some(Team::Home),
+        _ => None,
+    };
+    let s = if team.is_some() { &token[1..] } else { token };
+    let (player, rest) = if let Some(r) = s.strip_prefix("$$") {
+        ("$$".to_owned(), r)
+    } else {
+        let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+        if end == 0 {
+            return Err(if team.is_none() {
+                "Start with the shirt number (a for the away team).".into()
+            } else {
+                "Add the shirt number, or T, c, z or p.".into()
+            });
+        }
+        let n: u8 = s[..end]
+            .parse()
+            .ok()
+            .filter(|n| *n <= 99)
+            .ok_or("Shirt numbers go from 0 to 99.")?;
+        (format!("{n:02}"), &s[end..])
+    };
+    // Letters after the number are codes, whatever case they are typed in.
+    let rest = rest.to_ascii_uppercase();
+    let mut chars = rest.chars().peekable();
+    // Skill and type letters don't overlap, so the skill may be left out.
+    let skill = match chars.peek() {
+        Some(&c) if TYPES.contains(c) => None,
+        Some(&c) if c.is_ascii_alphabetic() || c == '&' => {
+            chars.next();
+            Some(Skill::from_char(c).ok_or(format!("Unknown skill letter {c}."))?)
+        }
+        _ => None,
+    };
+    let skill_type = match chars.peek() {
+        Some(&c) if TYPES.contains(c) || (c == '~' && skill.is_some()) => {
+            chars.next();
+            (c != '~').then_some(c)
+        }
+        _ => None,
+    };
+    let evaluation = match chars.peek() {
+        Some(&c) if EVALUATIONS.contains(c) => {
+            chars.next();
+            Some(c)
+        }
+        _ => None,
+    };
+    let rest: String = chars.collect();
+    if skill.is_none() && !implied && !rest.is_empty() {
+        return Err("Put the skill letter (S R E A B D F) before the zones and the rest.".into());
+    }
+    if skill.is_some()
+        && skill_type.is_none()
+        && !rest.is_empty()
+        && rest.starts_with(|c: char| c.is_ascii_alphabetic())
+        && evaluation.is_none()
+    {
+        let c = rest.chars().next().unwrap_or(' ');
+        return Err(format!("Unknown type letter {c}."));
+    }
+    Ok(Typed {
+        team,
+        player,
+        skill,
+        skill_type,
+        evaluation,
+        rest,
+    })
+}
+
+/// The skill that usually comes next after `before` for `team`.
+fn predicted(before: Option<&Touch>, team: Team) -> Option<Skill> {
+    let Some(b) = before else {
+        return Some(Skill::Serve);
+    };
+    let same = b.team == team;
+    match (b.skill, same) {
+        (Skill::Serve, false) => Some(Skill::Reception),
+        (Skill::Reception | Skill::Dig | Skill::Freeball, true) => Some(Skill::Set),
+        (Skill::Set, true) => Some(Skill::Attack),
+        (Skill::Set, false) | (Skill::Attack, false) | (Skill::Block, _) => Some(Skill::Dig),
+        _ => None,
+    }
+}
+
+/// The type a touch answering `before` takes, if it inherits one.
+fn inherited_type(skill: Skill, before: Option<&Touch>) -> Option<(char, &'static str)> {
+    let b = before?;
+    let from = match (skill, b.skill) {
+        (Skill::Reception, Skill::Serve) => "the serve",
+        (Skill::Block | Skill::Dig, Skill::Attack) => "the attack",
+        _ => return None,
+    };
+    b.skill_type().map(|t| (t, from))
+}
+
+fn complete(
+    t: &Typed,
+    before: Option<&Touch>,
+    d: &Defaults,
+    filled: &mut Vec<String>,
+) -> Result<Touch, String> {
+    let team = t.team.unwrap_or(Team::Home);
+    let skill = match t.skill {
+        Some(s) => s,
+        None => match predicted(before, team).filter(|_| d.predict) {
+            Some(s) => {
+                filled.push("skill predicted".into());
+                s
+            }
+            None => {
+                filled.push("skill default".into());
+                d.skill
+            }
+        },
+    };
+    let player = if t.player == "$$" {
+        crate::code::Player::Unknown
+    } else {
+        match Code::parse(&format!("*{}S", t.player)) {
+            Code::Touch(x) => x.player,
+            _ => return Err("Shirt numbers go from 0 to 99.".into()),
+        }
+    };
+    let skill_type = match t.skill_type {
+        Some(c) => c,
+        None => {
+            match inherited_type(skill, before).filter(|_| before.is_some_and(|b| b.team != team)) {
+                Some((c, from)) => {
+                    filled.push(format!("type from {from}"));
+                    c
+                }
+                None => {
+                    filled.push("type default".into());
+                    d.types[slot(skill)]
+                }
+            }
+        }
+    };
+    let evaluation = match t.evaluation {
+        Some(c) => c,
+        None => {
+            filled.push("evaluation default".into());
+            d.evaluations[slot(skill)]
+        }
+    };
+    Ok(build(team, player, skill, skill_type, evaluation, &t.rest))
+}
+
+fn build(
+    team: Team,
+    player: crate::code::Player,
+    skill: Skill,
+    ty: char,
+    ev: char,
+    rest: &str,
+) -> Touch {
+    let p = match &player {
+        crate::code::Player::Number(d) => d.as_str().to_owned(),
+        crate::code::Player::Unknown => "$$".into(),
+    };
+    match Code::parse(&format!(
+        "{}{p}{}{ty}{ev}{rest}",
+        team.as_char(),
+        skill.as_char()
+    )) {
+        Code::Touch(t) => t,
+        // Unreachable for the shapes built here; keep what we have.
+        _ => Touch::new(team, player, skill)
+            .with_skill_type(ty)
+            .with_evaluation(ev),
+    }
+}
+
+/// The second half's evaluation for the first half's, by pair.
+fn second_from_first(first: Skill, second: Skill, ev: char) -> Option<char> {
+    Some(match (first, second, ev) {
+        (Skill::Serve, Skill::Reception, '/') => '/',
+        (Skill::Serve, Skill::Reception, '-') => '#',
+        (Skill::Serve, Skill::Reception, '!') => '!',
+        (Skill::Serve, Skill::Reception, '+') => '-',
+        (Skill::Serve, Skill::Reception, '#') => '=',
+        (Skill::Attack, Skill::Block, '/') => '#',
+        (Skill::Attack, Skill::Block, '-') => '+',
+        (Skill::Attack, Skill::Block, '!') => '!',
+        (Skill::Attack, Skill::Block, '+') => '-',
+        (Skill::Attack, Skill::Block, '#') => '=',
+        (Skill::Attack, Skill::Dig, '-') => '#',
+        (Skill::Attack, Skill::Dig, '+') => '-',
+        (Skill::Attack, Skill::Dig, '#') => '=',
+        _ => return None,
+    })
+}
+
+/// The first half's evaluation for the second half's, by pair.
+fn first_from_second(first: Skill, second: Skill, ev: char) -> Option<char> {
+    Some(match (first, second, ev) {
+        (Skill::Serve, Skill::Reception, '/') => '/',
+        (Skill::Serve, Skill::Reception, '#' | '+') => '-',
+        (Skill::Serve, Skill::Reception, '!') => '!',
+        (Skill::Serve, Skill::Reception, '-') => '+',
+        (Skill::Serve, Skill::Reception, '=') => '#',
+        (Skill::Attack, Skill::Block, '#') => '/',
+        (Skill::Attack, Skill::Block, '+') => '-',
+        (Skill::Attack, Skill::Block, '!') => '!',
+        (Skill::Attack, Skill::Block, '-') => '+',
+        (Skill::Attack, Skill::Block, '=') => '#',
+        (Skill::Attack, Skill::Dig, '#' | '+') => '-',
+        (Skill::Attack, Skill::Dig, '-') => '+',
+        (Skill::Attack, Skill::Dig, '=') => '#',
+        _ => return None,
+    })
+}
+
+fn mirror(z: char) -> char {
+    match z {
+        '4' => '2',
+        '2' => '4',
+        z => z,
+    }
+}
+
+fn compound(
+    first: &str,
+    second: &str,
+    before: Option<&Touch>,
+    d: &Defaults,
+) -> Result<Expanded, String> {
+    let a = typed_touch(first, true)?;
+    let mut b = typed_touch(second, true)?;
+    let mut filled = Vec::new();
+    let team_a = a.team.unwrap_or(Team::Home);
+    let team_b = other(team_a);
+    if b.team.is_some_and(|t| t != team_b) {
+        return Err("The part after the dot is the other team's touch.".into());
+    }
+    b.team = Some(team_b);
+    let skill_a = match a.skill {
+        Some(s) => s,
+        None => match predicted(before, team_a).filter(|_| d.predict) {
+            Some(s @ (Skill::Serve | Skill::Attack)) => s,
+            _ => Skill::Attack,
+        },
+    };
+    let skill_b = match (skill_a, b.skill) {
+        (Skill::Serve, None | Some(Skill::Reception)) => Skill::Reception,
+        (Skill::Attack, None | Some(Skill::Block)) => Skill::Block,
+        (Skill::Attack, Some(Skill::Dig)) => Skill::Dig,
+        _ => {
+            return Err(
+                "Dot codes pair a serve with a reception, or an attack with a block or dig.".into(),
+            );
+        }
+    };
+    if a.skill.is_none() {
+        filled.push(format!("{} from the dot", name(skill_a)));
+    }
+    // Type: one half's for the other, else the first half's default.
+    let ty = a
+        .skill_type
+        .or(b.skill_type)
+        .or_else(|| {
+            filled.push("type default".into());
+            Some(d.types[slot(skill_a)])
+        })
+        .unwrap_or('H');
+    let (ev_a, ev_b) = match (a.evaluation, b.evaluation) {
+        (Some(x), Some(y)) => (x, y),
+        (Some(x), None) => {
+            filled.push("second evaluation derived".into());
+            (
+                x,
+                second_from_first(skill_a, skill_b, x).unwrap_or(d.evaluations[slot(skill_b)]),
+            )
+        }
+        (None, Some(y)) => {
+            filled.push("first evaluation derived".into());
+            (
+                first_from_second(skill_a, skill_b, y).unwrap_or(d.evaluations[slot(skill_a)]),
+                y,
+            )
+        }
+        (None, None) => {
+            filled.push("evaluations default".into());
+            let y = d.evaluations[slot(skill_b)];
+            (
+                first_from_second(skill_a, skill_b, y).unwrap_or(d.evaluations[slot(skill_a)]),
+                y,
+            )
+        }
+    };
+    let player = |t: &Typed| match Code::parse(&format!("*{}S", t.player)) {
+        Code::Touch(x) => x.player,
+        _ => crate::code::Player::Unknown,
+    };
+    let mut first = build(team_a, player(&a), skill_a, ty, ev_a, &a.rest);
+    let mut second = build(team_b, player(&b), skill_b, ty, ev_b, &b.rest);
+    // Zones typed on one half go on the other.
+    let zones = |t: &Touch| (t.start_zone(), t.end_zone(), t.end_subzone());
+    let (za, zb) = (zones(&first), zones(&second));
+    if skill_b == Skill::Block {
+        if let (None, Some(s)) = (zb.0, za.0) {
+            second = second.with_start_zone(mirror(s));
+        }
+    } else {
+        let pick = |x: Option<char>, y: Option<char>| x.or(y);
+        let (s, e, sub) = (pick(za.0, zb.0), pick(za.1, zb.1), pick(za.2, zb.2));
+        for (t, z) in [(&mut first, za), (&mut second, zb)] {
+            if z.0.is_none()
+                && let Some(c) = s
+            {
+                *t = t.clone().with_start_zone(c);
+            }
+            if z.1.is_none()
+                && let Some(c) = e
+            {
+                *t = t.clone().with_end_zone(c);
+            }
+            if z.2.is_none()
+                && let Some(c) = sub
+            {
+                *t = t.clone().with_end_subzone(c);
+            }
+        }
+    }
+    Ok(Expanded {
+        codes: vec![Code::Touch(first), Code::Touch(second)],
+        filled,
+    })
+}
+
+fn other(t: Team) -> Team {
+    match t {
+        Team::Home => Team::Visiting,
+        Team::Visiting => Team::Home,
+    }
+}
+
+fn name(s: Skill) -> &'static str {
+    match s {
+        Skill::Serve => "serve",
+        Skill::Attack => "attack",
+        _ => "skill",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn exp(token: &str, before: Option<&str>) -> Vec<String> {
+        let b = before.map(|s| match Code::parse(s) {
+            Code::Touch(t) => t,
+            _ => panic!("not a touch: {s}"),
+        });
+        expand(token, b.as_ref(), &Defaults::default())
+            .unwrap_or_else(|e| panic!("{token}: {e}"))
+            .codes
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn fills_what_is_missing() {
+        assert_eq!(
+            exp("7", None),
+            ["*07SH+"],
+            "first touch of a rally is the serve"
+        );
+        assert_eq!(
+            exp("a10", Some("*07SM-")),
+            ["a10RM+"],
+            "reception takes the serve's type"
+        );
+        assert_eq!(exp("a15", Some("a10RM+")), ["a15EH+"]);
+        assert_eq!(exp("a2", Some("a15EQ+")), ["a02AH+"]);
+        assert_eq!(
+            exp("8", Some("a02AQ+")),
+            ["*08DQ+"],
+            "dig takes the attack's type"
+        );
+        assert_eq!(exp("5a#", Some("*08DQ+")), ["*05AH#"], "lower case letters");
+        assert_eq!(
+            exp("a2AQ#X5~42", None),
+            ["a02AQ#X5~42"],
+            "a full code is kept"
+        );
+        assert_eq!(
+            exp("a2AQX1", None),
+            ["a02AQ+X1"],
+            "combination without evaluation"
+        );
+        assert_eq!(exp("$$&", None), ["*$$&H+"]);
+        assert_eq!(
+            exp("a13#", Some("a14EQ+")),
+            ["a13AH#"],
+            "skill predicted, evaluation typed"
+        );
+        assert_eq!(
+            exp("7M-", None),
+            ["*07SM-"],
+            "type and evaluation, skill predicted"
+        );
+    }
+
+    #[test]
+    fn dot_codes() {
+        assert_eq!(
+            exp("5S.a12#", None),
+            ["*05SH-", "a12RH#"],
+            "serve from the reception"
+        );
+        assert_eq!(
+            exp("5SM#.12", None),
+            ["*05SM#", "a12RM="],
+            "ace: reception error"
+        );
+        assert_eq!(
+            exp("a9SQ~~~16B.4", None),
+            ["a09SQ-~~~16B", "*04RQ+~~~16B"],
+            "zones shared"
+        );
+        assert_eq!(
+            exp("a5AH~~~4.12#", None),
+            ["a05AH/~~~4", "*12BH#~~~2"],
+            "stuff block, zone mirrored"
+        );
+        assert_eq!(exp("5A.a12D#", None), ["*05AH-", "a12DH#"]);
+        assert_eq!(exp("5A#.a12D", None), ["*05AH#", "a12DH="]);
+    }
+
+    #[test]
+    fn commands() {
+        assert_eq!(exp("T", None), ["*T"]);
+        assert_eq!(exp("ac6.7", None), ["ac06:07"]);
+        assert_eq!(exp("z3", None), ["*z3"]);
+        assert_eq!(exp("aP5", None), ["aP5"]);
+        assert_eq!(exp("p5:3", None), ["*p05:03"]);
+        assert_eq!(exp("**2set", None), ["**2set"]);
+    }
+
+    #[test]
+    fn says_what_was_filled() {
+        let e = expand("a10", None, &Defaults::default()).expect("expand");
+        assert_eq!(
+            e.filled,
+            ["skill predicted", "type default", "evaluation default"]
+        );
+        let e = expand("a10RM#", None, &Defaults::default()).expect("expand");
+        assert!(e.filled.is_empty());
+    }
+
+    #[test]
+    fn explains_mistakes() {
+        let err = |s: &str| expand(s, None, &Defaults::default()).unwrap_err();
+        assert_eq!(
+            err("x"),
+            "Start with the shirt number (a for the away team)."
+        );
+        assert_eq!(err("7K"), "Unknown skill letter K.");
+        assert_eq!(err("7AXH"), "Unknown type letter X.");
+        assert_eq!(
+            err("5S.a12A"),
+            "Dot codes pair a serve with a reception, or an attack with a block or dig."
+        );
+        assert_eq!(
+            err("5S.*12"),
+            "The part after the dot is the other team's touch."
+        );
+        assert_eq!(err("120S"), "Shirt numbers go from 0 to 99.");
+    }
+}

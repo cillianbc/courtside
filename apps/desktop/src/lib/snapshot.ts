@@ -106,7 +106,12 @@ export interface MatchItem {
 }
 
 export interface Readback {
+  /** What the scout typed (a dot code gives two read-backs for one). */
+  typed: string;
+  /** The full code it becomes. */
   text: string;
+  /** What was filled in: "skill predicted", "type from the serve"… */
+  filled: string[];
   meaning: string;
   error: string | null;
 }

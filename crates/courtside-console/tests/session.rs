@@ -191,8 +191,13 @@ fn unreadable_codes_change_nothing() {
     let (mut session, _dir) = opened();
     let before = session.snapshot().expect("snapshot");
     let err = session.commit("a16RM= x16", None).expect_err("bad code");
-    assert!(err.to_string().starts_with("x16: Start with *"), "{err}");
-    assert!(session.commit("a08R", None).is_err(), "no evaluation");
+    assert!(
+        err.to_string()
+            .starts_with("x16: Start with the shirt number"),
+        "{err}"
+    );
+    assert!(session.commit("a08K", None).is_err(), "unknown skill");
+    assert!(session.commit("5S.a12A", None).is_err(), "no such pair");
     assert_eq!(session.snapshot().expect("snapshot"), before);
 }
 
@@ -224,11 +229,71 @@ fn preview_reads_codes_back() {
         "Northgate #13 attack, high, perfect, wins the point"
     );
     assert_eq!(p.codes[1].meaning, "Timeout Harbour City");
-    let p = session.preview("a13A").expect("preview");
+    let p = session.preview("a13K").expect("preview");
     assert!(!p.ok);
+    assert_eq!(p.codes[0].error.as_deref(), Some("Unknown skill letter K."));
+}
+
+/// The open rally: home served (`*02SH+`). Shorthand is filled in from it.
+#[test]
+fn shorthand_is_expanded_with_the_rally_as_context() {
+    let (mut session, _dir) = opened();
+    let p = session.preview("a16 a14 a13#").expect("preview");
+    assert!(p.ok);
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes, ["a16RH+", "a14EH+", "a13AH#"]);
+    assert_eq!(p.codes[0].typed, "a16");
     assert_eq!(
-        p.codes[0].error.as_deref(),
-        Some("Add the evaluation (# + ! - / =).")
+        p.codes[0].filled,
+        [
+            "skill predicted",
+            "type from the serve",
+            "evaluation default"
+        ]
+    );
+    assert_eq!(
+        p.codes[0].meaning,
+        "Northgate #16 reception, high, positive"
+    );
+    // Enter writes the full codes, then the point and rotation as before.
+    let snap = session.commit("a16 a14 a13#", None).expect("commit");
+    let t = texts(&snap);
+    assert_eq!(
+        t[t.len() - 5..],
+        ["a16RH+", "a14EH+", "a13AH#", "ap01:02", "az2"]
+    );
+}
+
+#[test]
+fn dot_codes_write_both_halves() {
+    let (mut session, _dir) = opened();
+    session.commit("a16RH+ a14 a13", None).expect("rally");
+    // Home digs it; then home attacks and Northgate's 15 blocks it.
+    let snap = session.commit("2 4 3A.a15#", None).expect("block");
+    let t = texts(&snap);
+    assert_eq!(
+        t[t.len() - 6..],
+        ["*02DH+", "*04EH+", "*03AH/", "a15BH#", "ap01:02", "az2"]
+    );
+    // A correction takes shorthand too, with the touch before as context.
+    let snap = session
+        .correct(
+            &snap.groups[2]
+                .rows
+                .iter()
+                .find(|r| r.text == "*02DH+")
+                .expect("dig")
+                .id,
+            "2#",
+            None,
+        )
+        .expect("correct");
+    assert!(texts(&snap).contains(&"*02DH#".to_string()));
+    assert!(
+        session
+            .correct(&snap.groups[2].rows[1].id, "5S.a12", None)
+            .is_err(),
+        "one code at a time"
     );
 }
 

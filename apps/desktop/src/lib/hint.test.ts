@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { IDLE, hintFor } from "./hint";
 
-const read = (text: string, meaning: string, error: string | null = null) => ({
+const read = (text: string, meaning: string, error: string | null = null, typed = text) => ({
+  typed,
   text,
+  filled: [],
   meaning,
   error,
 });
@@ -15,6 +17,11 @@ describe("command bar hint", () => {
   it("joins the meanings of several codes", () => {
     const p = { ok: true, codes: [read("a14EH+", "set"), read("a13AH#", "attack")] };
     expect(hintFor("a14EH+ a13AH#", p)).toEqual({ text: "set · attack", bad: false });
+  });
+
+  it("shows the full code for shorthand", () => {
+    const p = { ok: true, codes: [read("a10RM+", "reception", null, "a10")] };
+    expect(hintFor("a10", p)).toEqual({ text: "a10RM+ reception", bad: false });
   });
 
   it("names the code that is wrong when there are several", () => {

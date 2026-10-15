@@ -15,7 +15,8 @@ use courtside_store::Season;
 use vb_engine::log::{EventLog, LogError};
 use vb_engine::model::Outcome;
 use vb_engine::{Body, EventId, IdGen, Match, MatchEvent, NewEvent, Producer, fold};
-use vb_grammar::Code;
+use vb_grammar::expand::Defaults;
+use vb_grammar::{Code, Touch};
 
 pub use courtside_store::{Error as StoreError, MatchId};
 pub use manage::{PlayerDetail, PlayerListItem, TeamDetail, TeamForm, TeamImportView};
@@ -63,6 +64,8 @@ struct Current {
     /// What undo took off, newest last, for redo. Any other change
     /// clears it. Kept in memory only.
     redo: Vec<Vec<MatchEvent>>,
+    /// Typing defaults (season settings, step E).
+    defaults: Defaults,
 }
 
 /// Whether `score` wins `set` under the match's regulation.
@@ -75,6 +78,19 @@ fn won(game: &Match, set: u8, score: vb_engine::Score) -> bool {
     hi >= target && hi - lo >= 2
 }
 
+/// The first touch walking back through `events` before a point code or
+/// set end.
+fn last_touch<'a>(events: impl Iterator<Item = &'a &'a MatchEvent>) -> Option<Touch> {
+    for e in events {
+        match e.code() {
+            Some(Code::Touch(t)) => return Some(t.clone()),
+            Some(Code::Point { .. } | Code::SetEnd { .. }) => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
 fn other(t: Team) -> Team {
     match t {
         Team::Home => Team::Visiting,
@@ -85,6 +101,33 @@ fn other(t: Team) -> Team {
 impl Current {
     fn names(&self) -> (&str, &str) {
         (&self.teams.0.name, &self.teams.1.name)
+    }
+
+    fn preview(&self, text: &str) -> Preview {
+        let before = self.open_rally_touch();
+        readback::preview(
+            text,
+            &self.game,
+            self.names(),
+            before.as_ref(),
+            &self.defaults,
+        )
+    }
+
+    /// The last touch of the rally in progress (none after a point code,
+    /// set end or at the start).
+    fn open_rally_touch(&self) -> Option<Touch> {
+        last_touch(self.game.log.visible().iter().rev())
+    }
+
+    /// The touch just before `target` in the same rally, as context for
+    /// correcting or inserting there.
+    fn touch_before(&self, target: EventId) -> Option<Touch> {
+        let visible = self.game.log.visible();
+        let root = visible.iter().position(|e| {
+            e.id == target || self.game.log.get(e.id).and_then(|x| x.supersedes) == Some(target)
+        })?;
+        last_touch(visible[..root].iter().rev())
     }
 
     /// Saves the log after a change that added the events from `before`
@@ -278,6 +321,7 @@ impl Session {
             teams,
             ids: IdGen::new(now_ms),
             redo: Vec::new(),
+            defaults: Defaults::default(),
         });
         self.snapshot()
     }
@@ -312,7 +356,7 @@ impl Session {
     /// Reads back what the command line holds, without changing anything.
     pub fn preview(&self, text: &str) -> Result<Preview> {
         let c = self.current.as_ref().ok_or(Error::NoMatch)?;
-        Ok(readback::preview(text, &c.game, c.names()))
+        Ok(c.preview(text))
     }
 
     /// Adds the codes on the command line (separated by spaces) to the
@@ -323,7 +367,7 @@ impl Session {
     pub fn commit(&mut self, text: &str, clock: Option<ClockTime>) -> Result<Snapshot> {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
-        let preview = readback::preview(text, &c.game, c.names());
+        let preview = c.preview(text);
         if !preview.ok {
             let why = preview
                 .codes
@@ -333,7 +377,8 @@ impl Session {
             return Err(Error::BadCode(why));
         }
         let before = c.game.log.len();
-        let codes: Vec<Code> = text.split_whitespace().map(Code::parse).collect();
+        // The expanded codes, in order.
+        let codes: Vec<Code> = preview.codes.iter().map(|r| Code::parse(&r.text)).collect();
         let typed_point = codes.iter().rev().find_map(|code| match code {
             Code::Point { team, .. } => Some(*team),
             _ => None,
@@ -547,12 +592,19 @@ impl Session {
                 if text.split_whitespace().count() != 1 {
                     return Err(Error::BadCode("One code at a time here.".into()));
                 }
-                let read = readback::read(text, &c.game, c.names());
-                if let Some(e) = read.error {
+                let before = c.touch_before(target);
+                let preview =
+                    readback::preview(text, &c.game, c.names(), before.as_ref(), &c.defaults);
+                if let Some(e) = preview.codes.iter().find_map(|r| r.error.clone()) {
                     return Err(Error::BadCode(format!("{text}: {e}")));
                 }
+                let [code] = preview.codes.as_slice() else {
+                    return Err(Error::BadCode(
+                        "A dot code makes two codes; correct one half at a time.".into(),
+                    ));
+                };
                 Some(NewEvent {
-                    body: Body::Code(Code::parse(text)),
+                    body: Body::Code(Code::parse(&code.text)),
                     video_ms: None,
                     clock,
                     producer: Producer::Keyboard,
