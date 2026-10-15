@@ -4,6 +4,7 @@
 //!
 //! Nothing here knows about Tauri, so the whole loop is tested headless.
 
+pub mod manage;
 pub mod readback;
 pub mod resume;
 pub mod snapshot;
@@ -17,9 +18,10 @@ use vb_engine::{Body, EventId, IdGen, Match, MatchEvent, NewEvent, Producer, fol
 use vb_grammar::Code;
 
 pub use courtside_store::{Error as StoreError, MatchId};
+pub use manage::{PlayerDetail, PlayerListItem, TeamDetail, TeamForm};
 pub use readback::Preview;
 pub use resume::Resume;
-pub use snapshot::{MatchItem, Snapshot, TeamItem};
+pub use snapshot::{MatchItem, Snapshot};
 pub use vb_engine::event::ClockTime;
 pub use vb_grammar::Team;
 
@@ -146,17 +148,79 @@ impl Session {
             .collect())
     }
 
-    pub fn teams(&self) -> Result<Vec<TeamItem>> {
+    /// Every team of the season with its roster.
+    pub fn teams(&self) -> Result<Vec<TeamDetail>> {
         Ok(self
             .season()?
             .teams()?
             .into_iter()
-            .map(|t| TeamItem {
-                players: t.players.len(),
-                id: t.id,
-                name: t.name,
-            })
+            .map(TeamDetail::from)
             .collect())
+    }
+
+    /// Creates (`id` `None`) or updates a team and its roster together.
+    pub fn save_team(
+        &mut self,
+        id: Option<&str>,
+        team: &TeamForm,
+        players: &[PlayerDetail],
+        now_ms: u64,
+    ) -> Result<TeamDetail> {
+        let rows: Vec<_> = players.iter().map(Into::into).collect();
+        let season = self.season_mut()?;
+        let id = season.save_team(id, &team.into(), &rows, now_ms)?;
+        Ok(season.team(&id)?.into())
+    }
+
+    pub fn delete_team(&mut self, id: &str) -> Result<()> {
+        Ok(self.season_mut()?.delete_team(id)?)
+    }
+
+    /// Folds team `from` into `into`; `pairs` maps `from`'s players to the
+    /// `into` players they are.
+    pub fn merge_teams(
+        &mut self,
+        from: &str,
+        into: &str,
+        pairs: &[(String, String)],
+    ) -> Result<()> {
+        Ok(self.season_mut()?.merge_teams(from, into, pairs)?)
+    }
+
+    pub fn players(&self) -> Result<Vec<PlayerListItem>> {
+        Ok(self
+            .season()?
+            .players()?
+            .into_iter()
+            .map(PlayerListItem::from)
+            .collect())
+    }
+
+    pub fn merge_players(&mut self, keep: &str, drop: &str) -> Result<()> {
+        Ok(self.season_mut()?.merge_players(keep, drop)?)
+    }
+
+    /// The open match's roster for one side, for editing.
+    pub fn match_roster(&self, home: bool) -> Result<Vec<PlayerDetail>> {
+        let c = self.current.as_ref().ok_or(Error::NoMatch)?;
+        let (h, v) = self.season()?.match_roster(c.id)?;
+        Ok(if home { h } else { v }
+            .into_iter()
+            .map(PlayerDetail::from)
+            .collect())
+    }
+
+    /// Replaces one side's roster for the open match only, and reopens it.
+    pub fn save_match_roster(
+        &mut self,
+        home: bool,
+        players: &[PlayerDetail],
+        now_ms: u64,
+    ) -> Result<Snapshot> {
+        let id = self.current.as_ref().ok_or(Error::NoMatch)?.id;
+        let rows: Vec<_> = players.iter().map(Into::into).collect();
+        self.season_mut()?.save_match_roster(id, home, &rows)?;
+        self.open_match(id, now_ms)
     }
 
     /// Creates a match between two of the season's teams (by id), to be

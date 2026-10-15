@@ -100,7 +100,10 @@ export function fixture(): Snapshot {
     Object.entries(NAMES[side]).map(([n, name]) => ({
       number: Number(n),
       name,
+      code: `${name.slice(0, 3).toUpperCase()}-${n}`,
+      role: Number(n) === LIBERO[side] ? 1 : null,
       libero: Number(n) === LIBERO[side],
+      captain: false,
     }));
   return {
     matchId: "fixture",

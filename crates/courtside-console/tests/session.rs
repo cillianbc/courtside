@@ -541,3 +541,104 @@ fn resumes_where_the_scout_was() {
     let nothing = courtside_console::Resume::load(&dir.path().join("missing.json"));
     assert_eq!(Session::new().resume(&nothing, 1).expect("resume"), None);
 }
+
+/// The path most scouts take: an empty season, two teams entered by hand,
+/// a match coded and exported. No .dvw involved.
+#[test]
+fn from_an_empty_season_to_an_exported_match() {
+    use courtside_console::{PlayerDetail, TeamForm};
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut session = Session::new();
+    session
+        .create_season(&dir.path().join("s.courtside"), "2026/27", 1)
+        .expect("season");
+    let roster = |base: u8| -> Vec<PlayerDetail> {
+        (0..7)
+            .map(|i| PlayerDetail {
+                id: String::new(),
+                number: base + i,
+                code: String::new(),
+                last_name: format!("Player{}", base + i),
+                first_name: "Made Up".into(),
+                nickname: String::new(),
+                role: Some(match i {
+                    0 => 5,
+                    6 => 1,
+                    _ => 2,
+                }),
+                libero: false,
+                captain: i == 1,
+                foreign: false,
+                birth_date: None,
+                height_cm: Some(190),
+            })
+            .collect()
+    };
+    let form = |name: &str| TeamForm {
+        name: name.into(),
+        coach: "Coach Name".into(),
+        ..TeamForm::default()
+    };
+    let home = session
+        .save_team(None, &form("Harbour City"), &roster(1), 2)
+        .expect("home team");
+    let away = session
+        .save_team(None, &form("Northgate"), &roster(11), 3)
+        .expect("away team");
+    assert_eq!(home.code, "HC");
+    assert_eq!(home.players[0].code, "PLA-MAD");
+    assert!(away.players[6].libero, "role libero makes a libero");
+
+    let snap = session
+        .new_match(&home.id, &away.id, Some("2026-10-20"), 4)
+        .expect("match");
+    assert_eq!(snap.teams.home.players.len(), 7);
+    assert_eq!(snap.teams.home.players[0].role, Some(5));
+    session
+        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, None)
+        .expect("six");
+    session
+        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 11, None)
+        .expect("six");
+    session.commit("*01SM# a12RM=", None).expect("ace");
+    // A late arrival for this match only.
+    let mut late = session.match_roster(false).expect("roster");
+    late.push(PlayerDetail {
+        number: 20,
+        last_name: "Late".into(),
+        ..late[0].clone()
+    });
+    late.last_mut().unwrap().id = String::new();
+    late.last_mut().unwrap().code = String::new();
+    let snap = session
+        .save_match_roster(false, &late, 5)
+        .expect("late player");
+    assert_eq!(snap.teams.visiting.players.len(), 8);
+    assert_eq!(
+        snap.score,
+        Pair {
+            home: 1,
+            visiting: 0
+        }
+    );
+    assert_eq!(
+        session.teams().expect("teams")[1].players.len(),
+        7,
+        "team unchanged"
+    );
+
+    let out = dir.path().join("m.dvw");
+    session.export_dvw(&out).expect("export");
+    let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
+    assert!(text.contains("\r\nHC;Harbour City;"));
+    let setter = text
+        .lines()
+        .find(|l| l.starts_with("0;1;"))
+        .expect("home #1");
+    let f: Vec<&str> = setter.split(';').collect();
+    assert_eq!((f[3], f[8], f[13]), ("1", "PLA-MAD", "5"), "{setter}");
+    assert!(
+        text.lines().any(|l| l.starts_with("1;20;")),
+        "late player exported"
+    );
+}

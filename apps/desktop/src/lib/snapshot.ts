@@ -11,7 +11,11 @@ export interface Pair<T> {
 export interface PlayerView {
   number: number;
   name: string;
+  code: string;
+  /** `.dvw` role: 1 libero, 2 outside, 3 opposite, 4 middle, 5 setter. */
+  role: number | null;
   libero: boolean;
+  captain: boolean;
 }
 
 export interface TeamView {
@@ -90,12 +94,6 @@ export interface Snapshot {
   groups: Group[];
   issues: IssueView[];
   events: number;
-}
-
-export interface TeamItem {
-  id: string;
-  name: string;
-  players: number;
 }
 
 export interface MatchItem {

@@ -4,7 +4,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { fixture } from "./fixture";
-import type { MatchItem, Preview, Side, Snapshot, TeamItem } from "./snapshot";
+import type { MatchItem, Preview, Side, Snapshot } from "./snapshot";
+import type { PlayerDetail, PlayerListItem, TeamDetail, TeamForm } from "./teams";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -19,8 +20,47 @@ export async function resume(): Promise<Snapshot | null> {
   return invoke<Snapshot | null>("resume");
 }
 
-export async function teams(): Promise<TeamItem[]> {
-  return invoke<TeamItem[]>("teams");
+export async function teams(): Promise<TeamDetail[]> {
+  return invoke<TeamDetail[]>("teams");
+}
+
+/** Creates (`id` null) or updates a team together with its roster. */
+export async function saveTeam(
+  id: string | null,
+  team: TeamForm,
+  players: PlayerDetail[],
+): Promise<TeamDetail> {
+  return invoke<TeamDetail>("team_save", { id, team, players });
+}
+
+export async function deleteTeam(id: string): Promise<void> {
+  await invoke("team_delete", { id });
+}
+
+/** Folds team `from` into `into`; `pairs` are [from player id, into player id]. */
+export async function mergeTeams(
+  from: string,
+  into: string,
+  pairs: [string, string][],
+): Promise<void> {
+  await invoke("teams_merge", { from, into, pairs });
+}
+
+export async function players(): Promise<PlayerListItem[]> {
+  return invoke<PlayerListItem[]>("players");
+}
+
+export async function mergePlayers(keep: string, drop: string): Promise<void> {
+  await invoke("players_merge", { keep, drop });
+}
+
+/** The open match's own roster for one side. */
+export async function matchRoster(home: boolean): Promise<PlayerDetail[]> {
+  return invoke<PlayerDetail[]>("match_roster", { home });
+}
+
+export async function saveMatchRoster(home: boolean, players: PlayerDetail[]): Promise<Snapshot> {
+  return invoke<Snapshot>("match_roster_save", { home, players });
 }
 
 /** Creates a match between two of the season's teams (by id) and opens it. */

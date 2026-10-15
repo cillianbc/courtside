@@ -15,8 +15,8 @@
   const players = $derived(
     team.players
       .filter((p) => !p.libero)
-      .map((p) => p.number)
-      .sort((a, b) => a - b),
+      .sort((a, b) => a.number - b.number)
+      .map((p) => (p.role === 5 ? `${p.number}(S)` : String(p.number))),
   );
 
   async function submit(e: SubmitEvent) {
@@ -26,8 +26,14 @@
       note = read.error;
       return;
     }
-    const s = Number(setter);
-    if (!setter.trim() || !read.court.includes(s)) {
+    // Left empty: the one player in the six whose role is setter.
+    const setters = team.players.filter((p) => p.role === 5 && read.court.includes(p.number));
+    const s = setter.trim()
+      ? Number(setter)
+      : setters.length === 1
+        ? (setters[0]?.number ?? -1)
+        : -1;
+    if (!read.court.includes(s)) {
       note = "The setter must be one of the six.";
       return;
     }
@@ -51,11 +57,11 @@
     </label>
     <label
       >Setter
-      <input class="lineup-setter" bind:value={setter} placeholder="8" autocomplete="off" />
+      <input class="lineup-setter" bind:value={setter} placeholder="auto" autocomplete="off" />
     </label>
     <button class="btn primary" type="submit">Enter lineup</button>
   </div>
   <div class="sub-note" class:bad={note !== ""}>
-    {note || `Players: ${players.join(" ")}`}
+    {note || `Players: ${players.join(" ")}. Setter left empty: the six's setter by role.`}
   </div>
 </form>

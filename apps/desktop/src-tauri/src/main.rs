@@ -8,7 +8,8 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use courtside_console::{
-    ClockTime, MatchId, MatchItem, Preview, Resume, Session, Snapshot, Team, TeamItem,
+    ClockTime, MatchId, MatchItem, PlayerDetail, PlayerListItem, Preview, Resume, Session,
+    Snapshot, Team, TeamDetail, TeamForm,
 };
 use tauri::{AppHandle, Manager, State};
 
@@ -82,8 +83,62 @@ fn season_open(app: AppHandle, state: State<'_, Shared>, path: PathBuf) -> Reply
 }
 
 #[tauri::command]
-fn teams(state: State<'_, Shared>) -> Reply<Vec<TeamItem>> {
+fn teams(state: State<'_, Shared>) -> Reply<Vec<TeamDetail>> {
     with(&state, |s| s.teams())
+}
+
+/// Creates (no `id`) or updates a team together with its roster.
+#[tauri::command]
+fn team_save(
+    state: State<'_, Shared>,
+    id: Option<String>,
+    team: TeamForm,
+    players: Vec<PlayerDetail>,
+) -> Reply<TeamDetail> {
+    with(&state, |s| {
+        s.save_team(id.as_deref(), &team, &players, now_ms())
+    })
+}
+
+#[tauri::command]
+fn team_delete(state: State<'_, Shared>, id: String) -> Reply<()> {
+    with(&state, |s| s.delete_team(&id))
+}
+
+/// Folds team `from` into `into`; `pairs` are (from player, into player).
+#[tauri::command]
+fn teams_merge(
+    state: State<'_, Shared>,
+    from: String,
+    into: String,
+    pairs: Vec<(String, String)>,
+) -> Reply<()> {
+    with(&state, |s| s.merge_teams(&from, &into, &pairs))
+}
+
+#[tauri::command]
+fn players(state: State<'_, Shared>) -> Reply<Vec<PlayerListItem>> {
+    with(&state, |s| s.players())
+}
+
+#[tauri::command]
+fn players_merge(state: State<'_, Shared>, keep: String, drop: String) -> Reply<()> {
+    with(&state, |s| s.merge_players(&keep, &drop))
+}
+
+/// The open match's own roster for one side.
+#[tauri::command]
+fn match_roster(state: State<'_, Shared>, home: bool) -> Reply<Vec<PlayerDetail>> {
+    with(&state, |s| s.match_roster(home))
+}
+
+#[tauri::command]
+fn match_roster_save(
+    state: State<'_, Shared>,
+    home: bool,
+    players: Vec<PlayerDetail>,
+) -> Reply<Snapshot> {
+    with(&state, |s| s.save_match_roster(home, &players, now_ms()))
 }
 
 /// Creates a match between two of the season's teams and opens it.
@@ -226,6 +281,13 @@ fn main() {
             season_create,
             season_open,
             teams,
+            team_save,
+            team_delete,
+            teams_merge,
+            players,
+            players_merge,
+            match_roster,
+            match_roster_save,
             match_new,
             resume,
             matches,

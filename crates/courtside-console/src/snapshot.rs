@@ -85,10 +85,15 @@ pub struct TeamView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlayerView {
     pub number: u8,
     pub name: String,
+    pub code: String,
+    /// `.dvw` role: 1 libero, 2 outside, 3 opposite, 4 middle, 5 setter.
+    pub role: Option<u8>,
     pub libero: bool,
+    pub captain: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -155,14 +160,6 @@ pub struct MatchItem {
     pub events: usize,
 }
 
-/// A team of the season, for choosing who plays a new match.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct TeamItem {
-    pub id: String,
-    pub name: String,
-    pub players: usize,
-}
-
 impl From<MatchSummary> for MatchItem {
     fn from(m: MatchSummary) -> Self {
         MatchItem {
@@ -207,7 +204,10 @@ fn team_view(t: &StoreTeam) -> TeamView {
                     .copied()
                     .collect::<Vec<_>>()
                     .join(" "),
+                code: p.code.clone(),
+                role: p.role,
                 libero: p.libero,
+                captain: p.captain,
             })
             .collect(),
     }

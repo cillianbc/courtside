@@ -2,11 +2,15 @@
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
   import * as backend from "../backend";
-  import type { MatchItem, TeamItem } from "../snapshot";
+  import type { MatchItem } from "../snapshot";
+  import type { TeamDetail } from "../teams";
   import { ui } from "../ui.svelte";
+  import PlayersTab from "./PlayersTab.svelte";
+  import TeamsTab from "./TeamsTab.svelte";
 
   let list = $state<MatchItem[] | null>(null);
-  let teams = $state<TeamItem[]>([]);
+  let teams = $state<TeamDetail[]>([]);
+  let tab = $state<"matches" | "teams" | "players">("matches");
   let error = $state("");
   let home = $state("");
   let visiting = $state("");
@@ -86,10 +90,27 @@
   </div>
   {#if error}<p class="error">{error}</p>{/if}
   {#if list}
+    <div class="tabs" role="tablist">
+      {#each [["matches", "Matches"], ["teams", "Teams"], ["players", "Players"]] as [key, label] (key)}
+        <button
+          class="tab"
+          role="tab"
+          type="button"
+          aria-selected={tab === key}
+          onclick={() => (tab = key as typeof tab)}>{label}</button
+        >
+      {/each}
+    </div>
+  {/if}
+  {#if list && tab === "teams"}
+    <TeamsTab {teams} onchange={refresh} />
+  {:else if list && tab === "players"}
+    <PlayersTab />
+  {:else if list}
     <h2>New match</h2>
     {#if teams.length < 2}
       <p class="empty-note">
-        Teams come from imported .dvw files for now. Import one to get its two teams and rosters.
+        A match needs two teams. Add them on the Teams tab, or import a .dvw to take its teams.
       </p>
     {:else}
       <form class="sub-form" onsubmit={newMatch}>
@@ -98,14 +119,16 @@
             >Home
             <select bind:value={home}>
               <option value="">–</option>
-              {#each teams as t (t.id)}<option value={t.id}>{t.name} ({t.players})</option>{/each}
+              {#each teams as t (t.id)}<option value={t.id}>{t.name} ({t.players.length})</option
+                >{/each}
             </select>
           </label>
           <label
             >Away
             <select bind:value={visiting}>
               <option value="">–</option>
-              {#each teams as t (t.id)}<option value={t.id}>{t.name} ({t.players})</option>{/each}
+              {#each teams as t (t.id)}<option value={t.id}>{t.name} ({t.players.length})</option
+                >{/each}
             </select>
           </label>
           <label>Date <input type="date" bind:value={date} /></label>

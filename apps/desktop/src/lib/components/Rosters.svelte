@@ -1,9 +1,11 @@
 <script lang="ts">
   import { prefix, type Side, type Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
+  import MatchRosterDialog from "./MatchRosterDialog.svelte";
   import SideTag from "./SideTag.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
+  let editing = $state<Side | null>(null);
 
   function players(side: Side) {
     const court = snap.court[side];
@@ -34,7 +36,15 @@
     {#each ui.order as side (side)}
       {@const cls = side === "home" ? "home" : "away"}
       <div class="roster">
-        <h3 class={cls}><SideTag {side} />{snap.teams[side].name}</h3>
+        <h3 class={cls}>
+          <SideTag {side} />{snap.teams[side].name}
+          <button
+            class="link edit-roster"
+            type="button"
+            title="Edit this match's roster"
+            onclick={() => (editing = side)}>edit</button
+          >
+        </h3>
         {#each players(side) as p (p.number)}
           <button
             type="button"
@@ -53,3 +63,10 @@
     {/each}
   </div>
 </section>
+{#if editing}
+  <MatchRosterDialog
+    side={editing}
+    name={snap.teams[editing].name}
+    onclose={() => (editing = null)}
+  />
+{/if}
