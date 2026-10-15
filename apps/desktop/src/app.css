@@ -230,6 +230,9 @@ body {
   color: var(--accent);
   font-weight: 600;
 }
+.menu-btn {
+  font-weight: 600;
+}
 .theme-btn {
   font: inherit;
   font-size: 12px;

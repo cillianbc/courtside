@@ -18,6 +18,16 @@
 </script>
 
 <header class="bar" aria-label="Match">
+  <button
+    class="theme-btn menu-btn"
+    type="button"
+    title="Back to the main menu: matches, teams, players, settings. The match is saved."
+    disabled={!backend.inTauri}
+    onclick={() => {
+      ui.snapshot = null;
+      ui.cancelEdit();
+    }}>◀ Main menu</button
+  >
   <div class="teams">
     <span class="team-name home"><SideTag side="home" />{snap.teams.home.name}</span>
     <div class="score" aria-live="polite">
@@ -38,15 +48,6 @@
   </div>
   <div class="saved">
     <span>Saved</span><b>event {snap.events}</b>
-    <button
-      class="theme-btn"
-      type="button"
-      disabled={!backend.inTauri}
-      onclick={() => {
-        ui.snapshot = null;
-        ui.cancelEdit();
-      }}>Matches</button
-    >
     <button class="theme-btn" type="button" disabled={!backend.inTauri} onclick={exportDvw}
       >Export .dvw</button
     >
