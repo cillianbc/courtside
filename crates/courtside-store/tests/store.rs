@@ -60,6 +60,12 @@ fn import_then_export_gives_the_file_back() {
         ("Harbour City", "Northgate", 3)
     );
     assert_eq!(summary.date.as_deref(), Some("2026-04-23"));
+    let (home, visiting) = season.match_teams(id).expect("match teams");
+    assert_eq!(
+        (home.name.as_str(), visiting.name.as_str()),
+        ("Harbour City", "Northgate")
+    );
+    assert_eq!(visiting.players.len(), 2);
 }
 
 #[test]

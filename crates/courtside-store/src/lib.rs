@@ -335,6 +335,28 @@ impl Season {
         .collect()
     }
 
+    /// The match's home and visiting teams, with their rosters.
+    pub fn match_teams(&self, id: MatchId) -> Result<(Team, Team)> {
+        let ids: Option<(String, String)> = self
+            .conn
+            .query_row(
+                "SELECT home_team_id, visiting_team_id FROM match WHERE id = ?1",
+                [id.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let (home_id, visiting_id) = ids.ok_or(Error::NoMatch(id))?;
+        let teams = self.teams()?;
+        let find = |team_id: &str| {
+            teams
+                .iter()
+                .find(|t| t.id == team_id)
+                .cloned()
+                .ok_or_else(|| Error::BadRow(format!("team {team_id:?}")))
+        };
+        Ok((find(&home_id)?, find(&visiting_id)?))
+    }
+
     /// Loads a match: the engine's model from its source file, the event
     /// log from the stored rows.
     pub fn open_match(&self, id: MatchId) -> Result<OpenMatch> {

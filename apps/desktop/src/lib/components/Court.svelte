@@ -1,0 +1,119 @@
+<script lang="ts">
+  import { LAYOUT, columns, type Net } from "../court";
+  import Icon from "./Icon.svelte";
+  import { prefix, type Side, type Snapshot } from "../snapshot";
+  import { ui } from "../ui.svelte";
+  import SideTag from "./SideTag.svelte";
+
+  let { snap }: { snap: Snapshot } = $props();
+
+  const nets = $derived<[Net, Net]>(ui.endView ? ["bottom", "top"] : ["right", "left"]);
+
+  function liberos(side: Side): string {
+    return snap.teams[side].players
+      .filter((p) => p.libero)
+      .map((p) => p.number)
+      .join(", ");
+  }
+
+  // Forward moves the setter one zone on (2 to 1, 1 to 6); back undoes it.
+  function rotationCode(side: Side, forward: boolean): string | null {
+    const z = snap.setterZone[side];
+    if (z === null) return null;
+    const next = forward ? (z === 1 ? 6 : z - 1) : z === 6 ? 1 : z + 1;
+    return `${prefix(side)}z${next}`;
+  }
+</script>
+
+{#snippet half(side: Side, net: Net)}
+  {@const cls = side === "home" ? "home" : "away"}
+  <div class="half-wrap">
+    <div class="half-label {cls}"><SideTag {side} />{snap.teams[side].name}</div>
+    <div class="half {cls}" class:wide={columns(net) === 3}>
+      {#each LAYOUT[net] as zone (zone)}
+        {@const n = snap.court[side][zone - 1] ?? null}
+        <div
+          class="zone"
+          class:setter={n !== null && n === snap.setter[side]}
+          class:server={side === snap.serving && zone === 1}
+        >
+          <small>{zone}</small>{n ?? ""}
+        </div>
+      {/each}
+    </div>
+  </div>
+{/snippet}
+
+<section class="panel" aria-label="On court">
+  <div class="court-head">
+    <h2>On court · set {snap.set}</h2>
+    <div class="view-tools">
+      <button
+        class="icon-btn"
+        type="button"
+        title="Swap sides"
+        aria-label="Swap sides"
+        onclick={() => (ui.swapped = !ui.swapped)}><Icon name="swap" /></button
+      >
+      <button
+        class="icon-btn"
+        type="button"
+        title={ui.endView ? "Side view" : "End view"}
+        aria-label={ui.endView ? "Side view" : "End view"}
+        aria-pressed={ui.endView}
+        onclick={() => (ui.endView = !ui.endView)}><Icon name="turn" /></button
+      >
+    </div>
+  </div>
+  <div class="courts" class:end={ui.endView}>
+    {@render half(ui.order[0] ?? "home", nets[0])}
+    <div class="net" aria-hidden="true"></div>
+    {@render half(ui.order[1] ?? "visiting", nets[1])}
+  </div>
+  <div class="court-legend">
+    <span><span class="sw"></span>Setter</span>
+    <span><span class="serve-dot"></span>Server</span>
+    <span>Small number: zone</span>
+    <span
+      >Libero <b class="team-name home" style="font-weight:500">{liberos("home") || "–"}</b> /
+      <b class="team-name away" style="font-weight:500">{liberos("visiting") || "–"}</b></span
+    >
+  </div>
+  <div class="team-ctl">
+    {#each ui.order as side (side)}
+      {@const name = snap.teams[side].name}
+      <div class="ctl-row" class:away={side === "visiting"}>
+        <div class="name">
+          <span class="team-name"><SideTag {side} />{name}</span>
+          <span>setter zone {snap.setterZone[side] ?? "?"}</span>
+        </div>
+        <button
+          type="button"
+          class="tool"
+          disabled={snap.timeouts[side] >= 2}
+          onclick={() => ui.startCode(`${prefix(side)}T`)}
+          ><Icon name="timeout" />Timeout <b>{snap.timeouts[side]}/2</b></button
+        >
+        <button type="button" class="tool" disabled title="Substitutions come with step C.4"
+          ><Icon name="sub" />Sub <b>{snap.substitutions[side]}/6</b></button
+        >
+        <span class="rot-group">
+          <span>Rotation</span>
+          {#each [false, true] as forward (forward)}
+            {@const code = rotationCode(side, forward)}
+            {@const label = `Rotate ${name} ${forward ? "forward" : "back"} one place`}
+            <button
+              type="button"
+              class="icon-btn"
+              title={label}
+              aria-label={label}
+              disabled={code === null}
+              onclick={() => code && ui.startCode(code)}
+              ><Icon name={forward ? "fwd" : "back"} /></button
+            >
+          {/each}
+        </span>
+      </div>
+    {/each}
+  </div>
+</section>

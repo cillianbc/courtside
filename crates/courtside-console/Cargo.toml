@@ -1,0 +1,28 @@
+[package]
+name = "courtside-console"
+description = "The coding console's session: open season and match, codes in, state snapshots out"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[package.metadata.dist]
+dist = false
+
+[dependencies]
+courtside-ffi.workspace = true
+courtside-store.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+vb-engine.workspace = true
+vb-grammar.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

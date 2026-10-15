@@ -33,7 +33,7 @@ impl fmt::Display for Issue {
     }
 }
 
-fn severity_name(s: Severity) -> &'static str {
+pub fn severity_name(s: Severity) -> &'static str {
     match s {
         Severity::Info => "info",
         Severity::Warning => "warning",
@@ -41,7 +41,7 @@ fn severity_name(s: Severity) -> &'static str {
     }
 }
 
-fn rule_name(r: Rule) -> &'static str {
+pub fn rule_name(r: Rule) -> &'static str {
     match r {
         Rule::Score => "score",
         Rule::Rotation => "rotation",
