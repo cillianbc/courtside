@@ -15,7 +15,7 @@ use courtside_store::Season;
 use vb_engine::log::{EventLog, LogError};
 use vb_engine::model::Outcome;
 use vb_engine::{Body, EventId, IdGen, Match, MatchEvent, NewEvent, Producer, fold};
-use vb_grammar::expand::{Defaults, follow_pair, is_pair};
+use vb_grammar::expand::{Combination, Defaults, follow_combination, follow_pair, is_pair};
 use vb_grammar::{Code, Skill, Touch};
 
 pub use courtside_store::{Error as StoreError, MatchId, SKILLS, Settings};
@@ -80,7 +80,7 @@ fn won(game: &Match, set: u8, score: vb_engine::Score) -> bool {
 
 /// The command line's defaults: typing from the season settings, attack
 /// combinations from the match's own table (`combinations`).
-fn defaults_from(s: &Settings, combinations: &[(String, char, char)]) -> Defaults {
+fn defaults_from(s: &Settings, combinations: &[Combination]) -> Defaults {
     let skill = |c: char| Skill::from_char(c).unwrap_or(Skill::Attack);
     Defaults {
         skill: skill(s.typing.skill),
@@ -91,21 +91,23 @@ fn defaults_from(s: &Settings, combinations: &[(String, char, char)]) -> Default
     }
 }
 
-/// A match's attack combinations as expansion takes them (code, type,
-/// start zone): the imported file's `[3ATTACKCOMBINATION]`, or for a match
+/// A match's attack combinations as expansion takes them: the imported file's `[3ATTACKCOMBINATION]`, or for a match
 /// coded here the table frozen into its blank template when it was created.
 /// Like DataVolley, a match uses its own table, not the season's.
-fn match_combinations(template: &dvw_codec::Dvw) -> Vec<(String, char, char)> {
+fn match_combinations(template: &dvw_codec::Dvw) -> Vec<Combination> {
     template
         .attack_combinations
         .iter()
         .filter_map(|c| {
-            let tempo = c.tempo().chars().next()?;
-            let zone = c
-                .start_zone()
-                .and_then(|z| char::from_digit(u32::from(z), 10))
-                .unwrap_or('~');
-            Some((c.code().to_owned(), tempo, zone))
+            Some(Combination {
+                code: c.code().to_owned(),
+                tempo: c.tempo().chars().next()?,
+                start_zone: c
+                    .start_zone()
+                    .and_then(|z| char::from_digit(u32::from(z), 10))
+                    .unwrap_or('~'),
+                target: c.target_attacker().chars().next(),
+            })
         })
         .collect()
 }
@@ -209,6 +211,24 @@ fn pair_partner(log: &EventLog, target: EventId) -> Option<(EventId, bool)> {
     let next = visible.get(i + 1)?;
     let n = touch_of(next)?;
     is_pair(&me, &n).then_some((next.id, true))
+}
+
+/// The touch straight before `target` (or the code it corrected) among the
+/// visible events, if the event before it is a touch.
+fn touch_just_before(log: &EventLog, target: EventId) -> Option<(EventId, Touch)> {
+    let visible = log.visible();
+    let i = visible.iter().position(|e| {
+        let mut cur = Some(e.id);
+        while let Some(id) = cur {
+            if id == target {
+                return true;
+            }
+            cur = log.get(id).and_then(|x| x.supersedes);
+        }
+        false
+    })?;
+    let prev = visible.get(i.checked_sub(1)?)?;
+    Some((prev.id, touch_of(prev)?))
 }
 
 /// The first touch walking back through `events` before a point code or
@@ -708,15 +728,38 @@ impl Session {
     /// When the code is one half of a pair (a serve and the other team's
     /// reception, an attack and the other team's block or dig, one straight
     /// after the other), the other half follows what changed: type,
-    /// evaluation through the pairing table, zones. That follow-up is
-    /// written by the console, so one undo takes back both.
+    /// evaluation through the pairing table, zones. A new attack
+    /// combination re-derives the target of the same team's set straight
+    /// before it. Those follow-ups are written by the console, so one undo
+    /// takes back all of them.
     pub fn correct(&mut self, id: &str, text: &str, clock: Option<ClockTime>) -> Result<Snapshot> {
+        let defaults = self
+            .current
+            .as_ref()
+            .map(|c| c.defaults.clone())
+            .unwrap_or_default();
         self.edit(id, Some(text), clock, |log, ids, target, new| {
             let Some(new) = new else {
                 return Err(LogError::NotFound(target));
             };
             let partner = pair_partner(log, target);
+            let set = touch_just_before(log, target);
             let id = log.correct(ids, target, new)?;
+            let repair = |t: Touch| NewEvent {
+                body: Body::Code(Code::Touch(t)),
+                video_ms: None,
+                clock,
+                producer: Producer::Repair,
+            };
+            if let Some((set_id, set)) = set
+                && let (Some(old), Some(now)) = (
+                    log.get(target).and_then(touch_of),
+                    log.get(id).and_then(touch_of),
+                )
+                && let Some(updated) = follow_combination(&old, &now, &set, &defaults)
+            {
+                log.correct(ids, set_id, repair(updated))?;
+            }
             if let Some((partner, edited_first)) = partner {
                 let old = log.get(target).and_then(touch_of);
                 let now = log.get(id).and_then(touch_of);
@@ -724,16 +767,7 @@ impl Session {
                 if let (Some(old), Some(now), Some(other)) = (old, now, other)
                     && let Some(updated) = follow_pair(&old, &now, &other, edited_first)
                 {
-                    log.correct(
-                        ids,
-                        partner,
-                        NewEvent {
-                            body: Body::Code(Code::Touch(updated)),
-                            video_ms: None,
-                            clock,
-                            producer: Producer::Repair,
-                        },
-                    )?;
+                    log.correct(ids, partner, repair(updated))?;
                 }
             }
             Ok(id)

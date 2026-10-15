@@ -34,6 +34,7 @@ fn file() -> String {
     }
     // Its own table, unlike the season's default X5 (fast set to zone 4).
     s.push_str("[3ATTACKCOMBINATION]\r\nX5;3;;Q;Made-up quick;;;;C;;\r\n");
+    s.push_str("X6;2;;T;Made-up fast;;;;B;;\r\n");
     s.push_str("[3SCOUT]\r\n");
     let codes = [
         "*P01>LUp", "*z1>LUp", "aP14>LUp", "az4>LUp", // lineups
@@ -772,6 +773,27 @@ fn correcting_one_half_of_a_pair_updates_the_other() {
         .filter(|(a, b)| a != b)
         .collect();
     assert_eq!(changed, [("a14EH#".to_string(), "a14EH+".to_string())]);
+}
+
+#[test]
+fn a_new_combination_retargets_the_set_before_it() {
+    let (mut session, _dir) = opened();
+    let snap = session.commit("a12RH+ a14EH+ a13AX5", None).expect("rally");
+    let attack = snap
+        .groups
+        .iter()
+        .flat_map(|g| &g.rows)
+        .find(|r| r.text == "a13AQ+X5~3")
+        .map(|r| r.id.clone())
+        .expect("attack");
+    // The set goes to the back attacker, as X6 says.
+    let snap = session.correct(&attack, "a13AX6", None).expect("correct");
+    let t = texts(&snap);
+    assert!(t.contains(&"a14EH+~~B".to_string()), "{t:?}");
+    assert!(t.contains(&"a13AT+X6~2".to_string()), "{t:?}");
+    // One undo takes back both.
+    let t = texts(&session.undo().expect("undo"));
+    assert!(t.contains(&"a14EH+".to_string()) && t.contains(&"a13AQ+X5~3".to_string()));
 }
 
 #[test]

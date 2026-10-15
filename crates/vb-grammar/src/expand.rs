@@ -35,9 +35,28 @@ pub struct Defaults {
     pub evaluations: [char; 7],
     /// Predict the skill from the touch before.
     pub predict: bool,
-    /// Attack combinations: code, type letter, start zone. A typed
-    /// combination fills a missing type and start zone.
-    pub combinations: Vec<(String, char, char)>,
+    /// Attack combinations. A typed combination fills a missing type and
+    /// start zone.
+    pub combinations: Vec<Combination>,
+}
+
+/// An attack combination from the match's table (`X5`: a fast set to
+/// zone 4, aimed at the front attacker).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Combination {
+    pub code: String,
+    /// The attack's type letter.
+    pub tempo: char,
+    /// Start zone digit, or `~` when the table has none.
+    pub start_zone: char,
+    /// Who the set goes to (`F`, `B`, `C`, `P`, `S`), if the table says.
+    pub target: Option<char>,
+}
+
+impl Defaults {
+    fn combination(&self, code: &str) -> Option<&Combination> {
+        self.combinations.iter().find(|c| c.code == code)
+    }
 }
 
 impl Default for Defaults {
@@ -290,7 +309,7 @@ fn complete(
     let combination = (skill == Skill::Attack)
         .then(|| t.rest.get(..2))
         .flatten()
-        .and_then(|code| d.combinations.iter().find(|(c, ..)| c == code));
+        .and_then(|code| d.combination(code));
     if t.skill_type.is_none()
         && t.evaluation.is_none()
         && combination.is_none()
@@ -302,7 +321,7 @@ fn complete(
         Some(c) => c,
         None if combination.is_some() => {
             filled.push("type from the combination".into());
-            combination.map_or('H', |(_, tempo, _)| *tempo)
+            combination.map_or('H', |c| c.tempo)
         }
         None => {
             match inherited_type(skill, before).filter(|_| before.is_some_and(|b| b.team != team)) {
@@ -329,10 +348,10 @@ fn complete(
     if skill == Skill::Attack
         && touch.start_zone().is_none()
         && let Some(code) = touch.combination()
-        && let Some((_, _, zone)) = d.combinations.iter().find(|(c, ..)| *c == code)
+        && let Some(c) = d.combination(&code)
     {
         filled.push("zone from the combination".into());
-        touch = touch.with_start_zone(*zone);
+        touch = touch.with_start_zone(c.start_zone);
     }
     Ok(touch)
 }
@@ -580,6 +599,26 @@ pub fn follow_pair(old: &Touch, new: &Touch, partner: &Touch, edited_first: bool
     (p != *partner).then_some(p)
 }
 
+/// An attack's combination was corrected from `old` to `new`; `set` is the
+/// touch straight before it. When that is the same team's set, its target
+/// follows the new combination's, as DataVolley and VolleyStation re-derive
+/// it (docs/research/VOLLEYSTATION.md §8): only where the set had no target
+/// or still had the old combination's, so a target the scout typed stays.
+/// `None` when nothing changes.
+pub fn follow_combination(old: &Touch, new: &Touch, set: &Touch, d: &Defaults) -> Option<Touch> {
+    if new.skill != Skill::Attack || set.skill != Skill::Set || set.team != new.team {
+        return None;
+    }
+    let (was, now) = (old.combination(), new.combination());
+    if was == now {
+        return None;
+    }
+    let target = |code: Option<String>| code.and_then(|c| d.combination(&c)?.target);
+    let next = target(now);
+    let derived = set.target().is_none() || set.target() == target(was);
+    (derived && next != set.target()).then(|| set.clone().with_target(next.unwrap_or('~')))
+}
+
 fn other(t: Team) -> Team {
     match t {
         Team::Home => Team::Visiting,
@@ -598,6 +637,49 @@ fn name(s: Skill) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn combo(code: &str, tempo: char, zone: char, target: char) -> Combination {
+        Combination {
+            code: code.into(),
+            tempo,
+            start_zone: zone,
+            target: Some(target),
+        }
+    }
+
+    fn touch(s: &str) -> Touch {
+        match Code::parse(s) {
+            Code::Touch(t) => t,
+            _ => panic!("not a touch: {s}"),
+        }
+    }
+
+    #[test]
+    fn a_set_follows_its_attack_combination() {
+        let d = Defaults {
+            combinations: vec![combo("X5", 'T', '4', 'F'), combo("X1", 'Q', '3', 'C')],
+            ..Defaults::default()
+        };
+        let follow = |old: &str, new: &str, set: &str| {
+            follow_combination(&touch(old), &touch(new), &touch(set), &d).map(|t| t.to_string())
+        };
+        let (x5, x1) = ("a02AT+X5~4", "a07AQ+X1~3");
+        assert_eq!(follow(x5, x1, "a05EH+~~F").as_deref(), Some("a05EH+~~C"));
+        assert_eq!(
+            follow(x5, x1, "a05EH+").as_deref(),
+            Some("a05EH+~~C"),
+            "none yet"
+        );
+        assert_eq!(follow(x5, x1, "a05EH+~~B"), None, "typed by the scout");
+        assert_eq!(follow(x5, x1, "*05EH+~~F"), None, "the other team's set");
+        assert_eq!(follow(x5, x5, "a05EH+~~F"), None, "same combination");
+        assert_eq!(
+            follow(x5, "a02AT+", "a05EH+~~F").as_deref(),
+            Some("a05EH+~~~"),
+            "combination taken off"
+        );
+        assert_eq!(follow(x1, "a02AT+V9", "a05EH+"), None, "not in the table");
+    }
 
     fn exp(token: &str, before: Option<&str>) -> Vec<String> {
         let b = before.map(|s| match Code::parse(s) {
@@ -644,7 +726,7 @@ mod tests {
         );
         assert_eq!(exp("$$&", None), ["*$$&H+"]);
         let d = Defaults {
-            combinations: vec![("X5".into(), 'T', '4'), ("X1".into(), 'Q', '3')],
+            combinations: vec![combo("X5", 'T', '4', 'F'), combo("X1", 'Q', '3', 'C')],
             ..Defaults::default()
         };
         let with = |s: &str| expand(s, None, &d).expect(s).codes[0].to_string();
@@ -692,13 +774,6 @@ mod tests {
         );
         assert_eq!(exp("5A.a12D#", None), ["*05AH-", "a12DH#"]);
         assert_eq!(exp("5A#.a12D", None), ["*05AH#", "a12DH="]);
-    }
-
-    fn touch(s: &str) -> Touch {
-        match Code::parse(s) {
-            Code::Touch(t) => t,
-            _ => panic!("not a touch: {s}"),
-        }
     }
 
     fn follow(old: &str, new: &str, partner: &str, edited_first: bool) -> Option<String> {
