@@ -3,6 +3,7 @@
 
 import * as backend from "./backend";
 import type { Hint } from "./hint";
+import { effectiveKeymap, type KeyBinding } from "./settings";
 import type { Side, Snapshot } from "./snapshot";
 
 /** The command bar is editing an earlier code rather than adding one. */
@@ -29,6 +30,10 @@ class Ui {
   /** The code picked in the stream, by event id. */
   selected = $state<string | null>(null);
   editing = $state<Editing | null>(null);
+  /** The team whose substitution picker is open. */
+  subFor = $state<Side | null>(null);
+  /** The season's keys, defaults filled in. */
+  keymap = $state<KeyBinding[]>(effectiveKeymap([]));
 
   get order(): Side[] {
     return this.swapped ? ["visiting", "home"] : ["home", "visiting"];
@@ -98,6 +103,16 @@ class Ui {
   remove(id: string, text: string): Promise<boolean> {
     this.selected = null;
     return this.apply(`Removed ${text}`, () => backend.remove(id));
+  }
+
+  /** Loads the season's keymap (after opening a season or saving settings). */
+  async loadKeymap() {
+    try {
+      const s = await backend.settings();
+      this.keymap = effectiveKeymap(s?.keymap ?? []);
+    } catch {
+      this.keymap = effectiveKeymap([]);
+    }
   }
 
   /** Puts `text` in the command bar and focuses it. */

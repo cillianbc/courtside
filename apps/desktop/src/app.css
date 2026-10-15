@@ -1370,3 +1370,65 @@ td.mono {
   display: flex;
   gap: 8px;
 }
+
+/* Settings */
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settings h2 {
+  margin: 10px 0 0;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+table.compact td {
+  padding: 3px 6px;
+}
+table.list input,
+table.list select {
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--fg);
+  width: 100%;
+}
+table.list input.short {
+  width: 7ch;
+}
+.mono {
+  font-family: var(--mono);
+}
+label.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  color: var(--fg);
+}
+.key-cap {
+  font-family: var(--mono);
+  font-size: 12px;
+  min-width: 14ch;
+  text-align: left;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--sunk);
+  color: var(--fg);
+  cursor: pointer;
+}
+.key-cap.recording {
+  border-color: var(--accent);
+  background: var(--panel);
+}
+.key-cap.bad {
+  border-color: var(--err);
+}

@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use courtside_console::{
-    ClockTime, MatchId, MatchItem, PlayerDetail, PlayerListItem, Preview, Resume, Session,
+    ClockTime, MatchId, Settings, MatchItem, PlayerDetail, PlayerListItem, Preview, Resume, Session,
     Snapshot, Team, TeamDetail, TeamForm, TeamImportView,
 };
 use tauri::{AppHandle, Manager, State};
@@ -110,6 +110,16 @@ fn team_import(state: State<'_, Shared>, path: PathBuf) -> Reply<TeamImportView>
 #[tauri::command]
 fn team_export(state: State<'_, Shared>, id: String, path: PathBuf) -> Reply<()> {
     with(&state, |s| s.export_team_file(&id, &path))
+}
+
+#[tauri::command]
+fn settings_get(state: State<'_, Shared>) -> Reply<Settings> {
+    with(&state, |s| s.settings())
+}
+
+#[tauri::command]
+fn settings_save(state: State<'_, Shared>, settings: Settings) -> Reply<()> {
+    with(&state, |s| s.save_settings(&settings))
 }
 
 #[tauri::command]
@@ -296,6 +306,8 @@ fn main() {
             team_save,
             team_delete,
             team_import,
+            settings_get,
+            settings_save,
             team_export,
             teams_merge,
             players,

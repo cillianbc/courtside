@@ -4,6 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { fixture } from "./fixture";
+import type { Settings } from "./settings";
 import type { MatchItem, Preview, Side, Snapshot } from "./snapshot";
 import type { PlayerDetail, PlayerListItem, TeamDetail, TeamForm, TeamImportView } from "./teams";
 
@@ -157,4 +158,13 @@ export async function insertBefore(id: string, text: string): Promise<Snapshot> 
 export async function remove(id: string): Promise<Snapshot> {
   needsApp();
   return invoke<Snapshot>("code_remove", { id });
+}
+
+export async function settings(): Promise<Settings | null> {
+  if (!inTauri) return null;
+  return invoke<Settings>("settings_get");
+}
+
+export async function saveSettings(settings: Settings): Promise<void> {
+  await invoke("settings_save", { settings });
 }

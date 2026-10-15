@@ -9,24 +9,30 @@
   import StartScreen from "./lib/components/StartScreen.svelte";
   import TopBar from "./lib/components/TopBar.svelte";
   import VideoPanel from "./lib/components/VideoPanel.svelte";
+  import { run } from "./lib/actions";
+  import { actionFor, keyString, usableWhileTyping } from "./lib/settings";
   import { ui } from "./lib/ui.svelte";
 
   let loaded = $state(false);
 
-  // Undo and redo from anywhere; the command line's own text undo is
-  // only lost while it holds text the scout hasn't entered.
+  // The season's keys, from anywhere. On the command line only keys
+  // with Mod or Alt (or function keys) count, so typing never triggers
+  // one; Undo there with text typed stays the text box's own undo.
   function onkeydown(e: KeyboardEvent) {
-    if (!ui.snapshot || !(e.ctrlKey || e.metaKey)) return;
-    const key = e.key.toLowerCase();
-    const redo = (key === "z" && e.shiftKey) || key === "y";
-    if (key !== "z" && key !== "y") return;
-    if (ui.code.trim() && document.activeElement?.classList.contains("code-input")) return;
-    e.preventDefault();
-    void (redo ? ui.redo() : ui.undo());
+    if (!ui.snapshot) return;
+    const keys = keyString(e);
+    const action = actionFor(ui.keymap, keys);
+    if (!action || !keys) return;
+    const inField = e.target instanceof HTMLElement && e.target.closest("input, select, textarea");
+    if (inField && !usableWhileTyping(keys)) return;
+    const typing = document.activeElement?.classList.contains("code-input") && ui.code.trim();
+    if (typing && (action === "undo" || action === "redo")) return;
+    if (run(action)) e.preventDefault();
   }
   onMount(async () => {
     try {
       ui.snapshot = await backend.resume();
+      await ui.loadKeymap();
     } catch (e) {
       // The last season moved or broke: start from the start screen.
       console.error(e);

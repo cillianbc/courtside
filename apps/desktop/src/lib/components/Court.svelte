@@ -18,8 +18,6 @@
       .map((p) => p.number)
       .join(", ");
   }
-
-  let subFor = $state<Side | null>(null);
 </script>
 
 {#snippet half(side: Side, net: Net)}
@@ -94,9 +92,9 @@
         <button
           type="button"
           class="tool"
-          aria-pressed={subFor === side}
+          aria-pressed={ui.subFor === side}
           disabled={snap.needsLineup[side]}
-          onclick={() => (subFor = subFor === side ? null : side)}
+          onclick={() => (ui.subFor = ui.subFor === side ? null : side)}
           ><Icon name="sub" />Sub <b>{snap.substitutions[side]}/6</b></button
         >
         <span class="rot-group">
@@ -121,7 +119,7 @@
   {#each ui.order as side (side)}
     {#if snap.needsLineup[side]}<LineupForm {snap} {side} />{/if}
   {/each}
-  {#if subFor && !snap.needsLineup[subFor]}
-    <SubForm {snap} side={subFor} onclose={() => (subFor = null)} />
+  {#if ui.subFor && !snap.needsLineup[ui.subFor]}
+    <SubForm {snap} side={ui.subFor} onclose={() => (ui.subFor = null)} />
   {/if}
 </section>

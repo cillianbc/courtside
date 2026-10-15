@@ -6,11 +6,12 @@
   import type { TeamDetail } from "../teams";
   import { ui } from "../ui.svelte";
   import PlayersTab from "./PlayersTab.svelte";
+  import SettingsTab from "./SettingsTab.svelte";
   import TeamsTab from "./TeamsTab.svelte";
 
   let list = $state<MatchItem[] | null>(null);
   let teams = $state<TeamDetail[]>([]);
-  let tab = $state<"matches" | "teams" | "players">("matches");
+  let tab = $state<"matches" | "teams" | "players" | "settings">("matches");
   let error = $state("");
   let home = $state("");
   let visiting = $state("");
@@ -65,6 +66,7 @@
   const openMatch = (id: string) =>
     run(async () => {
       ui.snapshot = await backend.openMatch(id);
+      await ui.loadKeymap();
     });
 
   const newMatch = (e: SubmitEvent) => {
@@ -75,6 +77,7 @@
         return;
       }
       ui.snapshot = await backend.newMatch(home, visiting, date || null);
+      await ui.loadKeymap();
     });
   };
 </script>
@@ -91,7 +94,7 @@
   {#if error}<p class="error">{error}</p>{/if}
   {#if list}
     <div class="tabs" role="tablist">
-      {#each [["matches", "Matches"], ["teams", "Teams"], ["players", "Players"]] as [key, label] (key)}
+      {#each [["matches", "Matches"], ["teams", "Teams"], ["players", "Players"], ["settings", "Settings"]] as [key, label] (key)}
         <button
           class="tab"
           role="tab"
@@ -106,6 +109,8 @@
     <TeamsTab {teams} onchange={refresh} />
   {:else if list && tab === "players"}
     <PlayersTab />
+  {:else if list && tab === "settings"}
+    <SettingsTab />
   {:else if list}
     <h2>New match</h2>
     {#if teams.length < 2}
