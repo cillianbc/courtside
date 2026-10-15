@@ -158,20 +158,47 @@ fn starting_sixes_are_stored() {
     assert_eq!(log.all().last().map(|e| &e.body), Some(&six));
 }
 
-/// A version 1 file (before starting sixes) opens as version 2.
+/// Turns a season file back into the version 2 layout: teams without
+/// codes, players keyed by team and number, no match rosters.
+fn downgrade_to_v2(conn: &rusqlite::Connection) {
+    conn.execute_batch(
+        "DROP INDEX team_code;
+         ALTER TABLE team DROP COLUMN code;
+         DROP TABLE match_player;
+         CREATE TABLE player_v2 (
+             team_id TEXT NOT NULL REFERENCES team(id), number INTEGER NOT NULL,
+             last_name TEXT NOT NULL, first_name TEXT NOT NULL, libero INTEGER NOT NULL,
+             PRIMARY KEY (team_id, number));
+         INSERT INTO player_v2 SELECT team_id, number, last_name, first_name, libero FROM player;
+         DROP TABLE player;
+         ALTER TABLE player_v2 RENAME TO player;
+         PRAGMA user_version = 2;",
+    )
+    .expect("downgrade to v2");
+}
+
+/// A version 1 file (before starting sixes and player codes) opens as the
+/// current version, with codes made for its players and match rosters
+/// filled in.
 #[test]
 fn version_1_files_are_migrated() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("season.courtside");
-    let id = {
+    let (id, coded) = {
         let mut season = Season::create(&path, "2026/27", 1).expect("create");
-        season
+        let id = season
             .import_dvw("m.dvw", FILE.as_bytes(), 1_000)
-            .expect("import")
+            .expect("import");
+        let teams = season.teams().expect("teams");
+        let coded = season
+            .create_match(&teams[0].id, &teams[1].id, None, 1_500)
+            .expect("coded here");
+        (id, coded)
     };
     {
-        // Put the old CHECK constraint back and mark the file version 1.
         let conn = rusqlite::Connection::open(&path).expect("sqlite");
+        downgrade_to_v2(&conn);
+        // And the version 1 CHECK constraint on events.
         conn.execute_batch(
             "CREATE TABLE event_v1 AS SELECT * FROM event;
              DROP TABLE event;
@@ -186,10 +213,29 @@ fn version_1_files_are_migrated() {
              DROP TABLE event_v1;
              PRAGMA user_version = 1;",
         )
-        .expect("downgrade");
+        .expect("downgrade to v1");
     }
     let mut season = Season::open(&path).expect("migrated");
     assert_eq!(codes(&season, id).len(), 3);
+    let teams = season.teams().expect("teams");
+    let codes_made: Vec<&str> = teams
+        .iter()
+        .flat_map(|t| t.players.iter().map(|p| p.code.as_str()))
+        .collect();
+    assert_eq!(codes_made.len(), 4);
+    assert!(codes_made.iter().all(|c| !c.is_empty()));
+    // The imported match's roster is the file's (its own player ids).
+    let (home, _) = season.match_roster(id).expect("roster");
+    assert_eq!(
+        home.iter().map(|p| p.code.as_str()).collect::<Vec<_>>(),
+        ["h8", "h12"]
+    );
+    // The match coded here takes the team rosters.
+    let (_, visiting) = season.match_roster(coded).expect("roster");
+    assert_eq!(visiting.len(), 2);
+    assert!(visiting.iter().any(|p| p.libero && p.number == 1));
+    assert!(season.export_dvw(coded).is_ok());
+
     let mut open = season.open_match(id).expect("open");
     open.game.log.append(
         &mut IdGen::new(2_000),

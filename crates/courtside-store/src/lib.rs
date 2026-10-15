@@ -8,7 +8,12 @@
 //! writes the difference: rows past the first event that differs are
 //! replaced, in one transaction.
 
+mod teams;
 mod template;
+
+pub use teams::{
+    Player, PlayerInput, SeasonPlayer, Team, TeamInput, suggest_player_code, suggest_team_code,
+};
 
 use std::path::Path;
 
@@ -22,7 +27,7 @@ use vb_grammar::Code;
 use vb_grammar::Team as Side;
 
 /// Schema version, kept in SQLite's `user_version`.
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 const SCHEMA: &str = "
 CREATE TABLE season (
@@ -36,17 +41,11 @@ CREATE TABLE season (
 CREATE TABLE team (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
+    code TEXT NOT NULL DEFAULT '',
     coach TEXT NOT NULL,
     assistant TEXT NOT NULL
 );
-CREATE TABLE player (
-    team_id TEXT NOT NULL REFERENCES team(id),
-    number INTEGER NOT NULL,
-    last_name TEXT NOT NULL,
-    first_name TEXT NOT NULL,
-    libero INTEGER NOT NULL,
-    PRIMARY KEY (team_id, number)
-);
+CREATE UNIQUE INDEX team_code ON team(code) WHERE code <> '';
 CREATE TABLE match (
     id TEXT PRIMARY KEY,
     home_team_id TEXT NOT NULL REFERENCES team(id),
@@ -74,6 +73,46 @@ CREATE TABLE event (
 );
 ";
 
+const PLAYER_TABLE_SQL: &str = "
+CREATE TABLE player (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL REFERENCES team(id),
+    number INTEGER NOT NULL,
+    -- Unique in the season; the .dvw player id column.
+    code TEXT NOT NULL UNIQUE,
+    last_name TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    nickname TEXT NOT NULL DEFAULT '',
+    -- .dvw role: 1 libero, 2 outside, 3 opposite, 4 middle, 5 setter.
+    role INTEGER,
+    libero INTEGER NOT NULL,
+    captain INTEGER NOT NULL DEFAULT 0,
+    foreign_player INTEGER NOT NULL DEFAULT 0,
+    birth_date TEXT,
+    height_cm INTEGER,
+    UNIQUE (team_id, number)
+);
+";
+
+const MATCH_PLAYER_TABLE_SQL: &str = "
+-- Each match's own roster, copied when it is created or imported.
+CREATE TABLE match_player (
+    match_id TEXT NOT NULL REFERENCES match(id),
+    side INTEGER NOT NULL CHECK (side IN (0, 1)),
+    number INTEGER NOT NULL,
+    player_id TEXT REFERENCES player(id) ON DELETE SET NULL,
+    code TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    nickname TEXT NOT NULL,
+    role INTEGER,
+    libero INTEGER NOT NULL,
+    captain INTEGER NOT NULL,
+    foreign_player INTEGER NOT NULL,
+    PRIMARY KEY (match_id, side, number)
+);
+";
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
@@ -88,6 +127,9 @@ pub enum Error {
     NoMatch(MatchId),
     #[error("bad stored value: {0}")]
     BadRow(String),
+    /// Entered data that can't be saved, in words for the scout.
+    #[error("{0}")]
+    Invalid(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -108,23 +150,6 @@ impl std::str::FromStr for MatchId {
             .map(MatchId)
             .map_err(|_| Error::BadRow(format!("match id {s:?}")))
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Team {
-    pub id: String,
-    pub name: String,
-    pub coach: String,
-    pub assistant: String,
-    pub players: Vec<Player>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Player {
-    pub number: u8,
-    pub last_name: String,
-    pub first_name: String,
-    pub libero: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,6 +197,8 @@ impl Season {
             return Err(Error::Version(version));
         }
         conn.execute_batch(SCHEMA)?;
+        conn.execute_batch(PLAYER_TABLE_SQL)?;
+        conn.execute_batch(MATCH_PLAYER_TABLE_SQL)?;
         conn.execute(
             "INSERT INTO season (id, name, created_ms) VALUES (1, ?1, ?2)",
             params![name, ms(now_ms)],
@@ -187,7 +214,11 @@ impl Season {
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         match version {
             VERSION => {}
-            1 => migrate_1_to_2(&conn)?,
+            1 => {
+                migrate_1_to_2(&conn)?;
+                migrate_2_to_3(&conn)?;
+            }
+            2 => migrate_2_to_3(&conn)?,
             _ => return Err(Error::Version(version)),
         }
         Self::configure(&conn)?;
@@ -218,6 +249,7 @@ impl Season {
         let tx = self.conn.transaction()?;
         let id = MatchId(next_id(&tx, now_ms)?);
         let mut team_ids = Vec::new();
+        let mut rosters = Vec::new();
         for (i, players) in [&dvw.players_home, &dvw.players_visiting]
             .into_iter()
             .enumerate()
@@ -246,19 +278,28 @@ impl Season {
                     t
                 }
             };
+            let mut rows = Vec::new();
             for p in players {
                 let Some(number) = p.number() else { continue };
-                let libero = if i == 0 {
-                    game.teams.home.is_libero(number)
-                } else {
-                    game.teams.visiting.is_libero(number)
+                let special = p.special_role();
+                let row = PlayerInput {
+                    id: None,
+                    number,
+                    code: p.id().trim().to_owned(),
+                    last_name: p.last_name(),
+                    first_name: p.first_name(),
+                    nickname: p.nickname(),
+                    role: p.role().map(role_number),
+                    libero: special == "L" || p.role() == Some(dvw_codec::dvw::Role::Libero),
+                    captain: special == "C",
+                    foreign: p.foreign().unwrap_or(false),
+                    birth_date: None,
+                    height_cm: None,
                 };
-                tx.execute(
-                    "INSERT OR IGNORE INTO player (team_id, number, last_name, first_name, libero)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![team_id, number, p.last_name(), p.first_name(), libero],
-                )?;
+                let (player_id, code) = teams::find_or_add_player(&tx, &team_id, &row, now_ms)?;
+                rows.push((player_id, code, row));
             }
+            rosters.push(rows);
             team_ids.push(team_id);
         }
         tx.execute(
@@ -274,41 +315,16 @@ impl Season {
                 ms(now_ms)
             ],
         )?;
+        for (side, rows) in (0u8..).zip(&rosters) {
+            for (player_id, code, row) in rows {
+                // The file's own id when it has one, as the file says.
+                let code = if row.code.is_empty() { code } else { &row.code };
+                teams::insert_match_player(&tx, id, side, Some(player_id), row, code)?;
+            }
+        }
         write_events(&tx, id, game.log.all(), 0)?;
         tx.commit()?;
         Ok(id)
-    }
-
-    pub fn teams(&self) -> Result<Vec<Team>> {
-        let mut teams: Vec<Team> = self
-            .conn
-            .prepare("SELECT id, name, coach, assistant FROM team ORDER BY name")?
-            .query_map([], |r| {
-                Ok(Team {
-                    id: r.get(0)?,
-                    name: r.get(1)?,
-                    coach: r.get(2)?,
-                    assistant: r.get(3)?,
-                    players: Vec::new(),
-                })
-            })?
-            .collect::<rusqlite::Result<_>>()?;
-        let mut stmt = self.conn.prepare(
-            "SELECT number, last_name, first_name, libero FROM player WHERE team_id = ?1 ORDER BY number",
-        )?;
-        for t in &mut teams {
-            t.players = stmt
-                .query_map([&t.id], |r| {
-                    Ok(Player {
-                        number: r.get(0)?,
-                        last_name: r.get(1)?,
-                        first_name: r.get(2)?,
-                        libero: r.get(3)?,
-                    })
-                })?
-                .collect::<rusqlite::Result<_>>()?;
-        }
-        Ok(teams)
     }
 
     pub fn matches(&self) -> Result<Vec<MatchSummary>> {
@@ -352,7 +368,7 @@ impl Season {
         now_ms: u64,
     ) -> Result<MatchId> {
         if home_team_id == visiting_team_id {
-            return Err(Error::BadRow("a match needs two different teams".into()));
+            return Err(Error::Invalid("a match needs two different teams".into()));
         }
         let tx = self.conn.transaction()?;
         let id = MatchId(next_id(&tx, now_ms)?);
@@ -367,6 +383,7 @@ impl Season {
                 ms(now_ms)
             ],
         )?;
+        teams::copy_rosters(&tx, id, home_team_id, visiting_team_id)?;
         tx.commit()?;
         Ok(id)
     }
@@ -380,28 +397,6 @@ impl Season {
             |r| r.get(0),
         )?;
         Ok(template::blank(&home, &visiting, date.as_deref()))
-    }
-
-    /// The match's home and visiting teams, with their rosters.
-    pub fn match_teams(&self, id: MatchId) -> Result<(Team, Team)> {
-        let ids: Option<(String, String)> = self
-            .conn
-            .query_row(
-                "SELECT home_team_id, visiting_team_id FROM match WHERE id = ?1",
-                [id.to_string()],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        let (home_id, visiting_id) = ids.ok_or(Error::NoMatch(id))?;
-        let teams = self.teams()?;
-        let find = |team_id: &str| {
-            teams
-                .iter()
-                .find(|t| t.id == team_id)
-                .cloned()
-                .ok_or_else(|| Error::BadRow(format!("team {team_id:?}")))
-        };
-        Ok((find(&home_id)?, find(&visiting_id)?))
     }
 
     /// Loads a match: the engine's model from its source file, the event
@@ -483,6 +478,141 @@ fn migrate_1_to_2(conn: &Connection) -> Result<()> {
          COMMIT;",
     )?;
     Ok(())
+}
+
+/// Version 3: players get an id and a season-unique code, plus nickname,
+/// role, captain, foreign, birth date and height; teams get a code; each
+/// match gets its own roster (from its file, or the team's roster for a
+/// match coded here).
+fn migrate_2_to_3(conn: &Connection) -> Result<()> {
+    conn.execute_batch("BEGIN;")?;
+    let result = (|| -> Result<()> {
+        conn.execute_batch(&format!(
+            "ALTER TABLE team ADD COLUMN code TEXT NOT NULL DEFAULT '';
+             CREATE UNIQUE INDEX team_code ON team(code) WHERE code <> '';
+             ALTER TABLE player RENAME TO player_v2;
+             {PLAYER_TABLE_SQL}
+             {MATCH_PLAYER_TABLE_SQL}"
+        ))?;
+        let old: Vec<(String, u8, String, String, bool)> = conn
+            .prepare("SELECT team_id, number, last_name, first_name, libero FROM player_v2")?
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut taken = std::collections::HashSet::new();
+        for (team_id, number, last, first, libero) in old {
+            let code = suggest_player_code(&last, &first, number, &taken);
+            taken.insert(code.clone());
+            let id = next_id(conn, 0)?.to_string();
+            conn.execute(
+                "INSERT INTO player (id, team_id, number, code, last_name, first_name, role, libero)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![id, team_id, number, code, last, first, libero.then_some(1u8), libero],
+            )?;
+        }
+        conn.execute_batch("DROP TABLE player_v2;")?;
+        // Matches coded here take their teams' rosters; imported ones the
+        // rosters in their file, linked to season players by number.
+        let matches: Vec<(String, String, String, Option<Vec<u8>>)> = conn
+            .prepare("SELECT id, home_team_id, visiting_team_id, source_dvw FROM match")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (id, home, visiting, source) in matches {
+            let rows: [Vec<PlayerInput>; 2] = match source {
+                None => [&home, &visiting].map(|team| {
+                    conn.prepare("SELECT number, code, last_name, first_name, libero FROM player WHERE team_id = ?1")
+                        .and_then(|mut st| {
+                            st.query_map([team], |r| {
+                                Ok(PlayerInput {
+                                    number: r.get(0)?,
+                                    code: r.get(1)?,
+                                    last_name: r.get(2)?,
+                                    first_name: r.get(3)?,
+                                    libero: r.get(4)?,
+                                    role: r.get::<_, bool>(4)?.then_some(1),
+                                    ..PlayerInput::default()
+                                })
+                            })?
+                            .collect()
+                        })
+                        .unwrap_or_default()
+                }),
+                Some(bytes) => {
+                    let dvw = Dvw::parse(&bytes)?;
+                    [&dvw.players_home, &dvw.players_visiting].map(|ps| {
+                        ps.iter()
+                            .filter_map(|p| {
+                                Some(PlayerInput {
+                                    number: p.number()?,
+                                    code: p.id().trim().to_owned(),
+                                    last_name: p.last_name(),
+                                    first_name: p.first_name(),
+                                    nickname: p.nickname(),
+                                    role: p.role().map(role_number),
+                                    libero: p.special_role() == "L"
+                                        || p.role() == Some(dvw_codec::dvw::Role::Libero),
+                                    captain: p.special_role() == "C",
+                                    foreign: p.foreign().unwrap_or(false),
+                                    ..PlayerInput::default()
+                                })
+                            })
+                            .collect()
+                    })
+                }
+            };
+            for (side, (team, rows)) in (0u8..).zip([&home, &visiting].into_iter().zip(rows)) {
+                for r in rows {
+                    let (player_id, code): (Option<String>, String) = conn
+                        .query_row(
+                            "SELECT id, code FROM player WHERE team_id = ?1 AND number = ?2",
+                            params![team, r.number],
+                            |row| Ok((Some(row.get(0)?), row.get(1)?)),
+                        )
+                        .optional()?
+                        .unwrap_or((None, String::new()));
+                    let code = if r.code.is_empty() {
+                        code
+                    } else {
+                        r.code.clone()
+                    };
+                    conn.execute(
+                        "INSERT OR IGNORE INTO match_player (match_id, side, number, player_id, code,
+                             last_name, first_name, nickname, role, libero, captain, foreign_player)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        params![
+                            id, side, r.number, player_id, code, r.last_name, r.first_name,
+                            r.nickname, r.role, r.libero, r.captain, r.foreign
+                        ],
+                    )?;
+                }
+            }
+        }
+        conn.pragma_update(None, "user_version", 3)?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => {
+            conn.execute_batch("COMMIT;")?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            Err(e)
+        }
+    }
+}
+
+fn role_number(r: dvw_codec::dvw::Role) -> u8 {
+    use dvw_codec::dvw::Role;
+    match r {
+        Role::Libero => 1,
+        Role::Outside => 2,
+        Role::Opposite => 3,
+        Role::Middle => 4,
+        Role::Setter => 5,
+        Role::Unknown => 6,
+    }
 }
 
 /// A new team or match id: `now_ms` and the season's counter.

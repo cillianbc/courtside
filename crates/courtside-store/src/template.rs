@@ -44,17 +44,28 @@ pub fn blank(home: &Team, visiting: &Team, date: Option<&str>) -> Vec<u8> {
     for (side, header, team) in [(0, "[3PLAYERS-H]", home), (1, "[3PLAYERS-V]", visiting)] {
         lines.push(header.into());
         for (i, p) in team.players.iter().enumerate() {
-            let id = format!("{}-{}", ["h", "v"][side], p.number);
+            let id = field(&p.code);
+            let special = if p.libero {
+                "L"
+            } else if p.captain {
+                "C"
+            } else {
+                ""
+            };
+            let role = p
+                .role
+                .or(p.libero.then_some(1))
+                .map_or(String::new(), |r| r.to_string());
             // team; number; index; zones 1–5; id; last; first; nickname;
-            // special role; role (1 = libero); foreign; id again
+            // special role (L libero, C captain); role; foreign; id again
             lines.push(format!(
-                "{side};{};{};;;;;;{id};{};{};;{};{};False;{id};;",
+                "{side};{};{};;;;;;{id};{};{};{};{special};{role};{};{id};;",
                 p.number,
                 i + 1,
                 field(&p.last_name),
                 field(&p.first_name),
-                if p.libero { "L" } else { "" },
-                if p.libero { "1" } else { "" },
+                field(&p.nickname),
+                if p.foreign { "True" } else { "False" },
             ));
         }
     }
@@ -79,8 +90,13 @@ pub fn blank(home: &Team, visiting: &Team, date: Option<&str>) -> Vec<u8> {
 
 fn team_line(n: u8, t: &Team) -> String {
     // id; name; sets won; coach; assistant; shirt colour
+    let id = if t.code.is_empty() {
+        n.to_string()
+    } else {
+        field(&t.code)
+    };
     format!(
-        "{n};{};0;{};{};;",
+        "{id};{};0;{};{};;",
         field(&t.name),
         field(&t.coach),
         field(&t.assistant)
