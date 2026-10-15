@@ -34,13 +34,14 @@ const LIBERO: Record<Side, number> = { home: 16, visiting: 6 };
 
 let seq = 0;
 function row(text: string, kind: Row["kind"] = "touch", severity: Row["severity"] = null): Row {
+  const auto = kind === "point";
   const team: Side | null = text.startsWith("*")
     ? "home"
     : text.startsWith("a")
       ? "visiting"
       : null;
   seq += 1;
-  return { id: `fixture-${seq}`, index: seq - 1, text, team, kind, severity };
+  return { id: `fixture-${seq}`, index: seq - 1, text, team, kind, meaning: "", auto, severity };
 }
 
 function rally(

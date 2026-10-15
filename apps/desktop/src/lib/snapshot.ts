@@ -44,6 +44,10 @@ export interface Row {
   text: string;
   team: Side | null;
   kind: RowKind;
+  /** The read-back, as in the command bar. */
+  meaning: string;
+  /** Written by the console (a point code or rotation), not typed. */
+  auto: boolean;
   severity: Severity | null;
 }
 
@@ -90,6 +94,18 @@ export interface MatchItem {
   date: string | null;
   sourceName: string | null;
   events: number;
+}
+
+export interface Readback {
+  text: string;
+  meaning: string;
+  error: string | null;
+}
+
+export interface Preview {
+  codes: Readback[];
+  /** Every code can be read, so Enter will add them. */
+  ok: boolean;
 }
 
 export const SIDES: readonly Side[] = ["home", "visiting"];

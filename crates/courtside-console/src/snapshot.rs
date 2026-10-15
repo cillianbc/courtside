@@ -6,7 +6,9 @@ use courtside_ffi::validate::{rule_name, severity_name};
 use courtside_store::{MatchSummary, Team as StoreTeam};
 use serde::Serialize;
 use vb_engine::validate::{Severity, validate_folded};
-use vb_engine::{EventKind, Match, MatchEvent, Sides, fold::fold_events};
+use vb_engine::{EventKind, Match, MatchEvent, Producer, Sides, fold::fold_events};
+
+use crate::readback;
 use vb_grammar::{Code, Skill, Team};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -119,6 +121,10 @@ pub struct Row {
     pub text: String,
     pub team: Option<Side>,
     pub kind: &'static str,
+    /// The read-back, as in the command bar.
+    pub meaning: String,
+    /// Written by the console (a point code or rotation), not typed.
+    pub auto: bool,
     /// The worst issue on this code.
     pub severity: Option<&'static str>,
 }
@@ -202,6 +208,7 @@ fn is_serve(e: &MatchEvent) -> Option<Team> {
 }
 
 pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Snapshot {
+    let names = (teams.0.name.as_str(), teams.1.name.as_str());
     let events = game.log.visible();
     let folded = fold_events(game, &events);
     let issues = validate_folded(game, &events, &folded);
@@ -258,6 +265,11 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             },
             team: e.code().and_then(Code::team).map(Side::from),
             kind: kind_name(kind),
+            meaning: match &e.body {
+                vb_engine::Body::Code(c) => readback::read(&c.to_string(), game, names).meaning,
+                _ => String::new(),
+            },
+            auto: e.producer == Producer::Repair,
             severity: worst.get(i).copied().flatten().map(severity_name),
         });
         let ended = rally_end.get(i).copied().flatten();

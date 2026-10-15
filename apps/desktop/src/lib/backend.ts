@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { fixture } from "./fixture";
-import type { MatchItem, Snapshot } from "./snapshot";
+import type { MatchItem, Preview, Snapshot } from "./snapshot";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -31,4 +31,17 @@ export async function importMatch(path: string): Promise<MatchItem[]> {
 
 export async function openMatch(id: string): Promise<Snapshot> {
   return invoke<Snapshot>("match_open", { id });
+}
+
+export async function preview(text: string): Promise<Preview> {
+  if (!inTauri) return { codes: [], ok: false };
+  return invoke<Preview>("preview", { text });
+}
+
+/** Adds the command line's codes, stamped with the local time of day. */
+export async function commit(text: string): Promise<Snapshot> {
+  if (!inTauri) throw new Error("Coding needs the desktop app.");
+  const now = new Date();
+  const clock = [now.getHours(), now.getMinutes(), now.getSeconds()];
+  return invoke<Snapshot>("commit", { text, clock });
 }

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use courtside_console::{MatchId, MatchItem, Session, Snapshot};
+use courtside_console::{ClockTime, MatchId, MatchItem, Preview, Session, Snapshot};
 use tauri::State;
 
 type Shared = Mutex<Session>;
@@ -62,6 +62,24 @@ fn match_open(state: State<'_, Shared>, id: String) -> Reply<Snapshot> {
     with(&state, |s| s.open_match(id, now_ms()))
 }
 
+/// Reads back the command line.
+#[tauri::command]
+fn preview(state: State<'_, Shared>, text: String) -> Reply<Preview> {
+    with(&state, |s| s.preview(&text))
+}
+
+/// Adds the command line's codes; `clock` is the local time of day
+/// (hour, minute, second) for the `.dvw` time column.
+#[tauri::command]
+fn commit(state: State<'_, Shared>, text: String, clock: Option<[u8; 3]>) -> Reply<Snapshot> {
+    let clock = clock.map(|[hour, minute, second]| ClockTime {
+        hour,
+        minute,
+        second,
+    });
+    with(&state, |s| s.commit(&text, clock))
+}
+
 /// The open match's state, or `None` when no match is open.
 #[tauri::command]
 fn snapshot(state: State<'_, Shared>) -> Reply<Option<Snapshot>> {
@@ -78,7 +96,9 @@ fn main() {
             matches,
             match_import,
             match_open,
-            snapshot
+            snapshot,
+            preview,
+            commit
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {

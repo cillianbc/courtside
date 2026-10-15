@@ -89,12 +89,14 @@
             class:home={r.team === "home"}
             class:away={r.team === "visiting"}
             class:sys={r.team === null}
+            class:auto={r.auto}
+            title={r.auto ? "Written by the console" : undefined}
             id={`ev-${r.id}`}
           >
             <span class="stripe"></span>
             <span class="tc">{r.index + 1}</span>
             <code>{r.text}</code>
-            <span class="meaning"></span>
+            <span class="meaning">{r.meaning}</span>
             {#if r.severity}
               <span class="flag {FLAG[r.severity]}">{r.severity}</span>
             {:else}

@@ -121,3 +121,112 @@ fn needs_a_season_and_a_match() {
     assert!(session.matches().is_err());
     assert!(session.snapshot().is_err());
 }
+
+fn opened() -> (Session, tempfile::TempDir) {
+    let (mut session, dir) = session_with_match();
+    let id = session.matches().expect("matches")[0]
+        .id
+        .parse()
+        .expect("id");
+    session.open_match(id, 2_000).expect("open");
+    (session, dir)
+}
+
+fn texts(snap: &courtside_console::Snapshot) -> Vec<String> {
+    snap.groups
+        .iter()
+        .flat_map(|g| g.rows.iter().map(|r| r.text.clone()))
+        .collect()
+}
+
+#[test]
+fn a_deciding_touch_writes_the_point() {
+    let (mut session, _dir) = opened();
+    // Home served (*02SH+); a reception error gives home the point.
+    let snap = session.commit("a16RM=", None).expect("commit");
+    assert_eq!(
+        snap.score,
+        Pair {
+            home: 2,
+            visiting: 1
+        }
+    );
+    assert_eq!(texts(&snap)[15..], ["a16RM=", "*p02:01"]);
+    assert_eq!(snap.serving, Some(Side::Home));
+    assert!(snap.groups[2].closed);
+}
+
+#[test]
+fn a_side_out_rotates_the_winner() {
+    let (mut session, _dir) = opened();
+    session.commit("a16RM+", None).expect("reception");
+    // Two codes on one line, as a pair.
+    let snap = session.commit("a14EH+ a13AH#", None).expect("attack");
+    assert_eq!(
+        snap.score,
+        Pair {
+            home: 1,
+            visiting: 2
+        }
+    );
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 4..], ["a14EH+", "a13AH#", "ap01:02", "az2"]);
+    // 13 rotates into zone 1 and serves next; setter 14 in zone 2.
+    assert_eq!(snap.court.visiting[0], Some(13));
+    assert_eq!(snap.setter_zone.visiting, Some(2));
+    assert_eq!(snap.serving, Some(Side::Visiting));
+}
+
+#[test]
+fn a_typed_point_is_kept_and_still_rotates() {
+    let (mut session, _dir) = opened();
+    let snap = session.commit("ap01:02", None).expect("point");
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 2..], ["ap01:02", "az2"]);
+}
+
+#[test]
+fn unreadable_codes_change_nothing() {
+    let (mut session, _dir) = opened();
+    let before = session.snapshot().expect("snapshot");
+    let err = session.commit("a16RM= x16", None).expect_err("bad code");
+    assert!(err.to_string().starts_with("x16: Start with *"), "{err}");
+    assert!(session.commit("a08R", None).is_err(), "no evaluation");
+    assert_eq!(session.snapshot().expect("snapshot"), before);
+}
+
+#[test]
+fn commits_are_saved_at_once() {
+    let (mut session, dir) = opened();
+    let snap = session.commit("a16RM=", None).expect("commit");
+    // A new session on the same file, as after a crash.
+    let mut reopened = Session::new();
+    reopened
+        .open_season(&dir.path().join("season.courtside"))
+        .expect("open season");
+    let id = reopened.matches().expect("matches")[0]
+        .id
+        .parse()
+        .expect("id");
+    let again = reopened.open_match(id, 3_000).expect("open");
+    assert_eq!(texts(&again), texts(&snap));
+    assert_eq!(again.score, snap.score);
+}
+
+#[test]
+fn preview_reads_codes_back() {
+    let (session, _dir) = opened();
+    let p = session.preview("a13AH# *T").expect("preview");
+    assert!(p.ok);
+    assert_eq!(
+        p.codes[0].meaning,
+        "Northgate #13 attack, high, perfect, wins the point"
+    );
+    assert_eq!(p.codes[1].meaning, "Timeout Harbour City");
+    let p = session.preview("a13A").expect("preview");
+    assert!(!p.ok);
+    assert_eq!(
+        p.codes[0].error.as_deref(),
+        Some("Add the evaluation (# + ! - / =).")
+    );
+}
