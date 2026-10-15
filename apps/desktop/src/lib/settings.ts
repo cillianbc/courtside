@@ -20,6 +20,13 @@ export interface Settings {
     setterCalls: { code: string; description: string }[];
   };
   keymap: KeyBinding[];
+  rules: {
+    /** Substitutions per team and set. */
+    substitutions: number;
+    liberoMayServe: boolean;
+    /** Hold each set end until the scout confirms it. */
+    confirmSetEnd: boolean;
+  };
 }
 
 export interface KeyBinding {

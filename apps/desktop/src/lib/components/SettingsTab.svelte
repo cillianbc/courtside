@@ -13,6 +13,7 @@
 
   onMount(() => {
     backend.settings().then(
+      // Seasons saved before the rules existed get them filled in by the backend.
       (s) => (settings = s),
       (e) => (error = String(e)),
     );
@@ -87,6 +88,27 @@
         </tr>
       </tbody>
     </table>
+
+    <h2>Rules</h2>
+    <p class="sub-note">
+      The competition's options. The checks and the court panel follow them in every match of the
+      season.
+    </p>
+    <div class="pick">
+      <label
+        >Substitutions per set
+        <select bind:value={settings.rules.substitutions}>
+          {#each [6, 8, 12] as n (n)}<option value={n}>{n}</option>{/each}
+        </select>
+      </label>
+      <label class="inline">
+        <input type="checkbox" bind:checked={settings.rules.liberoMayServe} /> A libero may serve
+      </label>
+      <label class="inline">
+        <input type="checkbox" bind:checked={settings.rules.confirmSetEnd} /> Confirm each set end before
+        the console writes it
+      </label>
+    </div>
 
     <h2>Winning symbols</h2>
     <p class="sub-note">Evaluations that end the rally, for the touching team.</p>

@@ -190,7 +190,29 @@ pub struct Match {
     pub regulation: Regulation,
     pub winning_symbols: WinningSymbols,
     pub conventions: Conventions,
+    /// The competition's rule options the validator checks against.
+    pub rules: Rules,
     pub log: EventLog,
+}
+
+/// Rule options that differ between competitions; set from the season
+/// settings, not read from a `.dvw`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rules {
+    /// Substitutions per team and set (6 under FIVB rules; some leagues
+    /// allow more).
+    pub substitutions: u8,
+    /// A libero may serve (allowed in some national competitions).
+    pub libero_may_serve: bool,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Rules {
+            substitutions: 6,
+            libero_may_serve: false,
+        }
+    }
 }
 
 #[cfg(test)]

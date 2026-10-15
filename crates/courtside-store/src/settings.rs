@@ -18,6 +18,30 @@ pub struct Settings {
     pub typing: Typing,
     pub tables: Tables,
     pub keymap: Vec<KeyBinding>,
+    pub rules: Rules,
+}
+
+/// The competition's rule options and how the console ends a set. They
+/// apply to every match of the season as it is opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Rules {
+    /// Substitutions per team and set.
+    pub substitutions: u8,
+    /// A libero may serve.
+    pub libero_may_serve: bool,
+    /// Hold each set end the console would write until the scout confirms.
+    pub confirm_set_end: bool,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Rules {
+            substitutions: 6,
+            libero_may_serve: false,
+            confirm_set_end: false,
+        }
+    }
 }
 
 /// What the command line fills in (see `vb_grammar::expand`).

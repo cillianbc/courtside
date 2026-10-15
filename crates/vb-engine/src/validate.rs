@@ -89,7 +89,7 @@ pub enum IssueKind {
     LiberoSubstitution,
     OffNotOnCourt,
     OnAlreadyOnCourt,
-    SeventhSubstitution(Team),
+    TooManySubstitutions(Team),
     ReEntry,
     WrongPartner,
     // Rule::ServeReception
@@ -118,7 +118,7 @@ impl IssueKind {
             | NotOnCourt(t)
             | ServerOutOfZone(t)
             | LiberoOnCourt(t)
-            | SeventhSubstitution(t) => Some(t),
+            | TooManySubstitutions(t) => Some(t),
             _ => None,
         }
     }
@@ -595,7 +595,8 @@ impl Validator<'_> {
 
     /// Liberos may not attack or block (both products). DataVolley also
     /// forbids a libero serve unless an option allows it; VolleyStation
-    /// allows it, so it is only a warning.
+    /// allows it, so it is only a warning, and none where the match's
+    /// rules allow it.
     ///
     /// Neither product puts a libero among the six on court, so a libero
     /// who is in the court columns is a team-sheet mislabel: reported once
@@ -631,6 +632,7 @@ impl Validator<'_> {
             let (severity, what) = match t.skill {
                 Skill::Attack => (Severity::Error, "attacked"),
                 Skill::Block => (Severity::Error, "blocked"),
+                Skill::Serve if self.m.rules.libero_may_serve => continue,
                 Skill::Serve => (Severity::Warning, "served"),
                 _ => continue,
             };
@@ -709,12 +711,17 @@ impl Validator<'_> {
                 ));
             }
             let book = books.entry((self.f.states[i].set, team)).or_default();
-            book.count += 1;
-            if book.count == 7 {
+            book.count = book.count.saturating_add(1);
+            let limit = self.m.rules.substitutions;
+            if book.count == limit.saturating_add(1) {
                 found.push((
                     Severity::Error,
-                    IssueKind::SeventhSubstitution(team),
-                    format!("seventh {} substitution in the set", side(team)),
+                    IssueKind::TooManySubstitutions(team),
+                    format!(
+                        "{} substitution {} in the set; the limit is {limit}",
+                        side(team),
+                        book.count
+                    ),
                 ));
             }
             if let Some(p) = [out, inn].into_iter().find(|p| book.closed.contains(p)) {
@@ -1088,7 +1095,7 @@ pub fn validate_folded(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Ve
 mod tests {
     use super::*;
     use crate::event::{IdGen, NewEvent, Producer};
-    use crate::model::{RosterPlayer, Sides, StartingZone, TeamSheet};
+    use crate::model::{RosterPlayer, Rules, Sides, StartingZone, TeamSheet};
 
     fn sheet(lineup: [u8; 6], bench: &[u8], libero: Option<u8>) -> TeamSheet {
         let mut players: Vec<RosterPlayer> = lineup
@@ -1111,11 +1118,16 @@ mod tests {
     }
 
     fn check(codes: &[&str]) -> Vec<String> {
+        check_with(codes, Rules::default())
+    }
+
+    fn check_with(codes: &[&str], rules: Rules) -> Vec<String> {
         let mut m = Match {
             teams: Sides {
                 home: sheet([8, 12, 13, 11, 3, 14], &[5, 6, 7, 9, 10, 15, 16], Some(1)),
                 visiting: sheet([16, 11, 18, 6, 10, 13], &[2, 3], None),
             },
+            rules,
             ..Match::default()
         };
         let mut ids = IdGen::new(0);
@@ -1311,6 +1323,32 @@ mod tests {
                 "12 Substitution: libero 1 served",
             ]
         );
+    }
+
+    #[test]
+    fn rule_options() {
+        // Seven substitutions: one too many under FIVB rules, fine with 8.
+        let subs = [
+            "*c08:05", "*c12:06", "*c13:07", "*c11:09", "*c03:10", "*c14:15", "*c05:08",
+        ];
+        let all: Vec<&str> = LINEUP.iter().chain(&subs).copied().collect();
+        assert_eq!(
+            check(&all),
+            ["10 Substitution: home substitution 7 in the set; the limit is 6"]
+        );
+        let eight = Rules {
+            substitutions: 8,
+            ..Rules::default()
+        };
+        assert!(check_with(&all, eight).is_empty());
+
+        let serve: Vec<&str> = LINEUP.iter().chain(&["*01SH-"]).copied().collect();
+        assert_eq!(check(&serve), ["4 Substitution: libero 1 served"]);
+        let libero_serves = Rules {
+            libero_may_serve: true,
+            ..Rules::default()
+        };
+        assert!(check_with(&serve, libero_serves).is_empty());
     }
 
     #[test]

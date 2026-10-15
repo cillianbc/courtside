@@ -68,6 +68,8 @@ struct Current {
     redo: Vec<Vec<MatchEvent>>,
     /// Typing defaults (season settings, step E).
     defaults: Defaults,
+    /// Hold set ends until the scout confirms (season settings).
+    confirm_set_end: bool,
 }
 
 /// Whether `score` wins `set` under the match's regulation (a golden set
@@ -137,8 +139,20 @@ fn check_six(sheet: &TeamSheet, court: &[u8; 6], setter: u8) -> Result<u8> {
 }
 
 /// Settings the scout can't save: what a `.dvw` couldn't hold.
+/// The season's rule options onto the open match.
+fn apply_rules(c: &mut Current, s: &Settings) {
+    c.game.rules = vb_engine::Rules {
+        substitutions: s.rules.substitutions,
+        libero_may_serve: s.rules.libero_may_serve,
+    };
+    c.confirm_set_end = s.rules.confirm_set_end;
+}
+
 fn check_settings(s: &Settings) -> Result<()> {
     let bad = |m: String| Err(Error::BadCode(m));
+    if !(1..=20).contains(&s.rules.substitutions) {
+        return bad("Substitutions per set: 1 to 20.".into());
+    }
     if Skill::from_char(s.typing.skill).is_none() {
         return bad(format!("{} is not a skill letter", s.typing.skill));
     }
@@ -381,6 +395,7 @@ impl Session {
         self.season_mut()?.save_settings(settings)?;
         if let Some(c) = self.current.as_mut() {
             c.defaults = defaults_from(settings, &c.defaults.combinations);
+            apply_rules(c, settings);
         }
         Ok(())
     }
@@ -522,14 +537,18 @@ impl Session {
         let open = season.open_match(id)?;
         let teams = season.match_teams(id)?;
         let combinations = match_combinations(&open.template);
-        self.current = Some(Current {
+        let settings = season.settings()?;
+        let mut c = Current {
             id,
             game: open.game,
             teams,
             ids: IdGen::new(now_ms),
             redo: Vec::new(),
-            defaults: defaults_from(&season.settings()?, &combinations),
-        });
+            defaults: defaults_from(&settings, &combinations),
+            confirm_set_end: false,
+        };
+        apply_rules(&mut c, &settings);
+        self.current = Some(c);
         self.snapshot()
     }
 
@@ -574,6 +593,11 @@ impl Session {
     pub fn commit(&mut self, text: &str, clock: Option<ClockTime>) -> Result<Snapshot> {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        if let Some(set) = snapshot::set_end_due(&c.game, &fold(&c.game)) {
+            return Err(Error::BadCode(format!(
+                "Set {set} is won: end it first (Enter on an empty line), or undo."
+            )));
+        }
         let preview = c.preview(text);
         if !preview.ok {
             let why = preview
@@ -622,7 +646,10 @@ impl Session {
             let set = end.map_or(1, |s| s.set);
             let score = end.map(|s| s.score).unwrap_or_default();
             if won(&c.game, &after, set, score) {
-                c.add(Code::parse(&format!("**{set}set")), Producer::Repair, clock);
+                // Held for the scout to confirm (`end_set`) when the season asks.
+                if !c.confirm_set_end {
+                    c.add(Code::parse(&format!("**{set}set")), Producer::Repair, clock);
+                }
             } else {
                 // Side-out: the winner rotates, its setter one zone on.
                 let zone = last.and_then(|s| *s.setter_position.get(winner));
@@ -727,6 +754,24 @@ impl Session {
             c.redo.push(events);
             return Err(e.into());
         }
+        self.snapshot()
+    }
+
+    /// Ends the set in progress once its score wins it: the set end the
+    /// console holds back when the season asks to confirm set ends.
+    pub fn end_set(&mut self, clock: Option<ClockTime>) -> Result<Snapshot> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let Some(set) = snapshot::set_end_due(&c.game, &fold(&c.game)) else {
+            return Err(Error::BadCode("The set isn't won yet.".into()));
+        };
+        let before = c.game.log.len();
+        c.add(
+            Code::parse(&format!("**{set}set")),
+            Producer::Keyboard,
+            clock,
+        );
+        c.persist(season, before)?;
         self.snapshot()
     }
 

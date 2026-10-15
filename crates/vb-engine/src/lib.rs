@@ -13,4 +13,4 @@ pub mod validate;
 
 pub use event::{Body, EventId, EventKind, IdGen, MatchEvent, NewEvent, Producer};
 pub use fold::{Folded, Phase, Rally, Score, State, fold};
-pub use model::{Conventions, Match, Sides, TeamSheet};
+pub use model::{Conventions, Match, Rules, Sides, TeamSheet};

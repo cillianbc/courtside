@@ -100,6 +100,10 @@ export interface Snapshot {
   matchOver: boolean;
   /** The set played as a golden set, if one was started. */
   goldenSet: number | null;
+  /** The set's score wins it but it isn't ended yet (confirm or undo). */
+  setEndDue: boolean;
+  /** Substitutions allowed per team and set. */
+  substitutionLimit: number;
   /** Each team's six and setter as the set in progress started. */
   starting: Pair<StartingView | null>;
   timeouts: Pair<number>;

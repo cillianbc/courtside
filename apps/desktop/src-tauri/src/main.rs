@@ -246,6 +246,13 @@ fn lineup_set(
     })
 }
 
+/// Ends the set in progress once its score wins it (when set ends wait for
+/// the scout).
+#[tauri::command]
+fn set_end(state: State<'_, Shared>, clock: Option<[u8; 3]>) -> Reply<Snapshot> {
+    with(&state, |s| s.end_set(clock_time(clock)))
+}
+
 /// Starts a golden set after the match is over.
 #[tauri::command]
 fn golden_set_start(state: State<'_, Shared>, clock: Option<[u8; 3]>) -> Reply<Snapshot> {
@@ -354,6 +361,7 @@ fn main() {
             lineup_set,
             lineup_correct,
             golden_set_start,
+            set_end,
             undo,
             redo,
             code_correct,

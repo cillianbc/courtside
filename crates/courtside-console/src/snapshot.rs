@@ -73,6 +73,11 @@ pub struct Snapshot {
     pub match_over: bool,
     /// The set played as a golden set, if one was started.
     pub golden_set: Option<u8>,
+    /// The set's score wins it but it isn't ended yet: confirm with
+    /// `end_set` (or undo).
+    pub set_end_due: bool,
+    /// Substitutions allowed per team and set.
+    pub substitution_limit: u8,
     /// Each team's six and setter as the set in progress started, once
     /// anything is coded in it; what the lineup editor starts from.
     pub starting: Pair<Option<StartingView>>,
@@ -266,6 +271,23 @@ fn starting(
         court,
         setter: *st.setter.get(team),
     })
+}
+
+/// The set in progress when its score wins it and no set end follows yet:
+/// a set end held for the scout to confirm, or one a file never wrote.
+pub fn set_end_due(game: &Match, folded: &vb_engine::Folded) -> Option<u8> {
+    let events = game.log.visible();
+    let last = events.last()?;
+    if last.kind() == EventKind::SetEnd {
+        return None;
+    }
+    let st = folded.states.last()?;
+    let target = folded.set_target(game, st.set);
+    let (hi, lo) = (
+        st.score.home.max(st.score.visiting),
+        st.score.home.min(st.score.visiting),
+    );
+    (hi >= target && hi - lo >= 2).then_some(st.set)
 }
 
 pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Snapshot {
@@ -503,6 +525,8 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
         needs_lineup: Pair::from_fn(|team| !match_over && court(team).iter().all(Option::is_none)),
         match_over,
         golden_set: folded.golden_set,
+        set_end_due: set_end_due(game, &folded).is_some(),
+        substitution_limit: game.rules.substitutions,
         starting: Pair::from_fn(|team| starting(&events, &folded, set, team)),
         timeouts: count(EventKind::Timeout),
         substitutions: count(EventKind::Substitution),

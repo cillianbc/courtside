@@ -124,6 +124,8 @@ export function fixture(): Snapshot {
     needsLineup: { home: false, visiting: false },
     matchOver: false,
     goldenSet: null,
+    setEndDue: false,
+    substitutionLimit: 6,
     starting: { home: null, visiting: null },
     timeouts: { home: 1, visiting: 0 },
     substitutions: { home: 2, visiting: 4 },

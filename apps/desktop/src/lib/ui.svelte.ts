@@ -3,6 +3,7 @@
 
 import * as backend from "./backend";
 import { pointCode } from "./codes";
+import { setNews } from "./news";
 import type { Hint } from "./hint";
 import { effectiveKeymap, type KeyBinding } from "./settings";
 import type { Side, Snapshot } from "./snapshot";
@@ -51,9 +52,10 @@ class Ui {
     // Any change cancels a point waiting for its second click.
     this.pointPending = null;
     try {
+      const before = this.snapshot;
       this.snapshot = await change();
       this.shownSet = null;
-      this.result = { text: `${what}.`, bad: false };
+      this.result = { text: `${what}.${setNews(before, this.snapshot)}`, bad: false };
       return true;
     } catch (e) {
       this.result = { text: String(e), bad: true };
@@ -61,6 +63,11 @@ class Ui {
     } finally {
       this.focusCode += 1;
     }
+  }
+
+  /** Ends a set whose score wins it (when set ends wait for the scout). */
+  endSet(): Promise<boolean> {
+    return this.apply("Set ended", backend.endSet);
   }
 
   /** Adds codes as if typed on the command bar. */

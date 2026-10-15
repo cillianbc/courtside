@@ -127,7 +127,8 @@
           onclick={() => {
             ui.subFor = ui.subFor === side ? null : side;
             ui.lineupFor = null;
-          }}><Icon name="sub" />Sub <b>{snap.substitutions[side]}/6</b></button
+          }}
+          ><Icon name="sub" />Sub <b>{snap.substitutions[side]}/{snap.substitutionLimit}</b></button
         >
         <span class="rot-group">
           <span>Rotation</span>

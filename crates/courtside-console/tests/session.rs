@@ -871,6 +871,36 @@ fn no_set_follows_a_won_match() {
 }
 
 #[test]
+fn set_ends_wait_for_the_scout_when_the_season_asks() {
+    let (mut session, _dir) = open_file(&file_with(&[
+        "*P01>LUp", "*z1>LUp", "aP14>LUp", "az4>LUp", "*p24:10",
+    ]));
+    let mut settings = session.settings().expect("settings");
+    settings.rules.confirm_set_end = true;
+    settings.rules.substitutions = 8;
+    session.save_settings(&settings).expect("save");
+    assert_eq!(session.snapshot().expect("snapshot").substitution_limit, 8);
+
+    let snap = session.commit("p25:10", None).expect("set point");
+    assert!(snap.set_end_due);
+    assert!(!texts(&snap).contains(&"**1set".to_string()), "held");
+    let err = session.commit("*01SH-", None).expect_err("set not ended");
+    assert!(err.to_string().contains("end it first"), "{err}");
+
+    let snap = session.end_set(None).expect("end set");
+    assert!(!snap.set_end_due);
+    assert!(texts(&snap).contains(&"**1set".to_string()));
+    assert_eq!(snap.set, 2);
+    assert!(session.end_set(None).is_err(), "nothing to end");
+
+    // Undo takes the set end back; it is due again.
+    assert!(session.undo().expect("undo").set_end_due);
+
+    settings.rules.substitutions = 0;
+    assert!(session.save_settings(&settings).is_err());
+}
+
+#[test]
 fn a_golden_set_after_the_match() {
     let three: Vec<String> = (1..=3u8)
         .flat_map(|s| [format!("*p25:{:02}", 10 + s), format!("**{s}set")])

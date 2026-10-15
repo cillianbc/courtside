@@ -35,13 +35,23 @@
   // court is drawn (they follow a side swap).
   const snap = $derived(ui.snapshot);
   const canPoint = $derived(
-    !!snap && !snap.matchOver && !snap.needsLineup.home && !snap.needsLineup.visiting,
+    !!snap &&
+      !snap.matchOver &&
+      !snap.setEndDue &&
+      !snap.needsLineup.home &&
+      !snap.needsLineup.visiting,
   );
   const pointLabel = (side: Side) => `Point to ${snap?.teams[side].name ?? side}`;
 
   async function commit() {
     const text = ui.code.trim();
     if (busy) return;
+    if (!text && ui.snapshot?.setEndDue && !ui.editing) {
+      busy = true;
+      await ui.endSet();
+      busy = false;
+      return;
+    }
     if (!text) {
       ui.result = { text: "Type a code first.", bad: true };
       return;
@@ -98,5 +108,13 @@
     placeholder="a08RM+"
   />
   <output class="hint" id="hint">{hint.text}</output>
+  {#if snap?.setEndDue}
+    <button
+      type="button"
+      class="btn primary"
+      title="The score wins the set; end it (Enter on an empty line)"
+      onclick={() => void ui.endSet()}>End set {snap.set}</button
+    >
+  {/if}
   {@render point(ui.order[1] ?? "visiting", false)}
 </section>
