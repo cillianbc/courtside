@@ -8,9 +8,10 @@ import type { Side, Snapshot } from "./snapshot";
 
 /** The command bar is editing an earlier code rather than adding one. */
 export interface Editing {
-  mode: "correct" | "insert";
+  /** `correct`: modify the code; `insert`: add one before it; `after`: add one after it. */
+  mode: "correct" | "insert" | "after";
   id: string;
-  /** The code being corrected, or the one the new code goes before. */
+  /** The code being modified, or the one the new code goes before or after. */
   text: string;
 }
 
@@ -32,7 +33,7 @@ class Ui {
   editing = $state<Editing | null>(null);
   /** The team whose substitution picker is open. */
   subFor = $state<Side | null>(null);
-  /** The team whose lineup is being corrected. */
+  /** The team whose lineup is being modified. */
   lineupFor = $state<Side | null>(null);
   /** The season's keys, defaults filled in. */
   keymap = $state<KeyBinding[]>(effectiveKeymap([]));
@@ -72,7 +73,7 @@ class Ui {
     return this.apply("Redone", backend.redo);
   }
 
-  /** Starts correcting a code, or adding one before it, on the command bar. */
+  /** Starts modifying a code, or adding one before or after it, on the command bar. */
   startEdit(mode: Editing["mode"], id: string, text: string) {
     this.editing = { mode, id, text };
     this.code = mode === "correct" ? text : "";
@@ -88,18 +89,33 @@ class Ui {
   /** Enter on the command bar: add, correct or insert. */
   async submit(text: string): Promise<boolean> {
     const e = this.editing;
-    const ok = !e
-      ? await this.commit(text)
-      : e.mode === "correct"
-        ? await this.apply(`Corrected ${e.text} to ${text}`, () => backend.correct(e.id, text))
-        : await this.apply(`Added ${text} before ${e.text}`, () =>
-            backend.insertBefore(e.id, text),
-          );
+    let ok: boolean;
+    if (!e) ok = await this.commit(text);
+    else if (e.mode === "correct")
+      ok = await this.apply(`Modified ${e.text} to ${text}`, () => backend.correct(e.id, text));
+    else if (e.mode === "insert")
+      ok = await this.apply(`Added ${text} before ${e.text}`, () =>
+        backend.insertBefore(e.id, text),
+      );
+    else {
+      // After the last code there is nothing to go before: add it as typed.
+      const next = this.codeAfter(e.id);
+      ok = next
+        ? await this.apply(`Added ${text} after ${e.text}`, () => backend.insertBefore(next, text))
+        : await this.commit(text);
+    }
     if (ok) {
       this.editing = null;
       this.selected = null;
     }
     return ok;
+  }
+
+  /** The id of the code after `id` in the whole match, if any. */
+  codeAfter(id: string): string | null {
+    const rows = (this.snapshot?.groups ?? []).flatMap((g) => g.rows);
+    const i = rows.findIndex((r) => r.id === id);
+    return i >= 0 ? (rows[i + 1]?.id ?? null) : null;
   }
 
   remove(id: string, text: string): Promise<boolean> {

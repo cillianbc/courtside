@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { Group, Snapshot } from "../snapshot";
+  import type { Group, Row, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
+  import CodeMenu from "./CodeMenu.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
 
@@ -35,6 +36,22 @@
   }
 
   const FLAG = { error: "err", warning: "warn", info: "info" } as const;
+
+  // A lineup row is modified in the lineup form, which works on the set in
+  // progress only.
+  function canModify(r: Row, g: Group): boolean {
+    return r.kind !== "startingSix" || (g.set === snap.set && !snap.matchOver && r.team !== null);
+  }
+
+  function modify(r: Row) {
+    if (r.kind === "startingSix") {
+      ui.lineupFor = r.team;
+      ui.subFor = null;
+      ui.selected = null;
+    } else ui.startEdit("correct", r.id, r.text);
+  }
+
+  let menu = $state<{ x: number; y: number; row: Row; group: Group } | null>(null);
 </script>
 
 <section class="panel codes" aria-label="Codes">
@@ -103,6 +120,11 @@
             role="row"
             tabindex="-1"
             onclick={() => (ui.selected = ui.selected === r.id ? null : r.id)}
+            oncontextmenu={(e) => {
+              e.preventDefault();
+              ui.selected = r.id;
+              menu = { x: e.clientX, y: e.clientY, row: r, group: g };
+            }}
             class:picked={ui.selected === r.id}
             class:edited={r.edited}
             class="row"
@@ -119,14 +141,14 @@
             <span class="meaning">{r.meaning}</span>
             {#if ui.selected === r.id}
               <span class="row-actions">
-                {#if r.kind !== "startingSix"}
+                {#if canModify(r, g)}
                   <button
                     type="button"
                     class="btn"
                     onclick={(e) => {
                       e.stopPropagation();
-                      ui.startEdit("correct", r.id, r.text);
-                    }}>Correct</button
+                      modify(r);
+                    }}>Modify</button
                   >
                 {/if}
                 <button
@@ -135,7 +157,15 @@
                   onclick={(e) => {
                     e.stopPropagation();
                     ui.startEdit("insert", r.id, r.text);
-                  }}>Insert before</button
+                  }}>Add before</button
+                >
+                <button
+                  type="button"
+                  class="btn"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    ui.startEdit("after", r.id, r.text);
+                  }}>Add after</button
                 >
                 <button
                   type="button"
@@ -158,4 +188,18 @@
       </div>
     {/each}
   </div>
+  {#if menu}
+    {@const m = menu}
+    <CodeMenu
+      x={m.x}
+      y={m.y}
+      onclose={() => (menu = null)}
+      items={[
+        { label: "Modify", disabled: !canModify(m.row, m.group), run: () => modify(m.row) },
+        { label: "Add before", run: () => ui.startEdit("insert", m.row.id, m.row.text) },
+        { label: "Add after", run: () => ui.startEdit("after", m.row.id, m.row.text) },
+        { label: "Remove", danger: true, run: () => void ui.remove(m.row.id, m.row.text) },
+      ]}
+    />
+  {/if}
 </section>

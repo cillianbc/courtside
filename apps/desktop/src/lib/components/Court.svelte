@@ -61,7 +61,9 @@
     </div>
   </div>
   {#if snap.matchOver}
-    <p class="empty-note">Match over. Corrections still work; export the .dvw from the top bar.</p>
+    <p class="empty-note">
+      Match over. Codes can still be modified; export the .dvw from the top bar.
+    </p>
   {/if}
   <div class="courts" class:end={ui.endView}>
     {@render half(ui.order[0] ?? "home", nets[0])}
@@ -95,7 +97,7 @@
         <button
           type="button"
           class="tool"
-          title="Correct the six this set started with"
+          title="Modify the six this set started with"
           aria-pressed={ui.lineupFor === side}
           disabled={!snap.starting[side] || snap.matchOver}
           onclick={() => {

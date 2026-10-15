@@ -6,7 +6,7 @@
   import { ui } from "../ui.svelte";
   import SideTag from "./SideTag.svelte";
 
-  // `onclose` set: correcting the set's lineup, starting from the six it
+  // `onclose` set: modifying the set's lineup, starting from the six it
   // started with; otherwise entering the lineup for a new set.
   let { snap, side, onclose }: { snap: Snapshot; side: Side; onclose?: () => void } = $props();
 
@@ -44,7 +44,7 @@
     }
     note = "";
     const ok = onclose
-      ? await ui.apply(`${team.name} lineup corrected`, () =>
+      ? await ui.apply(`${team.name} lineup modified`, () =>
           backend.correctLineup(side, read.court, s),
         )
       : await ui.apply(`${team.name} lineup entered`, () => backend.setLineup(side, read.court, s));
@@ -59,7 +59,7 @@
 <form class="sub-form" onsubmit={submit}>
   <div class="title">
     <SideTag {side} />
-    {team.name}: {onclose ? "correct the lineup" : "lineup"} for set {snap.set}
+    {team.name}: {onclose ? "modify the lineup" : "lineup"} for set {snap.set}
   </div>
   <div class="pick">
     <label
@@ -70,12 +70,12 @@
       >Setter
       <input class="lineup-setter" bind:value={setter} placeholder="auto" autocomplete="off" />
     </label>
-    <button class="btn primary" type="submit">{onclose ? "Correct lineup" : "Enter lineup"}</button>
+    <button class="btn primary" type="submit">{onclose ? "Modify lineup" : "Enter lineup"}</button>
     {#if onclose}<button class="btn" type="button" onclick={onclose}>Cancel</button>{/if}
   </div>
   <div class="sub-note" class:bad={note !== ""}>
     {note ||
       `Players: ${players.join(" ")}. Setter left empty: the six's setter by role.` +
-        (onclose ? " The set replays from the corrected six." : "")}
+        (onclose ? " The set replays from the modified six." : "")}
   </div>
 </form>

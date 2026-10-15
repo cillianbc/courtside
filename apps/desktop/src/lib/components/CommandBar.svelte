@@ -58,7 +58,8 @@
 <section class="cmd" class:bad={hint.bad} aria-label="Command bar">
   {#if ui.editing}
     <span class="edit-tag"
-      >{ui.editing.mode === "correct" ? "Correct" : "Before"} <code>{ui.editing.text}</code></span
+      >{{ correct: "Modify", insert: "Before", after: "After" }[ui.editing.mode]}
+      <code>{ui.editing.text}</code></span
     >
   {:else}
     <span class="prompt" aria-hidden="true">›</span>
