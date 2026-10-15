@@ -361,3 +361,38 @@ fn team_files_add_a_team_or_fill_in_its_roster() {
         "not a team file: the first line isn't DV-Team-2"
     );
 }
+
+#[test]
+fn a_team_exported_and_imported_elsewhere_is_the_same_team() {
+    let mut season = Season::in_memory("s", 1).expect("season");
+    let id = team(&mut season, "Harbour City");
+    six(&mut season, &id, 1);
+    let original = season.team(&id).expect("team");
+    for vst in [false, true] {
+        let bytes = season.export_team_file(&id, vst).expect("export");
+        let mut other = Season::in_memory("other", 1).expect("season");
+        let name = if vst { "HC.vst" } else { "HC.sq" };
+        let r = other.import_team_file(name, &bytes, 2).expect("import");
+        assert!(r.created);
+        let copy = other.team(&r.team_id).expect("team");
+        assert_eq!(
+            (copy.name.as_str(), copy.code.as_str()),
+            ("Harbour City", "HC")
+        );
+        let strip = |t: &courtside_store::Team| -> Vec<_> {
+            t.players
+                .iter()
+                .map(|p| {
+                    (
+                        p.number,
+                        p.code.clone(),
+                        p.last_name.clone(),
+                        p.role,
+                        p.libero,
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(strip(&copy), strip(&original), "{name}");
+    }
+}

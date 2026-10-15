@@ -223,6 +223,179 @@ pub fn parse_vst(bytes: &[u8]) -> Result<TeamFile, TeamFileError> {
     })
 }
 
+/// Writes a `.sq` in DataVolley's full layout, which VolleyStation reads
+/// too: tab-separated, a trailing tab on each row, CRLF, the code page in
+/// the team row, and DataVolley's Unicode copies of every name. The plain
+/// columns use the first Windows code page that can hold all the text
+/// (`?` for what none can; the Unicode copies keep it). Birth dates are
+/// not written: DataVolley reads them in the PC's date format.
+pub fn write_sq(team: &TeamFile) -> Vec<u8> {
+    let texts = std::iter::once([&team.name, &team.coach, &team.assistant, &team.short_code])
+        .flat_map(|x| x.into_iter().cloned())
+        .chain(team.players.iter().flat_map(|p| {
+            [
+                p.last_name.clone(),
+                p.first_name.clone(),
+                p.nickname.clone(),
+                p.code.clone(),
+            ]
+        }))
+        .collect::<Vec<_>>()
+        .join("\t");
+    let (codepage, encoding) = ["1252", "1250", "1251", "1253", "1254", "1257"]
+        .into_iter()
+        .find_map(|cp| {
+            let e = TextEncoding::from_codepage(cp)?;
+            e.encode(&texts).map(|_| (cp, e))
+        })
+        .unwrap_or(("1252", TextEncoding::WINDOWS_1252));
+    // A field can't hold a tab or a line break.
+    let plain = |s: &str| -> String {
+        s.chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect()
+    };
+    let embedded = |s: &str| crate::text::encode_embedded(&plain(s));
+    let mut lines = vec!["DV-Team-2".to_owned()];
+    lines.push(
+        [
+            plain(&team.code),
+            plain(&team.name),
+            plain(&team.coach),
+            plain(&team.assistant),
+            plain(&team.short_code),
+            codepage.to_owned(),
+            embedded(&team.name),
+            embedded(&team.coach),
+            embedded(&team.assistant),
+            embedded(&team.short_code),
+            String::new(),
+        ]
+        .join("\t"),
+    );
+    let mut players: Vec<&TeamFilePlayer> = team.players.iter().collect();
+    players.sort_by_key(|p| p.number);
+    for p in players {
+        let special = if p.libero || p.role == Some(1) {
+            "L"
+        } else if p.captain {
+            "C"
+        } else {
+            ""
+        };
+        let flag = |b: bool| if b { "True" } else { "False" }.to_owned();
+        lines.push(
+            [
+                p.number.to_string(),
+                plain(&p.code),
+                plain(&p.last_name),
+                String::new(),
+                p.height_cm.map_or(String::new(), |h| h.to_string()),
+                String::new(),
+                special.to_owned(),
+                plain(&p.code),
+                plain(&p.first_name),
+                p.role.map_or(String::new(), |r| r.to_string()),
+                plain(&p.nickname),
+                flag(false),
+                flag(p.foreign),
+                String::new(),
+                embedded(&p.last_name),
+                embedded(&p.first_name),
+                embedded(&p.nickname),
+                String::new(),
+            ]
+            .join("\t"),
+        );
+    }
+    let mut text = lines.join("\r\n");
+    text.push_str("\r\n");
+    encoding.encode(&text).unwrap_or_else(|| {
+        // Some character no code page holds: `?` in the plain text.
+        let safe: String = text
+            .chars()
+            .map(|c| {
+                if TextEncoding::WINDOWS_1252.encode(&c.to_string()).is_some() {
+                    c
+                } else {
+                    '?'
+                }
+            })
+            .collect();
+        let (bytes, _, _) = encoding_rs::WINDOWS_1252.encode(&safe);
+        bytes.into_owned()
+    })
+}
+
+/// Writes a `.vst`: VolleyStation's team JSON (no version field; absent
+/// values left out). Staff names are split as VolleyStation reads `.sq`
+/// coaches: the first word is the last name.
+pub fn write_vst(team: &TeamFile) -> Vec<u8> {
+    use serde_json::{Map, json};
+    let person = |s: &str| -> Option<Value> {
+        let s = s.trim();
+        if s.is_empty() {
+            return None;
+        }
+        let (last, first) = s.split_once(' ').unwrap_or((s, ""));
+        Some(json!({ "firstName": first.trim(), "lastName": last }))
+    };
+    let mut staff = Map::new();
+    if let Some(c) = person(&team.coach) {
+        staff.insert("coach".into(), c);
+    }
+    if let Some(c) = person(&team.assistant) {
+        staff.insert("assistantCoach".into(), c);
+    }
+    let mut obj = Map::new();
+    obj.insert("code".into(), json!(team.code));
+    if !team.short_code.is_empty() {
+        obj.insert(
+            "shortCode".into(),
+            json!(team.short_code.chars().take(5).collect::<String>()),
+        );
+    }
+    obj.insert("name".into(), json!(team.name));
+    if !staff.is_empty() {
+        obj.insert("staff".into(), Value::Object(staff));
+    }
+    if let Some(c) = team.players.iter().find(|p| p.captain) {
+        obj.insert("captain".into(), json!(c.number));
+    }
+    let players: Vec<Value> = team
+        .players
+        .iter()
+        .map(|p| {
+            let mut o = Map::new();
+            o.insert("code".into(), json!(p.code));
+            o.insert("firstName".into(), json!(p.first_name));
+            o.insert("lastName".into(), json!(p.last_name));
+            if !p.nickname.is_empty() {
+                o.insert("nickname".into(), json!(p.nickname));
+            }
+            o.insert("isForeign".into(), json!(p.foreign));
+            o.insert("shirtNumber".into(), json!(p.number));
+            let role = if p.libero {
+                Some(1)
+            } else {
+                p.role.filter(|r| (1..=5).contains(r))
+            };
+            if let Some(r) = role {
+                o.insert("position".into(), json!(r - 1));
+            }
+            if let Some(d) = &p.birth_date {
+                o.insert("birthDate".into(), json!(format!("{d}T00:00:00.000Z")));
+            }
+            if let Some(h) = p.height_cm {
+                o.insert("height".into(), json!(h));
+            }
+            Value::Object(o)
+        })
+        .collect();
+    obj.insert("players".into(), Value::Array(players));
+    serde_json::to_vec(&Value::Object(obj)).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,6 +477,61 @@ mod tests {
         );
         assert_eq!(parse_sq(b"DV-Team-2\r\n"), Err(TeamFileError::NoTeam));
         assert!(parse_vst(b"not json").is_err());
+    }
+
+    fn sample() -> TeamFile {
+        parse_sq(&datavolley_sq()).expect("sq")
+    }
+
+    #[test]
+    fn written_sq_reads_back() {
+        let mut t = sample();
+        t.players[0].birth_date = None; // not written to .sq
+        let bytes = write_sq(&t);
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.starts_with(
+            "DV-Team-2\r\nHCV\tHarbour City\tMarlow Dennis\tOkafor Tess\tHCV\t1252\t\u{0F}2"
+        ));
+        assert!(text.ends_with("\t\r\n"));
+        assert_eq!(parse_sq(&bytes).expect("read back"), t);
+        let row = text.lines().nth(3).expect("player row");
+        assert_eq!(row.split('\t').count(), 18, "17 columns and a trailing tab");
+    }
+
+    #[test]
+    fn written_sq_picks_a_code_page_or_keeps_unicode_copies() {
+        let mut t = sample();
+        t.players[0].last_name = "Łukasz".into();
+        let bytes = write_sq(&t);
+        assert!(String::from_utf8_lossy(&bytes).contains("\t1250\t"));
+        assert_eq!(
+            parse_sq(&bytes).expect("read").players[0].last_name,
+            "Łukasz"
+        );
+        t.players[0].last_name = "Łódź Ђ".into(); // no single code page holds both
+        let back = parse_sq(&write_sq(&t)).expect("read");
+        assert_eq!(
+            back.players[0].last_name, "Łódź Ђ",
+            "the Unicode copy keeps it"
+        );
+    }
+
+    #[test]
+    fn written_vst_reads_back() {
+        let t = sample();
+        let back = parse_vst(&write_vst(&t)).expect("read back");
+        assert_eq!(back.name, t.name);
+        assert_eq!(back.coach, "Marlow Dennis");
+        assert_eq!(
+            back.players,
+            t.players
+                .iter()
+                .map(|p| TeamFilePlayer {
+                    nickname: p.nickname.clone(),
+                    ..p.clone()
+                })
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

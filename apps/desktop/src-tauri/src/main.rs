@@ -106,6 +106,12 @@ fn team_import(state: State<'_, Shared>, path: PathBuf) -> Reply<TeamImportView>
     with(&state, |s| s.import_team_file(&path, now_ms()))
 }
 
+/// Writes a team file (`.sq`, or `.vst` by the path's extension).
+#[tauri::command]
+fn team_export(state: State<'_, Shared>, id: String, path: PathBuf) -> Reply<()> {
+    with(&state, |s| s.export_team_file(&id, &path))
+}
+
 #[tauri::command]
 fn team_delete(state: State<'_, Shared>, id: String) -> Reply<()> {
     with(&state, |s| s.delete_team(&id))
@@ -290,6 +296,7 @@ fn main() {
             team_save,
             team_delete,
             team_import,
+            team_export,
             teams_merge,
             players,
             players_merge,

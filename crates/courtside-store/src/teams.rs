@@ -777,6 +777,42 @@ pub struct TeamImport {
 }
 
 impl Season {
+    /// The team as a team file: `.vst` JSON when `vst`, else DataVolley's
+    /// `.sq` layout (which VolleyStation reads too).
+    pub fn export_team_file(&self, team_id: &str, vst: bool) -> Result<Vec<u8>> {
+        use dvw_codec::team_file::{TeamFile, TeamFilePlayer, write_sq, write_vst};
+        let t = self.team(team_id)?;
+        let file = TeamFile {
+            short_code: t.code.chars().take(5).collect(),
+            code: t.code,
+            name: t.name,
+            coach: t.coach,
+            assistant: t.assistant,
+            players: t
+                .players
+                .into_iter()
+                .map(|p| TeamFilePlayer {
+                    number: p.number,
+                    code: p.code,
+                    last_name: p.last_name,
+                    first_name: p.first_name,
+                    nickname: p.nickname,
+                    role: p.role,
+                    libero: p.libero,
+                    captain: p.captain,
+                    foreign: p.foreign,
+                    birth_date: p.birth_date,
+                    height_cm: p.height_cm,
+                })
+                .collect(),
+        };
+        Ok(if vst {
+            write_vst(&file)
+        } else {
+            write_sq(&file)
+        })
+    }
+
     /// Imports a team file (`.sq` or `.vst`): a team already in the season
     /// (same code, else same name) is reused and gains the players it
     /// lacks; players it has, by code or shirt number, are left as they

@@ -231,6 +231,18 @@ impl Session {
             .into())
     }
 
+    /// Writes a team file: `.vst` when `path` ends so, else `.sq`.
+    pub fn export_team_file(&self, id: &str, path: &Path) -> Result<()> {
+        let vst = path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("vst"));
+        let bytes = self.season()?.export_team_file(id, vst)?;
+        std::fs::write(path, bytes).map_err(|source| Error::Write {
+            path: path.display().to_string(),
+            source,
+        })
+    }
+
     pub fn delete_team(&mut self, id: &str) -> Result<()> {
         Ok(self.season_mut()?.delete_team(id)?)
     }

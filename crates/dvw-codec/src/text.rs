@@ -64,6 +64,24 @@ pub fn decode_embedded(field: &str) -> Option<String> {
         .collect()
 }
 
+/// The inverse of [`decode_embedded`]: two hex digits per character when
+/// every code point fits (as DataVolley writes), else four. Characters
+/// beyond four hex digits become `?`.
+pub fn encode_embedded(text: &str) -> String {
+    let wide = text.chars().any(|c| u32::from(c) > 0xFF);
+    let mut out = String::from(if wide { "\u{0F}4" } else { "\u{0F}2" });
+    for c in text.chars() {
+        let n = u32::from(c);
+        let n = if n > 0xFFFF { u32::from('?') } else { n };
+        if wide {
+            out.push_str(&format!("{n:04X}"));
+        } else {
+            out.push_str(&format!("{n:02X}"));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,6 +114,13 @@ mod tests {
         assert_eq!(decode_embedded("plain"), None);
         assert_eq!(decode_embedded("\u{0F}3ABC"), None);
         assert_eq!(decode_embedded("\u{0F}2ABC"), None);
+        for text in ["Siobhán", "Łś", "", "Plain"] {
+            assert_eq!(
+                decode_embedded(&encode_embedded(text)).as_deref(),
+                Some(text)
+            );
+        }
+        assert_eq!(encode_embedded("Siobhán"), "\u{0F}253696F6268E16E");
     }
 
     #[test]

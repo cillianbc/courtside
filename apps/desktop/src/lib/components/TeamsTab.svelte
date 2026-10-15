@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { open } from "@tauri-apps/plugin-dialog";
+  import { open, save } from "@tauri-apps/plugin-dialog";
   import * as backend from "../backend";
   import { describeImport, type TeamDetail } from "../teams";
   import MergeTeams from "./MergeTeams.svelte";
@@ -15,6 +15,25 @@
   let error = $state("");
   let confirmDelete = $state<string | null>(null);
   let note = $state("");
+
+  async function exportFile(t: TeamDetail) {
+    error = "";
+    note = "";
+    try {
+      const path = await save({
+        defaultPath: `${t.code || t.name}.sq`,
+        filters: [
+          { name: "DataVolley team (.sq), also read by VolleyStation", extensions: ["sq"] },
+          { name: "VolleyStation team (.vst)", extensions: ["vst"] },
+        ],
+      });
+      if (!path) return;
+      await backend.exportTeam(t.id, path);
+      note = `Wrote ${path}.`;
+    } catch (e) {
+      error = String(e);
+    }
+  }
 
   async function importFiles() {
     error = "";
@@ -101,6 +120,7 @@
                 disabled={teams.length < 2}
                 onclick={() => (view = { kind: "merge", team: t })}>Merge</button
               >
+              <button class="btn" type="button" onclick={() => exportFile(t)}>Export</button>
               <button
                 class="btn"
                 type="button"

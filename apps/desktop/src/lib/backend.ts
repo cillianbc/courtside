@@ -38,6 +38,11 @@ export async function importTeam(path: string): Promise<TeamImportView> {
   return invoke<TeamImportView>("team_import", { path });
 }
 
+/** Writes a team file: `.vst` when the path ends so, else `.sq`. */
+export async function exportTeam(id: string, path: string): Promise<void> {
+  await invoke("team_export", { id, path });
+}
+
 export async function deleteTeam(id: string): Promise<void> {
   await invoke("team_delete", { id });
 }
