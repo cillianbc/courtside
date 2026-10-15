@@ -5,6 +5,7 @@
 //! Nothing here knows about Tauri, so the whole loop is tested headless.
 
 pub mod readback;
+pub mod resume;
 pub mod snapshot;
 
 use std::path::Path;
@@ -17,7 +18,8 @@ use vb_grammar::Code;
 
 pub use courtside_store::{Error as StoreError, MatchId};
 pub use readback::Preview;
-pub use snapshot::{MatchItem, Snapshot};
+pub use resume::Resume;
+pub use snapshot::{MatchItem, Snapshot, TeamItem};
 pub use vb_engine::event::ClockTime;
 pub use vb_grammar::Team;
 
@@ -111,6 +113,7 @@ impl Current {
 #[derive(Default)]
 pub struct Session {
     season: Option<Season>,
+    season_path: Option<std::path::PathBuf>,
     current: Option<Current>,
 }
 
@@ -122,12 +125,14 @@ impl Session {
     /// Creates a season database at `path` and opens it.
     pub fn create_season(&mut self, path: &Path, name: &str, now_ms: u64) -> Result<()> {
         self.season = Some(Season::create(path, name, now_ms)?);
+        self.season_path = Some(path.to_owned());
         self.current = None;
         Ok(())
     }
 
     pub fn open_season(&mut self, path: &Path) -> Result<()> {
         self.season = Some(Season::open(path)?);
+        self.season_path = Some(path.to_owned());
         self.current = None;
         Ok(())
     }
@@ -139,6 +144,34 @@ impl Session {
             .into_iter()
             .map(MatchItem::from)
             .collect())
+    }
+
+    pub fn teams(&self) -> Result<Vec<TeamItem>> {
+        Ok(self
+            .season()?
+            .teams()?
+            .into_iter()
+            .map(|t| TeamItem {
+                players: t.players.len(),
+                id: t.id,
+                name: t.name,
+            })
+            .collect())
+    }
+
+    /// Creates a match between two of the season's teams (by id), to be
+    /// coded here, and opens it. `date` is ISO `YYYY-MM-DD`.
+    pub fn new_match(
+        &mut self,
+        home_team_id: &str,
+        visiting_team_id: &str,
+        date: Option<&str>,
+        now_ms: u64,
+    ) -> Result<Snapshot> {
+        let id = self
+            .season_mut()?
+            .create_match(home_team_id, visiting_team_id, date, now_ms)?;
+        self.open_match(id, now_ms)
     }
 
     /// Imports a `.dvw` file into the open season (without opening it).
@@ -167,6 +200,27 @@ impl Session {
             redo: Vec::new(),
         });
         self.snapshot()
+    }
+
+    /// Where the scout is, to reopen after a restart.
+    pub fn resume_point(&self) -> Resume {
+        Resume {
+            season: self.season_path.clone(),
+            match_id: self.current.as_ref().map(|c| c.id.to_string()),
+        }
+    }
+
+    /// Reopens what [`Session::resume_point`] recorded. The season opens
+    /// even if its match no longer does.
+    pub fn resume(&mut self, at: &Resume, now_ms: u64) -> Result<Option<Snapshot>> {
+        let Some(path) = &at.season else {
+            return Ok(None);
+        };
+        self.open_season(path)?;
+        let Some(id) = at.match_id.as_deref().and_then(|m| m.parse().ok()) else {
+            return Ok(None);
+        };
+        Ok(self.open_match(id, now_ms).ok())
     }
 
     /// The open match's state, for the UI.

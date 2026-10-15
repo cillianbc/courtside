@@ -8,6 +8,8 @@
 //! writes the difference: rows past the first event that differs are
 //! replaced, in one transaction.
 
+mod template;
+
 use std::path::Path;
 
 use dvw_codec::Dvw;
@@ -84,8 +86,6 @@ pub enum Error {
     Version(u32),
     #[error("no match {0} in this season")]
     NoMatch(MatchId),
-    #[error("match {0} has no source .dvw to take headers from")]
-    NoTemplate(MatchId),
     #[error("bad stored value: {0}")]
     BadRow(String),
 }
@@ -139,13 +139,15 @@ pub struct MatchSummary {
     pub events: usize,
 }
 
-/// A match ready to code: the engine's view and, for imported matches, the
-/// file its headers come from.
+/// A match ready to code: the engine's view and the `.dvw` its headers
+/// come from.
 #[derive(Debug, Clone)]
 pub struct OpenMatch {
     pub id: MatchId,
     pub game: Match,
-    pub template: Option<Dvw>,
+    /// The `.dvw` its headers come from: the imported file, or a blank one
+    /// built from the season's tables for a match coded here.
+    pub template: Dvw,
 }
 
 pub struct Season {
@@ -340,6 +342,46 @@ impl Season {
         .collect()
     }
 
+    /// A match coded in the console, between two of the season's teams.
+    /// It has no source file: its `.dvw` headers come from the team tables.
+    pub fn create_match(
+        &mut self,
+        home_team_id: &str,
+        visiting_team_id: &str,
+        date: Option<&str>,
+        now_ms: u64,
+    ) -> Result<MatchId> {
+        if home_team_id == visiting_team_id {
+            return Err(Error::BadRow("a match needs two different teams".into()));
+        }
+        let tx = self.conn.transaction()?;
+        let id = MatchId(next_id(&tx, now_ms)?);
+        tx.execute(
+            "INSERT INTO match (id, home_team_id, visiting_team_id, date, created_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                id.to_string(),
+                home_team_id,
+                visiting_team_id,
+                date,
+                ms(now_ms)
+            ],
+        )?;
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// The `.dvw` a match with no source file starts from.
+    fn blank_template(&self, id: MatchId) -> Result<Vec<u8>> {
+        let (home, visiting) = self.match_teams(id)?;
+        let date: Option<String> = self.conn.query_row(
+            "SELECT date FROM match WHERE id = ?1",
+            [id.to_string()],
+            |r| r.get(0),
+        )?;
+        Ok(template::blank(&home, &visiting, date.as_deref()))
+    }
+
     /// The match's home and visiting teams, with their rosters.
     pub fn match_teams(&self, id: MatchId) -> Result<(Team, Team)> {
         let ids: Option<(String, String)> = self
@@ -374,17 +416,14 @@ impl Season {
             )
             .optional()?;
         let source = source.ok_or(Error::NoMatch(id))?;
-        let Some(bytes) = source else {
-            return Err(Error::NoTemplate(id));
+        let bytes = match source {
+            Some(bytes) => bytes,
+            None => self.blank_template(id)?,
         };
         let template = Dvw::parse(&bytes)?;
         let mut game = Match::from_dvw(&template, &mut IdGen::new(0));
         game.log = EventLog::from_events(read_events(&self.conn, id)?)?;
-        Ok(OpenMatch {
-            id,
-            game,
-            template: Some(template),
-        })
+        Ok(OpenMatch { id, game, template })
     }
 
     /// Writes the log's changes since the last save, in one transaction.
@@ -413,7 +452,7 @@ impl Season {
     /// the engine derives regenerated.
     pub fn export_dvw(&self, id: MatchId) -> Result<Vec<u8>> {
         let open = self.open_match(id)?;
-        let template = open.template.ok_or(Error::NoTemplate(id))?;
+        let template = open.template;
         Ok(open.game.to_dvw(&template).to_bytes()?)
     }
 }

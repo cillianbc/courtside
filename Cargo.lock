@@ -528,6 +528,7 @@ name = "courtside-store"
 version = "0.2.0"
 dependencies = [
  "dvw-codec",
+ "encoding_rs",
  "rusqlite",
  "serde",
  "tempfile",

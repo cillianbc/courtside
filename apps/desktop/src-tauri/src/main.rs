@@ -7,8 +7,10 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use courtside_console::{ClockTime, MatchId, MatchItem, Preview, Session, Snapshot, Team};
-use tauri::State;
+use courtside_console::{
+    ClockTime, MatchId, MatchItem, Preview, Resume, Session, Snapshot, Team, TeamItem,
+};
+use tauri::{AppHandle, Manager, State};
 
 type Shared = Mutex<Session>;
 type Reply<T> = Result<T, String>;
@@ -30,6 +32,28 @@ fn with<T>(
     f(&mut session).map_err(|e| e.to_string())
 }
 
+/// Where the resume point lives: the app's config directory.
+fn resume_file(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|d| d.join("resume.json"))
+}
+
+/// Records the open season and match, so a restart reopens them. Failing
+/// to write it doesn't fail the command: the match itself is saved.
+fn remember(app: &AppHandle, state: &State<'_, Shared>) {
+    let point = match state.lock() {
+        Ok(s) => s.resume_point(),
+        Err(_) => return,
+    };
+    if let Some(file) = resume_file(app)
+        && let Err(e) = point.save(&file)
+    {
+        eprintln!("can't write {}: {e}", file.display());
+    }
+}
+
 fn clock_time(clock: Option<[u8; 3]>) -> Option<ClockTime> {
     clock.map(|[hour, minute, second]| ClockTime {
         hour,
@@ -39,13 +63,54 @@ fn clock_time(clock: Option<[u8; 3]>) -> Option<ClockTime> {
 }
 
 #[tauri::command]
-fn season_create(state: State<'_, Shared>, path: PathBuf, name: String) -> Reply<()> {
-    with(&state, |s| s.create_season(&path, &name, now_ms()))
+fn season_create(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    path: PathBuf,
+    name: String,
+) -> Reply<()> {
+    with(&state, |s| s.create_season(&path, &name, now_ms()))?;
+    remember(&app, &state);
+    Ok(())
 }
 
 #[tauri::command]
-fn season_open(state: State<'_, Shared>, path: PathBuf) -> Reply<()> {
-    with(&state, |s| s.open_season(&path))
+fn season_open(app: AppHandle, state: State<'_, Shared>, path: PathBuf) -> Reply<()> {
+    with(&state, |s| s.open_season(&path))?;
+    remember(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+fn teams(state: State<'_, Shared>) -> Reply<Vec<TeamItem>> {
+    with(&state, |s| s.teams())
+}
+
+/// Creates a match between two of the season's teams and opens it.
+#[tauri::command]
+fn match_new(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    home: String,
+    visiting: String,
+    date: Option<String>,
+) -> Reply<Snapshot> {
+    let snap = with(&state, |s| {
+        s.new_match(&home, &visiting, date.as_deref(), now_ms())
+    })?;
+    remember(&app, &state);
+    Ok(snap)
+}
+
+/// Reopens the season and match open last, after a restart or crash.
+/// `None` when there is no match to go back to.
+#[tauri::command]
+fn resume(app: AppHandle, state: State<'_, Shared>) -> Reply<Option<Snapshot>> {
+    let Some(file) = resume_file(&app) else {
+        return Ok(None);
+    };
+    let point = Resume::load(&file);
+    with(&state, |s| s.resume(&point, now_ms()))
 }
 
 #[tauri::command]
@@ -63,11 +128,13 @@ fn match_import(state: State<'_, Shared>, path: PathBuf) -> Reply<Vec<MatchItem>
 }
 
 #[tauri::command]
-fn match_open(state: State<'_, Shared>, id: String) -> Reply<Snapshot> {
+fn match_open(app: AppHandle, state: State<'_, Shared>, id: String) -> Reply<Snapshot> {
     let id: MatchId = id
         .parse()
         .map_err(|e: courtside_console::StoreError| e.to_string())?;
-    with(&state, |s| s.open_match(id, now_ms()))
+    let snap = with(&state, |s| s.open_match(id, now_ms()))?;
+    remember(&app, &state);
+    Ok(snap)
 }
 
 /// Reads back the command line.
@@ -158,6 +225,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             season_create,
             season_open,
+            teams,
+            match_new,
+            resume,
             matches,
             match_import,
             match_open,

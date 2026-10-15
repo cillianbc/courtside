@@ -155,6 +155,14 @@ pub struct MatchItem {
     pub events: usize,
 }
 
+/// A team of the season, for choosing who plays a new match.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TeamItem {
+    pub id: String,
+    pub name: String,
+    pub players: usize,
+}
+
 impl From<MatchSummary> for MatchItem {
     fn from(m: MatchSummary) -> Self {
         MatchItem {

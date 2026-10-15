@@ -16,13 +16,13 @@ dist = false
 courtside-ffi.workspace = true
 courtside-store.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 ulid.workspace = true
 vb-engine.workspace = true
 vb-grammar.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
 tempfile.workspace = true
 
 [lints]

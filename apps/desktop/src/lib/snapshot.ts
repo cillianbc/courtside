@@ -92,6 +92,12 @@ export interface Snapshot {
   events: number;
 }
 
+export interface TeamItem {
+  id: string;
+  name: string;
+  players: number;
+}
+
 export interface MatchItem {
   id: string;
   home: string;

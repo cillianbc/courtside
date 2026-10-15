@@ -14,6 +14,7 @@ dist = false
 
 [dependencies]
 dvw-codec.workspace = true
+encoding_rs.workspace = true
 rusqlite.workspace = true
 thiserror.workspace = true
 ulid.workspace = true

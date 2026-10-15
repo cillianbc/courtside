@@ -25,7 +25,12 @@
     void (redo ? ui.redo() : ui.undo());
   }
   onMount(async () => {
-    ui.snapshot = await backend.snapshot();
+    try {
+      ui.snapshot = await backend.resume();
+    } catch (e) {
+      // The last season moved or broke: start from the start screen.
+      console.error(e);
+    }
     loaded = true;
   });
 </script>

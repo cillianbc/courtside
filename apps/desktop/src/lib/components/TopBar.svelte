@@ -53,6 +53,15 @@
   </div>
   <div class="saved">
     <span>Saved</span><b>event {snap.events}</b>
+    <button
+      class="theme-btn"
+      type="button"
+      disabled={!backend.inTauri}
+      onclick={() => {
+        ui.snapshot = null;
+        ui.cancelEdit();
+      }}>Matches</button
+    >
     <button class="theme-btn" type="button" disabled={!backend.inTauri} onclick={exportDvw}
       >Export .dvw</button
     >

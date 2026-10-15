@@ -4,13 +4,32 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { fixture } from "./fixture";
-import type { MatchItem, Preview, Side, Snapshot } from "./snapshot";
+import type { MatchItem, Preview, Side, Snapshot, TeamItem } from "./snapshot";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export async function snapshot(): Promise<Snapshot | null> {
   if (!inTauri) return fixture();
   return invoke<Snapshot | null>("snapshot");
+}
+
+/** Reopens the season and match open last (after a restart or crash). */
+export async function resume(): Promise<Snapshot | null> {
+  if (!inTauri) return fixture();
+  return invoke<Snapshot | null>("resume");
+}
+
+export async function teams(): Promise<TeamItem[]> {
+  return invoke<TeamItem[]>("teams");
+}
+
+/** Creates a match between two of the season's teams (by id) and opens it. */
+export async function newMatch(
+  home: string,
+  visiting: string,
+  date: string | null,
+): Promise<Snapshot> {
+  return invoke<Snapshot>("match_new", { home, visiting, date });
 }
 
 export async function createSeason(path: string, name: string): Promise<void> {

@@ -436,3 +436,108 @@ fn corrections_insertions_and_removals() {
         texts(&snap)
     );
 }
+
+/// A match coded from scratch: no source file, headers from the season's
+/// tables. Its export reads back as the same match.
+#[test]
+fn a_new_match_codes_and_exports() {
+    let (mut session, dir) = session_with_match();
+    let teams = session.teams().expect("teams");
+    let id = |name: &str| {
+        teams
+            .iter()
+            .find(|t| t.name == name)
+            .expect(name)
+            .id
+            .clone()
+    };
+    let snap = session
+        .new_match(
+            &id("Northgate"),
+            &id("Harbour City"),
+            Some("2026-10-15"),
+            5_000,
+        )
+        .expect("new match");
+    assert_eq!(snap.teams.home.name, "Northgate");
+    assert_eq!(snap.events, 0);
+    assert_eq!(
+        snap.needs_lineup,
+        Pair {
+            home: true,
+            visiting: true
+        }
+    );
+
+    session
+        .set_lineup(Team::Home, [11, 12, 13, 14, 15, 16], 14, None)
+        .expect("home");
+    session
+        .set_lineup(Team::Visiting, [1, 2, 3, 4, 5, 6], 1, None)
+        .expect("visiting");
+    session
+        .commit("a01SM- *12RM+ *14EH+ *13AH#", None)
+        .expect("rally 1");
+    let snap = session.commit("*12SM=", None).expect("rally 2");
+    assert_eq!(
+        snap.score,
+        Pair {
+            home: 1,
+            visiting: 1
+        }
+    );
+    let errors: Vec<_> = snap
+        .issues
+        .iter()
+        .filter(|i| i.severity == "error")
+        .collect();
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let out = dir.path().join("new.dvw");
+    session.export_dvw(&out).expect("export");
+    let bytes = std::fs::read(&out).expect("read");
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(text.contains("GENERATOR-PRG: Courtside\r\n"));
+    assert!(text.contains("10/15/2026;"), "written date");
+    assert!(text.contains(";;46310;"), "date serial");
+
+    // Read back in another season: same codes, same starting six.
+    let mut other = Session::new();
+    other
+        .create_season(&dir.path().join("other.courtside"), "check", 1)
+        .expect("season");
+    other.import_file(&out, 6_000).expect("import");
+    let m = other.matches().expect("matches")[0].id.parse().expect("id");
+    let again = other.open_match(m, 7_000).expect("open");
+    let codes = |s: &courtside_console::Snapshot| -> Vec<String> {
+        texts(s).into_iter().filter(|t| t != "six").collect()
+    };
+    let snap = session.snapshot().expect("snapshot");
+    assert_eq!(codes(&again), codes(&snap));
+    assert_eq!(again.score, snap.score);
+    assert_eq!(again.court, snap.court);
+}
+
+/// After a crash: a new session reopens the season and match from the
+/// resume file, with every committed code.
+#[test]
+fn resumes_where_the_scout_was() {
+    let (mut session, dir) = opened();
+    session.commit("a16RM=", None).expect("commit");
+    let before = session.snapshot().expect("snapshot");
+    let file = dir.path().join("config").join("resume.json");
+    session.resume_point().save(&file).expect("save resume");
+    drop(session);
+
+    let mut again = Session::new();
+    let snap = again
+        .resume(&courtside_console::Resume::load(&file), 9_000)
+        .expect("resume")
+        .expect("a match");
+    assert_eq!(texts(&snap), texts(&before));
+    // The new session can carry on coding with fresh event ids.
+    again.commit("*02SM-", None).expect("commit after resume");
+
+    let nothing = courtside_console::Resume::load(&dir.path().join("missing.json"));
+    assert_eq!(Session::new().resume(&nothing, 1).expect("resume"), None);
+}
