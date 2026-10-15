@@ -35,6 +35,9 @@ pub struct Defaults {
     pub evaluations: [char; 7],
     /// Predict the skill from the touch before.
     pub predict: bool,
+    /// Attack combinations: code, type letter, start zone. A typed
+    /// combination fills a missing type and start zone.
+    pub combinations: Vec<(String, char, char)>,
 }
 
 impl Default for Defaults {
@@ -44,6 +47,7 @@ impl Default for Defaults {
             types: ['H'; 7],
             evaluations: ['+'; 7],
             predict: true,
+            combinations: Vec::new(),
         }
     }
 }
@@ -217,15 +221,6 @@ fn typed_touch(token: &str, implied: bool) -> Result<Typed, String> {
     if skill.is_none() && !implied && !rest.is_empty() {
         return Err("Put the skill letter (S R E A B D F) before the zones and the rest.".into());
     }
-    if skill.is_some()
-        && skill_type.is_none()
-        && !rest.is_empty()
-        && rest.starts_with(|c: char| c.is_ascii_alphabetic())
-        && evaluation.is_none()
-    {
-        let c = rest.chars().next().unwrap_or(' ');
-        return Err(format!("Unknown type letter {c}."));
-    }
     Ok(Typed {
         team,
         player,
@@ -290,8 +285,25 @@ fn complete(
             _ => return Err("Shirt numbers go from 0 to 99.".into()),
         }
     };
+    // An attack typed with a combination straight after the skill
+    // (`5AX5`): the combination stands in for type and evaluation.
+    let combination = (skill == Skill::Attack)
+        .then(|| t.rest.get(..2))
+        .flatten()
+        .and_then(|code| d.combinations.iter().find(|(c, ..)| c == code));
+    if t.skill_type.is_none()
+        && t.evaluation.is_none()
+        && combination.is_none()
+        && let Some(c) = t.rest.chars().next().filter(char::is_ascii_alphabetic)
+    {
+        return Err(format!("Unknown type letter {c}."));
+    }
     let skill_type = match t.skill_type {
         Some(c) => c,
+        None if combination.is_some() => {
+            filled.push("type from the combination".into());
+            combination.map_or('H', |(_, tempo, _)| *tempo)
+        }
         None => {
             match inherited_type(skill, before).filter(|_| before.is_some_and(|b| b.team != team)) {
                 Some((c, from)) => {
@@ -312,7 +324,17 @@ fn complete(
             d.evaluations[slot(skill)]
         }
     };
-    Ok(build(team, player, skill, skill_type, evaluation, &t.rest))
+    let mut touch = build(team, player, skill, skill_type, evaluation, &t.rest);
+    // The combination's start zone when none is typed.
+    if skill == Skill::Attack
+        && touch.start_zone().is_none()
+        && let Some(code) = touch.combination()
+        && let Some((_, _, zone)) = d.combinations.iter().find(|(c, ..)| *c == code)
+    {
+        filled.push("zone from the combination".into());
+        touch = touch.with_start_zone(*zone);
+    }
+    Ok(touch)
 }
 
 fn build(
@@ -621,6 +643,19 @@ mod tests {
             "combination without evaluation"
         );
         assert_eq!(exp("$$&", None), ["*$$&H+"]);
+        let d = Defaults {
+            combinations: vec![("X5".into(), 'T', '4'), ("X1".into(), 'Q', '3')],
+            ..Defaults::default()
+        };
+        let with = |s: &str| expand(s, None, &d).expect(s).codes[0].to_string();
+        assert_eq!(
+            with("a2AX5"),
+            "a02AT+X5~4",
+            "combination gives type and zone"
+        );
+        assert_eq!(with("a2AQ#X1"), "a02AQ#X1~3");
+        assert_eq!(with("a2AH#X5~2"), "a02AH#X5~2", "typed values win");
+        assert!(expand("a2AZ9", None, &d).is_err(), "not a combination");
         assert_eq!(
             exp("a13#", Some("a14EQ+")),
             ["a13AH#"],

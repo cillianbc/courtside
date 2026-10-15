@@ -5,14 +5,13 @@
 
 use dvw_codec::date::Date;
 
-use crate::Team;
-
-/// DataVolley's default winning symbols, as in every corpus file.
-const WINNING_SYMBOLS: &str = "=~~~#~~~=~~~~~~~=/~~#~~~=/~~#~~~=~~~~~~~=~~~~~~~=~~~~~~~";
+use crate::{Tables, Team};
 
 /// The template for a match between `home` and `visiting` on `date`
 /// (ISO `YYYY-MM-DD`, if known), as `.dvw` bytes (code page 1252, CRLF).
-pub fn blank(home: &Team, visiting: &Team, date: Option<&str>) -> Vec<u8> {
+/// `tables`: the winning symbols, combinations and setter calls the match
+/// was created with.
+pub fn blank(home: &Team, visiting: &Team, date: Option<&str>, tables: &Tables) -> Vec<u8> {
     let date = date.and_then(parse_iso);
     let written = date.map_or(String::new(), |d| {
         format!("{:02}/{:02}/{:04}", d.month, d.day, d.year)
@@ -69,18 +68,13 @@ pub fn blank(home: &Team, visiting: &Team, date: Option<&str>) -> Vec<u8> {
             ));
         }
     }
-    lines.extend(
-        [
-            "[3ATTACKCOMBINATION]",
-            "[3SETTERCALL]",
-            "[3WINNINGSYMBOLS]",
-            WINNING_SYMBOLS,
-            "[3RESERVE]",
-            "[3VIDEO]",
-            "[3SCOUT]",
-        ]
-        .map(str::to_owned),
-    );
+    lines.push("[3ATTACKCOMBINATION]".into());
+    lines.extend(tables.combination_lines());
+    lines.push("[3SETTERCALL]".into());
+    lines.extend(tables.setter_call_lines());
+    lines.push("[3WINNINGSYMBOLS]".into());
+    lines.push(tables.winning_line());
+    lines.extend(["[3RESERVE]", "[3VIDEO]", "[3SCOUT]"].map(str::to_owned));
 
     let mut text = lines.join("\r\n");
     text.push_str("\r\n");

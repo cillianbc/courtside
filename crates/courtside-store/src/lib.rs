@@ -9,9 +9,13 @@
 //! replaced, in one transaction.
 
 mod roster;
+mod settings;
 mod teams;
 mod template;
 
+pub use settings::{
+    Combination, KeyBinding, SKILLS, SetterCall, Settings, Tables, Typing, WinningRow,
+};
 pub use teams::{
     Player, PlayerInput, SeasonPlayer, Team, TeamImport, TeamInput, suggest_player_code,
     suggest_team_code,
@@ -29,7 +33,7 @@ use vb_grammar::Code;
 use vb_grammar::Team as Side;
 
 /// Schema version, kept in SQLite's `user_version`.
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 const SCHEMA: &str = "
 CREATE TABLE season (
@@ -55,7 +59,13 @@ CREATE TABLE match (
     date TEXT,
     source_name TEXT,
     source_dvw BLOB,
-    created_ms INTEGER NOT NULL
+    created_ms INTEGER NOT NULL,
+    -- JSON: the season's .dvw tables when a match coded here was created.
+    tables TEXT
+);
+CREATE TABLE setting (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 CREATE TABLE event (
     match_id TEXT NOT NULL REFERENCES match(id),
@@ -219,8 +229,13 @@ impl Season {
             1 => {
                 migrate_1_to_2(&conn)?;
                 migrate_2_to_3(&conn)?;
+                migrate_3_to_4(&conn)?;
             }
-            2 => migrate_2_to_3(&conn)?,
+            2 => {
+                migrate_2_to_3(&conn)?;
+                migrate_3_to_4(&conn)?;
+            }
+            3 => migrate_3_to_4(&conn)?,
             _ => return Err(Error::Version(version)),
         }
         Self::configure(&conn)?;
@@ -372,17 +387,20 @@ impl Season {
         if home_team_id == visiting_team_id {
             return Err(Error::Invalid("a match needs two different teams".into()));
         }
+        let tables = serde_json::to_string(&self.settings()?.tables)
+            .map_err(|e| Error::Invalid(e.to_string()))?;
         let tx = self.conn.transaction()?;
         let id = MatchId(next_id(&tx, now_ms)?);
         tx.execute(
-            "INSERT INTO match (id, home_team_id, visiting_team_id, date, created_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO match (id, home_team_id, visiting_team_id, date, created_ms, tables)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 id.to_string(),
                 home_team_id,
                 visiting_team_id,
                 date,
-                ms(now_ms)
+                ms(now_ms),
+                tables
             ],
         )?;
         teams::copy_rosters(&tx, id, home_team_id, visiting_team_id)?;
@@ -398,7 +416,8 @@ impl Season {
             [id.to_string()],
             |r| r.get(0),
         )?;
-        Ok(template::blank(&home, &visiting, date.as_deref()))
+        let tables = self.match_tables(id)?;
+        Ok(template::blank(&home, &visiting, date.as_deref(), &tables))
     }
 
     /// Loads a match: the engine's model from its source file, the event
@@ -609,6 +628,19 @@ fn migrate_2_to_3(conn: &Connection) -> Result<()> {
             Err(e)
         }
     }
+}
+
+/// Version 4: season settings, and the tables each match coded here was
+/// created with.
+fn migrate_3_to_4(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "BEGIN;
+         ALTER TABLE match ADD COLUMN tables TEXT;
+         CREATE TABLE setting (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         PRAGMA user_version = 4;
+         COMMIT;",
+    )?;
+    Ok(())
 }
 
 pub(crate) fn role_number(r: dvw_codec::dvw::Role) -> u8 {

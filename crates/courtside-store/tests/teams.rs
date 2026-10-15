@@ -396,3 +396,43 @@ fn a_team_exported_and_imported_elsewhere_is_the_same_team() {
         assert_eq!(strip(&copy), strip(&original), "{name}");
     }
 }
+
+#[test]
+fn settings_are_saved_and_each_match_keeps_the_tables_it_started_with() {
+    let mut season = Season::in_memory("s", 1).expect("season");
+    let mut settings = season.settings().expect("defaults");
+    assert_eq!(settings.typing.skill, 'A');
+    assert!(settings.tables.combinations.iter().any(|c| c.code == "X5"));
+    let a = team(&mut season, "Harbour City");
+    let b = team(&mut season, "Northgate");
+    six(&mut season, &a, 1);
+    six(&mut season, &b, 11);
+    let first = season.create_match(&a, &b, None, 5).expect("match");
+
+    settings.typing.evaluations[0] = '-';
+    settings.tables.combinations.retain(|c| c.code != "X5");
+    settings.tables.winning[3].lose = "=".into(); // attack: only = loses
+    season.save_settings(&settings).expect("save");
+    assert_eq!(season.settings().expect("load"), settings);
+    let second = season.create_match(&a, &b, None, 6).expect("match");
+
+    let export = |m| String::from_utf8_lossy(&season.export_dvw(m).expect("export")).into_owned();
+    let (one, two) = (export(first), export(second));
+    assert!(
+        one.contains("\r\nX5;4;L;T;Fast set to zone 4;;;;F;;\r\n"),
+        "first keeps X5"
+    );
+    assert!(!two.contains("\r\nX5;"), "second has the new table");
+    assert!(one.contains("\r\n=~~~#~~~=~~~~~~~=/~~#~~~"));
+    assert!(two.contains("\r\n=~~~#~~~=~~~~~~~=~~~#~~~"));
+    assert!(
+        season
+            .open_match(second)
+            .expect("open")
+            .game
+            .winning_symbols
+            .outcome(vb_grammar::Skill::Attack, '/')
+            .is_none(),
+        "the engine uses the match's winning symbols"
+    );
+}

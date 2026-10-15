@@ -16,9 +16,9 @@ use vb_engine::log::{EventLog, LogError};
 use vb_engine::model::Outcome;
 use vb_engine::{Body, EventId, IdGen, Match, MatchEvent, NewEvent, Producer, fold};
 use vb_grammar::expand::{Defaults, follow_pair, is_pair};
-use vb_grammar::{Code, Touch};
+use vb_grammar::{Code, Skill, Touch};
 
-pub use courtside_store::{Error as StoreError, MatchId};
+pub use courtside_store::{Error as StoreError, MatchId, SKILLS, Settings};
 pub use manage::{PlayerDetail, PlayerListItem, TeamDetail, TeamForm, TeamImportView};
 pub use readback::Preview;
 pub use resume::Resume;
@@ -76,6 +76,94 @@ fn won(game: &Match, set: u8, score: vb_engine::Score) -> bool {
         score.home.min(score.visiting),
     );
     hi >= target && hi - lo >= 2
+}
+
+/// The command line's defaults from the season settings.
+fn defaults_from(s: &Settings) -> Defaults {
+    let skill = |c: char| Skill::from_char(c).unwrap_or(Skill::Attack);
+    Defaults {
+        skill: skill(s.typing.skill),
+        types: s.typing.types,
+        evaluations: s.typing.evaluations,
+        predict: s.typing.predict,
+        combinations: s
+            .tables
+            .combinations
+            .iter()
+            .map(|c| {
+                let zone = char::from_digit(u32::from(c.start_zone), 10).unwrap_or('~');
+                (c.code.clone(), c.tempo, zone)
+            })
+            .collect(),
+    }
+}
+
+/// Settings the scout can't save: what a `.dvw` couldn't hold.
+fn check_settings(s: &Settings) -> Result<()> {
+    let bad = |m: String| Err(Error::BadCode(m));
+    if Skill::from_char(s.typing.skill).is_none() {
+        return bad(format!("{} is not a skill letter", s.typing.skill));
+    }
+    for (i, t) in s.typing.types.iter().enumerate() {
+        if !"HMQTUNO".contains(*t) {
+            return bad(format!("{t} is not a type letter ({})", SKILLS[i]));
+        }
+    }
+    for (i, e) in s.typing.evaluations.iter().enumerate() {
+        if !"=/-!+#".contains(*e) {
+            return bad(format!("{e} is not an evaluation ({})", SKILLS[i]));
+        }
+    }
+    let mut codes = std::collections::HashSet::new();
+    for c in &s.tables.combinations {
+        let ok = c.code.chars().count() == 2
+            && c.code.chars().all(|x| x.is_ascii_alphanumeric())
+            && !c.code.starts_with('K');
+        if !ok {
+            return bad(format!(
+                "combination {:?}: two letters or digits, not starting with K",
+                c.code
+            ));
+        }
+        if !codes.insert(c.code.clone()) {
+            return bad(format!("combination {} is listed twice", c.code));
+        }
+        if !(1..=9).contains(&c.start_zone) {
+            return bad(format!("combination {}: start zone 1–9", c.code));
+        }
+        if !"HMQTUNO".contains(c.tempo) {
+            return bad(format!(
+                "combination {}: {} is not a type letter",
+                c.code, c.tempo
+            ));
+        }
+    }
+    for k in &s.tables.setter_calls {
+        if k.code.chars().count() != 2 || !k.code.starts_with('K') || !codes.insert(k.code.clone())
+        {
+            return bad(format!(
+                "setter call {:?}: two characters starting with K, once",
+                k.code
+            ));
+        }
+    }
+    for w in &s.tables.winning {
+        if !w
+            .lose
+            .chars()
+            .chain(w.win.chars())
+            .all(|c| "=/-!+#".contains(c))
+        {
+            return bad(format!("winning symbols for {}: evaluations only", w.skill));
+        }
+        if w.lose.chars().any(|c| w.win.contains(c)) {
+            return bad(format!(
+                "winning symbols for {}: a symbol can't both win and lose",
+                w.skill
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn touch_of(e: &MatchEvent) -> Option<Touch> {
@@ -224,6 +312,22 @@ impl Session {
             .collect())
     }
 
+    /// The season's settings (defaults when none are saved).
+    pub fn settings(&self) -> Result<Settings> {
+        Ok(self.season()?.settings()?)
+    }
+
+    /// Saves the season's settings; the open match types with them at
+    /// once. Tables reach matches created from now on.
+    pub fn save_settings(&mut self, settings: &Settings) -> Result<()> {
+        check_settings(settings)?;
+        self.season_mut()?.save_settings(settings)?;
+        if let Some(c) = self.current.as_mut() {
+            c.defaults = defaults_from(settings);
+        }
+        Ok(())
+    }
+
     /// Every team of the season with its roster.
     pub fn teams(&self) -> Result<Vec<TeamDetail>> {
         Ok(self
@@ -366,7 +470,7 @@ impl Session {
             teams,
             ids: IdGen::new(now_ms),
             redo: Vec::new(),
-            defaults: Defaults::default(),
+            defaults: defaults_from(&season.settings()?),
         });
         self.snapshot()
     }

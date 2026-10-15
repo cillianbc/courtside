@@ -158,11 +158,14 @@ fn starting_sixes_are_stored() {
     assert_eq!(log.all().last().map(|e| &e.body), Some(&six));
 }
 
-/// Turns a season file back into the version 2 layout: teams without
-/// codes, players keyed by team and number, no match rosters.
+/// Turns a season file back into the version 2 layout: no settings,
+/// teams without codes, players keyed by team and number, no match
+/// rosters.
 fn downgrade_to_v2(conn: &rusqlite::Connection) {
     conn.execute_batch(
-        "DROP INDEX team_code;
+        "ALTER TABLE match DROP COLUMN tables;
+         DROP TABLE setting;
+         DROP INDEX team_code;
          ALTER TABLE team DROP COLUMN code;
          DROP TABLE match_player;
          CREATE TABLE player_v2 (

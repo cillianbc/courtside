@@ -768,3 +768,38 @@ fn correcting_one_half_of_a_pair_updates_the_other() {
         .collect();
     assert_eq!(changed, [("a14EH#".to_string(), "a14EH+".to_string())]);
 }
+
+#[test]
+fn the_command_line_types_with_the_season_settings() {
+    let (mut session, _dir) = opened();
+    // Default season tables know X5: a fast set to zone 4.
+    let p = session.preview("a2AX5").expect("preview");
+    assert_eq!(p.codes[0].text, "a02AT+X5~4");
+
+    let mut settings = session.settings().expect("settings");
+    settings.typing.evaluations[1] = '!'; // reception
+    settings.typing.types[1] = 'M';
+    session.save_settings(&settings).expect("save");
+    // The open rally's serve is *02SH+: the reception's type still comes
+    // from the serve, its evaluation from the new default.
+    let p = session.preview("a16").expect("preview");
+    assert_eq!(p.codes[0].text, "a16RH!");
+
+    settings.typing.evaluations[1] = 'x';
+    assert!(
+        session.save_settings(&settings).is_err(),
+        "not an evaluation"
+    );
+    settings.typing.evaluations[1] = '+';
+    settings
+        .tables
+        .setter_calls
+        .push(courtside_store::SetterCall {
+            code: "X5".into(),
+            description: String::new(),
+        });
+    assert!(
+        session.save_settings(&settings).is_err(),
+        "setter calls start with K"
+    );
+}
