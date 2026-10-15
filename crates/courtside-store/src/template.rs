@@ -10,8 +10,15 @@ use crate::{Tables, Team};
 /// The template for a match between `home` and `visiting` on `date`
 /// (ISO `YYYY-MM-DD`, if known), as `.dvw` bytes (code page 1252, CRLF).
 /// `tables`: the winning symbols, combinations and setter calls the match
-/// was created with.
-pub fn blank(home: &Team, visiting: &Team, date: Option<&str>, tables: &Tables) -> Vec<u8> {
+/// was created with. `created_ms`: when the match was created (Unix ms),
+/// written as the file's creation and last-change time.
+pub fn blank(
+    home: &Team,
+    visiting: &Team,
+    date: Option<&str>,
+    tables: &Tables,
+    created_ms: u64,
+) -> Vec<u8> {
     let date = date.and_then(parse_iso);
     let written = date.map_or(String::new(), |d| {
         format!("{:02}/{:02}/{:04}", d.month, d.day, d.year)
@@ -19,13 +26,22 @@ pub fn blank(home: &Team, visiting: &Team, date: Option<&str>, tables: &Tables) 
     // Spreadsheet serial, day 0 = 1899-12-30: the date DataVolley trusts.
     let serial = date.map_or(String::new(), |d| (d.to_unix_days() + 25_569).to_string());
 
-    let mut lines: Vec<String> = vec![
-        "[3DATAVOLLEYSCOUT]".into(),
-        "FILEFORMAT: 2.0".into(),
-        "GENERATOR-PRG: Courtside".into(),
-        format!("GENERATOR-REL: {}", env!("CARGO_PKG_VERSION")),
-        "GENERATOR-VER: ".into(),
-        "GENERATOR-NAM: ".into(),
+    let stamp = stamp(created_ms);
+
+    // DataVolley and VolleyStation both write the creation and last-change
+    // blocks; a file without them is one no other program has made.
+    let mut lines: Vec<String> = vec!["[3DATAVOLLEYSCOUT]".into(), "FILEFORMAT: 2.0".into()];
+    for block in ["GENERATOR", "LASTCHANGE"] {
+        lines.extend([
+            format!("{block}-DAY: {stamp}"),
+            format!("{block}-IDP: DVW"),
+            format!("{block}-PRG: Courtside"),
+            format!("{block}-REL: {}", env!("CARGO_PKG_VERSION")),
+            format!("{block}-VER: "),
+            format!("{block}-NAM: "),
+        ]);
+    }
+    lines.extend([
         "[3MATCH]".into(),
         // date; time; season; league; phase; home/away; day; match number;
         // code page; regulation (1 = indoor rally point); zones; 0
@@ -38,7 +54,7 @@ pub fn blank(home: &Team, visiting: &Team, date: Option<&str>, tables: &Tables) 
         ";;;;;;".into(),
         "[3COMMENTS]".into(),
         "[3SET]".into(),
-    ];
+    ]);
     lines.extend(std::iter::repeat_n("True;;;;;;".to_owned(), 5));
     for (side, header, team) in [(0, "[3PLAYERS-H]", home), (1, "[3PLAYERS-V]", visiting)] {
         lines.push(header.into());
@@ -80,6 +96,23 @@ pub fn blank(home: &Team, visiting: &Team, date: Option<&str>, tables: &Tables) 
     text.push_str("\r\n");
     let (bytes, _, _) = encoding_rs::WINDOWS_1252.encode(&text);
     bytes.into_owned()
+}
+
+/// `MM/DD/YYYY HH.MM.SS` in UTC, the order and time style of the corpus's
+/// DataVolley files (FORMAT-NOTES "Header").
+fn stamp(ms: u64) -> String {
+    const DAY_MS: u64 = 86_400_000;
+    let days = i64::try_from(ms / DAY_MS).unwrap_or(0);
+    let secs = (ms % DAY_MS) / 1000;
+    let date = Date::from_serial(days + 25_569).map_or(String::new(), |d| {
+        format!("{:02}/{:02}/{:04}", d.month, d.day, d.year)
+    });
+    format!(
+        "{date} {:02}.{:02}.{:02}",
+        secs / 3600,
+        secs / 60 % 60,
+        secs % 60
+    )
 }
 
 fn team_line(n: u8, t: &Team) -> String {

@@ -411,13 +411,20 @@ impl Season {
     /// The `.dvw` a match with no source file starts from.
     fn blank_template(&self, id: MatchId) -> Result<Vec<u8>> {
         let (home, visiting) = self.match_teams(id)?;
-        let date: Option<String> = self.conn.query_row(
-            "SELECT date FROM match WHERE id = ?1",
+        let (date, created): (Option<String>, i64) = self.conn.query_row(
+            "SELECT date, created_ms FROM match WHERE id = ?1",
             [id.to_string()],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         let tables = self.match_tables(id)?;
-        Ok(template::blank(&home, &visiting, date.as_deref(), &tables))
+        let created = u64::try_from(created).unwrap_or(0);
+        Ok(template::blank(
+            &home,
+            &visiting,
+            date.as_deref(),
+            &tables,
+            created,
+        ))
     }
 
     /// Loads a match: the engine's model from its source file, the event

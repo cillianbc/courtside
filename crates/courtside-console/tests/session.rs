@@ -563,6 +563,9 @@ fn a_new_match_codes_and_exports() {
     let bytes = std::fs::read(&out).expect("read");
     let text = String::from_utf8_lossy(&bytes);
     assert!(text.contains("GENERATOR-PRG: Courtside\r\n"));
+    // Created 5 s after the epoch; DataVolley's stamp style.
+    assert!(text.contains("GENERATOR-DAY: 01/01/1970 00.00.05\r\nGENERATOR-IDP: DVW\r\n"));
+    assert!(text.contains("LASTCHANGE-PRG: Courtside\r\n"));
     assert!(text.contains("10/15/2026;"), "written date");
     assert!(text.contains(";;46310;"), "date serial");
 
