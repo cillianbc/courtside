@@ -214,7 +214,15 @@ fn write_starting_zones(m: &Match, dvw: &mut Dvw, events: &[&MatchEvent], folded
     // (team, set, player) brought on by a substitution code, or a libero
     // who touched the ball in the set (no code brings a libero on).
     let mut came_on: Vec<(Team, u8, u8)> = Vec::new();
+    // The first six entered in the console per team and set, which
+    // replaces the team sheet's starting zones for that set.
+    let mut sixes: Vec<(Team, u8, [u8; 6])> = Vec::new();
     for (e, st) in events.iter().zip(&folded.states) {
+        if let Body::StartingSix { team, court } = &e.body
+            && !sixes.iter().any(|(t, s, _)| t == team && *s == st.set)
+        {
+            sixes.push((*team, st.set, *court));
+        }
         match e.code() {
             Some(Code::Substitution { team, r#in, .. }) => {
                 if let Some(n) = r#in.value().and_then(|v| u8::try_from(v).ok()) {
@@ -241,7 +249,15 @@ fn write_starting_zones(m: &Match, dvw: &mut Dvw, events: &[&MatchEvent], folded
             let Some(n) = row.number() else { continue };
             let zones = sheet.player(n).map(|p| p.starting_zones);
             for set in 1..=5u8 {
-                let from_sheet = zones.map_or(StartingZone::None, |z| z[usize::from(set) - 1]);
+                let six = sixes.iter().find(|(t, s, _)| *t == team && *s == set);
+                let from_sheet = match six {
+                    Some((.., court)) => court
+                        .iter()
+                        .position(|&c| c == n)
+                        .and_then(|i| u8::try_from(i + 1).ok())
+                        .map_or(StartingZone::None, StartingZone::Zone),
+                    None => zones.map_or(StartingZone::None, |z| z[usize::from(set) - 1]),
+                };
                 let want = match from_sheet {
                     StartingZone::None if came_on.contains(&(team, set, n)) => {
                         StartingZone::Substitute

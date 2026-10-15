@@ -66,6 +66,8 @@ pub struct Snapshot {
     pub court: Pair<[Option<u8>; 6]>,
     pub setter: Pair<Option<u8>>,
     pub setter_zone: Pair<Option<u8>>,
+    /// The team has no six on court: enter its lineup before play.
+    pub needs_lineup: Pair<bool>,
     /// Used in the current set.
     pub timeouts: Pair<u8>,
     pub substitutions: Pair<u8>,
@@ -177,6 +179,7 @@ fn kind_name(k: EventKind) -> &'static str {
         EventKind::Comment => "comment",
         EventKind::Removed => "removed",
         EventKind::Unrecognised => "unrecognised",
+        EventKind::StartingSix => "startingSix",
     }
 }
 
@@ -220,8 +223,11 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
         }
     }
 
-    let last = folded.states.last();
-    let set = last.map_or(1, |s| s.set);
+    // After a set end the fold keeps the old score and setters until the
+    // next set's first event; show the new set as it starts.
+    let between_sets = events.last().is_some_and(|e| e.kind() == EventKind::SetEnd);
+    let last = folded.states.last().filter(|_| !between_sets);
+    let set = folded.states.last().map_or(1, |s| s.set);
     let score = last.map_or(
         Pair {
             home: 0,
@@ -262,11 +268,23 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
                 vb_engine::Body::Code(c) => c.to_string(),
                 vb_engine::Body::Comment(t) => t.clone(),
                 vb_engine::Body::Removed => String::new(),
+                vb_engine::Body::StartingSix { .. } => "six".into(),
             },
-            team: e.code().and_then(Code::team).map(Side::from),
+            team: match &e.body {
+                vb_engine::Body::StartingSix { team, .. } => Some(Side::from(*team)),
+                _ => e.code().and_then(Code::team).map(Side::from),
+            },
             kind: kind_name(kind),
             meaning: match &e.body {
                 vb_engine::Body::Code(c) => readback::read(&c.to_string(), game, names).meaning,
+                vb_engine::Body::StartingSix { team, court } => format!(
+                    "{} starting six: {}",
+                    match team {
+                        Team::Home => names.0,
+                        Team::Visiting => names.1,
+                    },
+                    court.map(|n| n.to_string()).join(" ")
+                ),
                 _ => String::new(),
             },
             auto: e.producer == Producer::Repair,
@@ -353,6 +371,16 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
         });
     }
 
+    // Between sets the fold has nobody on court until the next set's first
+    // event; an imported team sheet may already say who starts it.
+    let court = |team: Team| {
+        let now = last.map_or([None; 6], |s| *s.court.get(team));
+        if now.iter().all(Option::is_none) {
+            game.teams.get(team).starting_lineup(set)
+        } else {
+            now
+        }
+    };
     let count = |kind: EventKind| {
         Pair::from_fn(|team| {
             let n = events
@@ -376,13 +404,7 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
         score,
         serving,
         sets,
-        court: last.map_or(
-            Pair {
-                home: [None; 6],
-                visiting: [None; 6],
-            },
-            |s| Pair::from(&s.court),
-        ),
+        court: Pair::from_fn(court),
         setter: last.map_or(
             Pair {
                 home: None,
@@ -397,6 +419,7 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             },
             |s| Pair::from(&s.setter_position),
         ),
+        needs_lineup: Pair::from_fn(|team| court(team).iter().all(Option::is_none)),
         timeouts: count(EventKind::Timeout),
         substitutions: count(EventKind::Substitution),
         groups,

@@ -129,6 +129,85 @@ fn rejects_other_files() {
     assert!(matches!(season.open_match(missing), Err(Error::NoMatch(_))));
 }
 
+#[test]
+fn starting_sixes_are_stored() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("season.courtside");
+    let mut season = Season::create(&path, "2026/27", 1).expect("create");
+    let id = season
+        .import_dvw("m.dvw", FILE.as_bytes(), 1_000)
+        .expect("import");
+    let mut open = season.open_match(id).expect("open");
+    let six = vb_engine::Body::StartingSix {
+        team: vb_grammar::Team::Visiting,
+        court: [16, 1, 2, 3, 4, 5],
+    };
+    open.game.log.append(
+        &mut IdGen::new(2_000),
+        NewEvent {
+            body: six.clone(),
+            video_ms: None,
+            clock: None,
+            producer: Producer::Keyboard,
+        },
+    );
+    season.save(id, &open.game.log).expect("save");
+    drop(season);
+    let season = Season::open(&path).expect("reopen");
+    let log = season.open_match(id).expect("open").game.log;
+    assert_eq!(log.all().last().map(|e| &e.body), Some(&six));
+}
+
+/// A version 1 file (before starting sixes) opens as version 2.
+#[test]
+fn version_1_files_are_migrated() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("season.courtside");
+    let id = {
+        let mut season = Season::create(&path, "2026/27", 1).expect("create");
+        season
+            .import_dvw("m.dvw", FILE.as_bytes(), 1_000)
+            .expect("import")
+    };
+    {
+        // Put the old CHECK constraint back and mark the file version 1.
+        let conn = rusqlite::Connection::open(&path).expect("sqlite");
+        conn.execute_batch(
+            "CREATE TABLE event_v1 AS SELECT * FROM event;
+             DROP TABLE event;
+             CREATE TABLE event (
+                 match_id TEXT NOT NULL REFERENCES match(id), seq INTEGER NOT NULL,
+                 id TEXT NOT NULL,
+                 kind TEXT NOT NULL CHECK (kind IN ('code', 'comment', 'removed')),
+                 text TEXT NOT NULL, video_ms INTEGER, clock TEXT, producer TEXT NOT NULL,
+                 supersedes TEXT, before TEXT, source_line INTEGER,
+                 PRIMARY KEY (match_id, seq));
+             INSERT INTO event SELECT * FROM event_v1;
+             DROP TABLE event_v1;
+             PRAGMA user_version = 1;",
+        )
+        .expect("downgrade");
+    }
+    let mut season = Season::open(&path).expect("migrated");
+    assert_eq!(codes(&season, id).len(), 3);
+    let mut open = season.open_match(id).expect("open");
+    open.game.log.append(
+        &mut IdGen::new(2_000),
+        NewEvent {
+            body: vb_engine::Body::StartingSix {
+                team: vb_grammar::Team::Home,
+                court: [8, 12, 1, 2, 3, 4],
+            },
+            video_ms: None,
+            clock: None,
+            producer: Producer::Keyboard,
+        },
+    );
+    season
+        .save(id, &open.game.log)
+        .expect("a six fits the new table");
+}
+
 /// An empty file: SQLite opens it as a database with schema version 0.
 fn rusqlite_free_db(path: &Path) {
     std::fs::write(path, b"").expect("write");

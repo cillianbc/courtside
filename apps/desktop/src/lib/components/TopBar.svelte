@@ -1,8 +1,26 @@
 <script lang="ts">
+  import { save } from "@tauri-apps/plugin-dialog";
+  import * as backend from "../backend";
   import type { Snapshot } from "../snapshot";
+  import { ui } from "../ui.svelte";
   import SideTag from "./SideTag.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
+
+  async function exportDvw() {
+    try {
+      const name = `${snap.teams.home.name} - ${snap.teams.visiting.name}.dvw`;
+      const path = await save({
+        defaultPath: name,
+        filters: [{ name: "DataVolley scout", extensions: ["dvw"] }],
+      });
+      if (!path) return;
+      await backend.exportDvw(path);
+      ui.result = { text: `Exported ${path}.`, bad: false };
+    } catch (e) {
+      ui.result = { text: String(e), bad: true };
+    }
+  }
 
   function toggleTheme() {
     const root = document.documentElement;
@@ -35,6 +53,9 @@
   </div>
   <div class="saved">
     <span>Saved</span><b>event {snap.events}</b>
+    <button class="theme-btn" type="button" disabled={!backend.inTauri} onclick={exportDvw}
+      >Export .dvw</button
+    >
     <button class="theme-btn" type="button" onclick={toggleTheme}>Theme</button>
   </div>
 </header>

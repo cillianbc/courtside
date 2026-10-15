@@ -36,7 +36,8 @@ export type RowKind =
   | "setEnd"
   | "comment"
   | "removed"
-  | "unrecognised";
+  | "unrecognised"
+  | "startingSix";
 
 export interface Row {
   id: string;
@@ -80,6 +81,8 @@ export interface Snapshot {
   court: Pair<(number | null)[]>;
   setter: Pair<number | null>;
   setterZone: Pair<number | null>;
+  /** The team has no six on court: enter its lineup before play. */
+  needsLineup: Pair<boolean>;
   timeouts: Pair<number>;
   substitutions: Pair<number>;
   groups: Group[];

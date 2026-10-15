@@ -1137,3 +1137,29 @@ body {
   font-size: 11px;
   color: var(--muted);
 }
+
+/* Lineup entry */
+.sub-form input {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--sunk);
+  color: var(--fg);
+}
+.lineup-six {
+  width: 20ch;
+}
+.lineup-setter {
+  width: 5ch;
+}
+.sub-form input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

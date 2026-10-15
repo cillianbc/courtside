@@ -4,6 +4,7 @@
 
 use courtside_console::Session;
 use courtside_console::snapshot::{Pair, Side};
+use vb_grammar::Team;
 
 /// Made-up match: home 1–7 (1 sets), visiting 11–16 and libero 17 (14 sets).
 fn file() -> String {
@@ -229,4 +230,111 @@ fn preview_reads_codes_back() {
         p.codes[0].error.as_deref(),
         Some("Add the evaluation (# + ! - / =).")
     );
+}
+
+#[test]
+fn a_won_set_ends_and_the_next_needs_lineups() {
+    let (mut session, dir) = opened();
+    // Home serves and wins every rally from 1:1 to 25:1.
+    for n in 2..=25 {
+        session
+            .commit(&format!("*p{n:02}:01"), None)
+            .expect("point");
+    }
+    let snap = session.snapshot().expect("snapshot");
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 2..], ["*p25:01", "**1set"]);
+    assert_eq!(snap.set, 2);
+    assert_eq!(
+        snap.score,
+        Pair {
+            home: 0,
+            visiting: 0
+        }
+    );
+    assert_eq!(
+        snap.needs_lineup,
+        Pair {
+            home: true,
+            visiting: true
+        }
+    );
+    assert!(snap.sets[0].finished);
+
+    let err = session
+        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 5], 1, None)
+        .expect_err("duplicate");
+    assert_eq!(err.to_string(), "lineup: #5 is in two zones");
+    assert!(
+        session
+            .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 17], 14, None)
+            .is_err(),
+        "libero"
+    );
+
+    session
+        .set_lineup(Team::Home, [2, 3, 4, 5, 6, 1], 1, None)
+        .expect("home six");
+    let snap = session
+        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 14, None)
+        .expect("visiting six");
+    assert_eq!(
+        snap.needs_lineup,
+        Pair {
+            home: false,
+            visiting: false
+        }
+    );
+    assert_eq!(snap.court.home, [2, 3, 4, 5, 6, 1].map(Some));
+    assert_eq!(
+        snap.setter_zone,
+        Pair {
+            home: Some(6),
+            visiting: Some(4)
+        }
+    );
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 3..], ["six", "aP14>LUp", "az4>LUp"]);
+
+    // Play on: no rotation issues in set 2.
+    let snap = session.commit("a11SM- *2RM+", None).expect("rally");
+    let rotation: Vec<_> = snap
+        .issues
+        .iter()
+        .filter(|i| i.rule == "rotation" && i.severity != "info")
+        .collect();
+    assert!(rotation.is_empty(), "{rotation:?}");
+
+    // The export has set 2's starting zones from the six.
+    let out = dir.path().join("out.dvw");
+    session.export_dvw(&out).expect("export");
+    let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
+    let row = text
+        .lines()
+        .find(|l| l.starts_with("0;1;"))
+        .expect("home player 1");
+    let fields: Vec<&str> = row.split(';').collect();
+    assert_eq!((fields[3], fields[4]), ("1", "6"), "{row}");
+}
+
+#[test]
+fn timeouts_and_substitutions_count_per_set() {
+    let (mut session, _dir) = opened();
+    session.commit("aT", None).expect("timeout");
+    let snap = session.commit("*c03:07", None).expect("sub");
+    assert_eq!(
+        snap.timeouts,
+        Pair {
+            home: 1,
+            visiting: 1
+        }
+    );
+    assert_eq!(
+        snap.substitutions,
+        Pair {
+            home: 1,
+            visiting: 0
+        }
+    );
+    assert!(snap.court.home.contains(&Some(7)));
 }

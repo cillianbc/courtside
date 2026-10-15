@@ -17,9 +17,10 @@ use vb_engine::event::{ClockTime, ImportFormat};
 use vb_engine::log::{EventLog, LogError};
 use vb_engine::{Body, EventId, IdGen, Match, MatchEvent, Producer};
 use vb_grammar::Code;
+use vb_grammar::Team as Side;
 
 /// Schema version, kept in SQLite's `user_version`.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 const SCHEMA: &str = "
 CREATE TABLE season (
@@ -57,7 +58,9 @@ CREATE TABLE event (
     match_id TEXT NOT NULL REFERENCES match(id),
     seq INTEGER NOT NULL,
     id TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK (kind IN ('code', 'comment', 'removed')),
+    -- A starting six's text is the team prefix and six shirt numbers in
+    -- zone order, e.g. '* 8 12 13 11 3 14'.
+    kind TEXT NOT NULL CHECK (kind IN ('code', 'comment', 'removed', 'six')),
     text TEXT NOT NULL,
     video_ms INTEGER,
     clock TEXT,
@@ -180,8 +183,10 @@ impl Season {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version != VERSION {
-            return Err(Error::Version(version));
+        match version {
+            VERSION => {}
+            1 => migrate_1_to_2(&conn)?,
+            _ => return Err(Error::Version(version)),
         }
         Self::configure(&conn)?;
         Ok(Season { conn })
@@ -413,6 +418,34 @@ impl Season {
     }
 }
 
+/// Version 2 lets event rows hold a starting six. SQLite can't change a
+/// CHECK constraint in place, so the table is rebuilt.
+fn migrate_1_to_2(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "BEGIN;
+         CREATE TABLE event_v2 (
+             match_id TEXT NOT NULL REFERENCES match(id),
+             seq INTEGER NOT NULL,
+             id TEXT NOT NULL,
+             kind TEXT NOT NULL CHECK (kind IN ('code', 'comment', 'removed', 'six')),
+             text TEXT NOT NULL,
+             video_ms INTEGER,
+             clock TEXT,
+             producer TEXT NOT NULL,
+             supersedes TEXT,
+             before TEXT,
+             source_line INTEGER,
+             PRIMARY KEY (match_id, seq)
+         );
+         INSERT INTO event_v2 SELECT * FROM event;
+         DROP TABLE event;
+         ALTER TABLE event_v2 RENAME TO event;
+         PRAGMA user_version = 2;
+         COMMIT;",
+    )?;
+    Ok(())
+}
+
 /// A new team or match id: `now_ms` and the season's counter.
 fn next_id(conn: &Connection, now_ms: u64) -> Result<Ulid> {
     let n: i64 = conn.query_row(
@@ -437,6 +470,7 @@ fn write_events(conn: &Connection, id: MatchId, events: &[MatchEvent], from: usi
             Body::Code(c) => ("code", c.to_string()),
             Body::Comment(t) => ("comment", t.clone()),
             Body::Removed => ("removed", String::new()),
+            Body::StartingSix { team, court } => ("six", six_text(*team, court)),
         };
         let seq = i64::try_from(from + i).unwrap_or(i64::MAX);
         stmt.execute(params![
@@ -496,6 +530,7 @@ fn read_events(conn: &Connection, id: MatchId) -> Result<Vec<MatchEvent>> {
             "code" => Body::Code(Code::parse(&text)),
             "comment" => Body::Comment(text),
             "removed" => Body::Removed,
+            "six" => parse_six(&text)?,
             other => return Err(Error::BadRow(format!("event kind {other:?}"))),
         };
         Ok(MatchEvent {
@@ -511,6 +546,30 @@ fn read_events(conn: &Connection, id: MatchId) -> Result<Vec<MatchEvent>> {
         })
     })
     .collect()
+}
+
+fn six_text(team: Side, court: &[u8; 6]) -> String {
+    let mut s = team.as_char().to_string();
+    for n in court {
+        s.push(' ');
+        s.push_str(&n.to_string());
+    }
+    s
+}
+
+fn parse_six(text: &str) -> Result<Body> {
+    let bad = || Error::BadRow(format!("starting six {text:?}"));
+    let mut parts = text.split(' ');
+    let team = match parts.next() {
+        Some("*") => Side::Home,
+        Some("a") => Side::Visiting,
+        _ => return Err(bad()),
+    };
+    let numbers: Vec<u8> = parts
+        .map(|p| p.parse().map_err(|_| bad()))
+        .collect::<Result<_>>()?;
+    let court: [u8; 6] = numbers.try_into().map_err(|_| bad())?;
+    Ok(Body::StartingSix { team, court })
 }
 
 fn event_id(s: &str) -> Result<EventId> {

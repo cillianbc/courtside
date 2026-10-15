@@ -1,9 +1,12 @@
 <script lang="ts">
   import { LAYOUT, columns, type Net } from "../court";
-  import Icon from "./Icon.svelte";
-  import { prefix, type Side, type Snapshot } from "../snapshot";
+  import { rotationCode, timeoutCode } from "../codes";
+  import type { Side, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
+  import Icon from "./Icon.svelte";
+  import LineupForm from "./LineupForm.svelte";
   import SideTag from "./SideTag.svelte";
+  import SubForm from "./SubForm.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
 
@@ -16,13 +19,7 @@
       .join(", ");
   }
 
-  // Forward moves the setter one zone on (2 to 1, 1 to 6); back undoes it.
-  function rotationCode(side: Side, forward: boolean): string | null {
-    const z = snap.setterZone[side];
-    if (z === null) return null;
-    const next = forward ? (z === 1 ? 6 : z - 1) : z === 6 ? 1 : z + 1;
-    return `${prefix(side)}z${next}`;
-  }
+  let subFor = $state<Side | null>(null);
 </script>
 
 {#snippet half(side: Side, net: Net)}
@@ -91,16 +88,21 @@
           type="button"
           class="tool"
           disabled={snap.timeouts[side] >= 2}
-          onclick={() => ui.startCode(`${prefix(side)}T`)}
+          onclick={() => ui.commit(timeoutCode(side))}
           ><Icon name="timeout" />Timeout <b>{snap.timeouts[side]}/2</b></button
         >
-        <button type="button" class="tool" disabled title="Substitutions come with step C.4"
+        <button
+          type="button"
+          class="tool"
+          aria-pressed={subFor === side}
+          disabled={snap.needsLineup[side]}
+          onclick={() => (subFor = subFor === side ? null : side)}
           ><Icon name="sub" />Sub <b>{snap.substitutions[side]}/6</b></button
         >
         <span class="rot-group">
           <span>Rotation</span>
           {#each [false, true] as forward (forward)}
-            {@const code = rotationCode(side, forward)}
+            {@const code = rotationCode(side, snap.setterZone[side], forward)}
             {@const label = `Rotate ${name} ${forward ? "forward" : "back"} one place`}
             <button
               type="button"
@@ -108,7 +110,7 @@
               title={label}
               aria-label={label}
               disabled={code === null}
-              onclick={() => code && ui.startCode(code)}
+              onclick={() => code && ui.commit(code)}
               ><Icon name={forward ? "fwd" : "back"} /></button
             >
           {/each}
@@ -116,4 +118,10 @@
       </div>
     {/each}
   </div>
+  {#each ui.order as side (side)}
+    {#if snap.needsLineup[side]}<LineupForm {snap} {side} />{/if}
+  {/each}
+  {#if subFor && !snap.needsLineup[subFor]}
+    <SubForm {snap} side={subFor} onclose={() => (subFor = null)} />
+  {/if}
 </section>

@@ -3,6 +3,8 @@
 //! Rules, each checked against the corpus (FORMAT-NOTES "Engine fold"):
 //! - A set's lineup comes from the team sheets' starting zones and applies
 //!   from the first event after the previous set end (or the first event).
+//!   A [`StartingSix`](crate::event::Body::StartingSix) event (a lineup
+//!   entered in the console) replaces that team's six where it stands.
 //! - `z` without `>LUp` rotates the court so the current setter is in that
 //!   zone (or the setter named just after it, under some [`Conventions`](crate::model::Conventions)); if the setter isn't known or on court, by the change in setter
 //!   position.
@@ -15,7 +17,7 @@
 use vb_grammar::code::Digits;
 use vb_grammar::{Code, Dialect, EvaluationTable, Skill, Team};
 
-use crate::event::{EventKind, MatchEvent};
+use crate::event::{Body, EventKind, MatchEvent};
 use crate::model::{Match, Sides};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -134,9 +136,11 @@ pub fn fold_events(m: &Match, events: &[&MatchEvent]) -> Folded {
 
         // Rally membership.
         st.rally = match kind {
-            EventKind::Timeout | EventKind::SetEnd | EventKind::Comment | EventKind::Removed => {
-                None
-            }
+            EventKind::Timeout
+            | EventKind::SetEnd
+            | EventKind::Comment
+            | EventKind::Removed
+            | EventKind::StartingSix => None,
             _ => Some(*open_rally.get_or_insert_with(|| {
                 rallies.push(Rally {
                     set: st.set,
@@ -151,6 +155,9 @@ pub fn fold_events(m: &Match, events: &[&MatchEvent]) -> Folded {
             })),
         };
 
+        if let Body::StartingSix { team, court } = &ev.body {
+            *st.court.get_mut(*team) = court.map(Some);
+        }
         match code {
             Some(Code::Point {
                 team,
@@ -366,6 +373,34 @@ mod tests {
         }
         let f = fold(&m);
         (m, f)
+    }
+
+    #[test]
+    fn a_starting_six_replaces_the_team_sheet_lineup() {
+        let (mut m, _) = game(&["*08SH-", "a13RH#", "a10AH#", "ap00:01", "**1set"]);
+        let mut ids = IdGen::new(1);
+        m.log.append(
+            &mut ids,
+            NewEvent {
+                body: Body::StartingSix {
+                    team: Team::Home,
+                    court: [3, 8, 12, 13, 11, 14],
+                },
+                video_ms: None,
+                clock: None,
+                producer: Producer::Keyboard,
+            },
+        );
+        let f = fold(&m);
+        let last = f.states.last().expect("state");
+        assert_eq!(last.set, 2);
+        assert_eq!(last.court.home, [3, 8, 12, 13, 11, 14].map(Some));
+        assert_eq!(
+            last.court.visiting,
+            [16, 11, 18, 6, 10, 13].map(Some),
+            "visiting keeps the team sheet's six"
+        );
+        assert_eq!(last.rally, None);
     }
 
     #[test]

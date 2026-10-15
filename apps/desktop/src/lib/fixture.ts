@@ -108,6 +108,7 @@ export function fixture(): Snapshot {
     court: { home: [11, 14, 1, 4, 7, 9], visiting: [15, 2, 5, 8, 10, 12] },
     setter: { home: 1, visiting: 15 },
     setterZone: { home: 3, visiting: 1 },
+    needsLineup: { home: false, visiting: false },
     timeouts: { home: 1, visiting: 0 },
     substitutions: { home: 2, visiting: 4 },
     groups,

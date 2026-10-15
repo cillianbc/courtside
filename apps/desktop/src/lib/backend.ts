@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { fixture } from "./fixture";
-import type { MatchItem, Preview, Snapshot } from "./snapshot";
+import type { MatchItem, Preview, Side, Snapshot } from "./snapshot";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -38,10 +38,23 @@ export async function preview(text: string): Promise<Preview> {
   return invoke<Preview>("preview", { text });
 }
 
+function clock(): number[] {
+  const now = new Date();
+  return [now.getHours(), now.getMinutes(), now.getSeconds()];
+}
+
 /** Adds the command line's codes, stamped with the local time of day. */
 export async function commit(text: string): Promise<Snapshot> {
   if (!inTauri) throw new Error("Coding needs the desktop app.");
-  const now = new Date();
-  const clock = [now.getHours(), now.getMinutes(), now.getSeconds()];
-  return invoke<Snapshot>("commit", { text, clock });
+  return invoke<Snapshot>("commit", { text, clock: clock() });
+}
+
+/** Enters a team's six (zones 1–6) and setter for the set in progress. */
+export async function setLineup(team: Side, court: number[], setter: number): Promise<Snapshot> {
+  if (!inTauri) throw new Error("Coding needs the desktop app.");
+  return invoke<Snapshot>("lineup_set", { team, court, setter, clock: clock() });
+}
+
+export async function exportDvw(path: string): Promise<void> {
+  await invoke("export_dvw", { path });
 }

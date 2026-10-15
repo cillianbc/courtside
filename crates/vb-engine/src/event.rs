@@ -5,7 +5,7 @@
 use std::fmt;
 
 use ulid::Ulid;
-use vb_grammar::Code;
+use vb_grammar::{Code, Team};
 
 /// Unique, sortable event id. Ids from one [`IdGen`] sort in creation order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -70,6 +70,14 @@ pub enum Body {
     Comment(String),
     /// A correction that removes its target without replacing it.
     Removed,
+    /// A team's six at the start of a set, zones 1–6, entered in the
+    /// console. Imported matches take theirs from the team sheet's
+    /// starting zones; this event overrides those for its set. It has no
+    /// `[3SCOUT]` line of its own: export writes it as starting zones.
+    StartingSix {
+        team: Team,
+        court: [u8; 6],
+    },
 }
 
 /// What an event means to the fold, derived from its [`Body`].
@@ -90,6 +98,8 @@ pub enum EventKind {
     Comment,
     /// Never seen by the fold: see [`Body::Removed`].
     Removed,
+    /// See [`Body::StartingSix`].
+    StartingSix,
     Unrecognised,
 }
 
@@ -117,7 +127,7 @@ impl MatchEvent {
     pub fn code(&self) -> Option<&Code> {
         match &self.body {
             Body::Code(c) => Some(c),
-            Body::Comment(_) | Body::Removed => None,
+            Body::Comment(_) | Body::Removed | Body::StartingSix { .. } => None,
         }
     }
 
@@ -125,6 +135,7 @@ impl MatchEvent {
         let Some(code) = self.code() else {
             return match self.body {
                 Body::Removed => EventKind::Removed,
+                Body::StartingSix { .. } => EventKind::StartingSix,
                 _ => EventKind::Comment,
             };
         };

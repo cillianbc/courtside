@@ -12,12 +12,13 @@ use std::path::Path;
 use courtside_store::Season;
 use vb_engine::model::Outcome;
 use vb_engine::{Body, IdGen, Match, NewEvent, Producer, fold};
-use vb_grammar::{Code, Team};
+use vb_grammar::Code;
 
 pub use courtside_store::{Error as StoreError, MatchId};
 pub use readback::Preview;
 pub use snapshot::{MatchItem, Snapshot};
 pub use vb_engine::event::ClockTime;
+pub use vb_grammar::Team;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -29,6 +30,13 @@ pub enum Error {
     NoMatch,
     #[error("{0}")]
     BadCode(String),
+    #[error("lineup: {0}")]
+    BadLineup(String),
+    #[error("can't write {path}: {source}")]
+    Write {
+        path: String,
+        source: std::io::Error,
+    },
     #[error("can't read {path}: {source}")]
     Read {
         path: String,
@@ -45,6 +53,16 @@ struct Current {
     teams: (courtside_store::Team, courtside_store::Team),
     /// New event ids; the time part is when the match was opened.
     ids: IdGen,
+}
+
+/// Whether `score` wins `set` under the match's regulation.
+fn won(game: &Match, set: u8, score: vb_engine::Score) -> bool {
+    let target = game.regulation.set_target(set);
+    let (hi, lo) = (
+        score.home.max(score.visiting),
+        score.home.min(score.visiting),
+    );
+    hi >= target && hi - lo >= 2
 }
 
 fn other(t: Team) -> Team {
@@ -193,12 +211,20 @@ impl Session {
                 let point = format!("{}p{h:02}:{v:02}", winner.as_char());
                 c.add(Code::parse(&point), Producer::Repair, clock);
             }
-            // Side-out: the winner rotates, its setter one zone on.
-            let zone = last.and_then(|s| *s.setter_position.get(winner));
-            if let (true, Some(z)) = (serving.is_some_and(|s| s != winner), zone) {
-                let next = if z == 1 { 6 } else { z - 1 };
-                let rotation = format!("{}z{next}", winner.as_char());
-                c.add(Code::parse(&rotation), Producer::Repair, clock);
+            let after = fold(&c.game);
+            let end = after.states.last();
+            let set = end.map_or(1, |s| s.set);
+            let score = end.map(|s| s.score).unwrap_or_default();
+            if won(&c.game, set, score) {
+                c.add(Code::parse(&format!("**{set}set")), Producer::Repair, clock);
+            } else {
+                // Side-out: the winner rotates, its setter one zone on.
+                let zone = last.and_then(|s| *s.setter_position.get(winner));
+                if let (true, Some(z)) = (serving.is_some_and(|s| s != winner), zone) {
+                    let next = if z == 1 { 6 } else { z - 1 };
+                    let rotation = format!("{}z{next}", winner.as_char());
+                    c.add(Code::parse(&rotation), Producer::Repair, clock);
+                }
             }
         }
         if let Err(e) = season.save(c.id, &c.game.log) {
@@ -208,6 +234,76 @@ impl Session {
             return Err(e.into());
         }
         self.snapshot()
+    }
+
+    /// Enters `team`'s six for the set in progress (zones 1–6) and its
+    /// setter, written as DataVolley does: the six as starting zones, then
+    /// `P` and `z` codes marked `>LUp`.
+    pub fn set_lineup(
+        &mut self,
+        team: Team,
+        court: [u8; 6],
+        setter: u8,
+        clock: Option<ClockTime>,
+    ) -> Result<Snapshot> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let sheet = c.game.teams.get(team);
+        for (i, n) in court.iter().enumerate() {
+            if court[..i].contains(n) {
+                return Err(Error::BadLineup(format!("#{n} is in two zones")));
+            }
+            match sheet.player(*n) {
+                None => return Err(Error::BadLineup(format!("#{n} is not on the team sheet"))),
+                Some(p) if p.libero => {
+                    return Err(Error::BadLineup(format!("#{n} is a libero")));
+                }
+                Some(_) => {}
+            }
+        }
+        let zone = court
+            .iter()
+            .position(|&n| n == setter)
+            .ok_or_else(|| Error::BadLineup(format!("setter #{setter} is not in the six")))?
+            + 1;
+        let before = c.game.log.len();
+        c.game.log.append(
+            &mut c.ids,
+            NewEvent {
+                body: Body::StartingSix { team, court },
+                video_ms: None,
+                clock,
+                producer: Producer::Keyboard,
+            },
+        );
+        let t = team.as_char();
+        c.add(
+            Code::parse(&format!("{t}P{setter:02}>LUp")),
+            Producer::Repair,
+            clock,
+        );
+        c.add(
+            Code::parse(&format!("{t}z{zone}>LUp")),
+            Producer::Repair,
+            clock,
+        );
+        if let Err(e) = season.save(c.id, &c.game.log) {
+            while c.game.log.len() > before {
+                c.game.log.undo();
+            }
+            return Err(e.into());
+        }
+        self.snapshot()
+    }
+
+    /// Writes the open match as a `.dvw` file.
+    pub fn export_dvw(&self, path: &Path) -> Result<()> {
+        let c = self.current.as_ref().ok_or(Error::NoMatch)?;
+        let bytes = self.season()?.export_dvw(c.id)?;
+        std::fs::write(path, bytes).map_err(|source| Error::Write {
+            path: path.display().to_string(),
+            source,
+        })
     }
 
     fn season(&self) -> Result<&Season> {
