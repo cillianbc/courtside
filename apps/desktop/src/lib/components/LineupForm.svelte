@@ -1,14 +1,19 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import * as backend from "../backend";
   import { parseSix } from "../codes";
   import type { Side, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
   import SideTag from "./SideTag.svelte";
 
-  let { snap, side }: { snap: Snapshot; side: Side } = $props();
+  // `onclose` set: correcting the set's lineup, starting from the six it
+  // started with; otherwise entering the lineup for a new set.
+  let { snap, side, onclose }: { snap: Snapshot; side: Side; onclose?: () => void } = $props();
 
-  let six = $state("");
-  let setter = $state("");
+  // Filled once when the form opens; later snapshots don't overwrite typing.
+  const start = untrack(() => (onclose ? snap.starting[side] : null));
+  let six = $state(start ? start.court.map((n) => n ?? "").join(" ") : "");
+  let setter = $state(start?.setter != null ? String(start.setter) : "");
   let note = $state("");
 
   const team = $derived(snap.teams[side]);
@@ -38,10 +43,13 @@
       return;
     }
     note = "";
-    const ok = await ui.apply(`${team.name} lineup entered`, () =>
-      backend.setLineup(side, read.court, s),
-    );
-    if (ok) {
+    const ok = onclose
+      ? await ui.apply(`${team.name} lineup corrected`, () =>
+          backend.correctLineup(side, read.court, s),
+        )
+      : await ui.apply(`${team.name} lineup entered`, () => backend.setLineup(side, read.court, s));
+    if (ok && onclose) onclose();
+    else if (ok) {
       six = "";
       setter = "";
     }
@@ -49,7 +57,10 @@
 </script>
 
 <form class="sub-form" onsubmit={submit}>
-  <div class="title"><SideTag {side} /> {team.name}: lineup for set {snap.set}</div>
+  <div class="title">
+    <SideTag {side} />
+    {team.name}: {onclose ? "correct the lineup" : "lineup"} for set {snap.set}
+  </div>
   <div class="pick">
     <label
       >Zones 1–6
@@ -59,9 +70,12 @@
       >Setter
       <input class="lineup-setter" bind:value={setter} placeholder="auto" autocomplete="off" />
     </label>
-    <button class="btn primary" type="submit">Enter lineup</button>
+    <button class="btn primary" type="submit">{onclose ? "Correct lineup" : "Enter lineup"}</button>
+    {#if onclose}<button class="btn" type="button" onclick={onclose}>Cancel</button>{/if}
   </div>
   <div class="sub-note" class:bad={note !== ""}>
-    {note || `Players: ${players.join(" ")}. Setter left empty: the six's setter by role.`}
+    {note ||
+      `Players: ${players.join(" ")}. Setter left empty: the six's setter by role.` +
+        (onclose ? " The set replays from the corrected six." : "")}
   </div>
 </form>

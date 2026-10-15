@@ -77,6 +77,12 @@ export interface IssueView {
   knockOn: boolean;
 }
 
+export interface StartingView {
+  /** Shirt numbers in zones 1–6. */
+  court: (number | null)[];
+  setter: number | null;
+}
+
 export interface Snapshot {
   matchId: string;
   teams: Pair<TeamView>;
@@ -91,6 +97,8 @@ export interface Snapshot {
   needsLineup: Pair<boolean>;
   /** A team has won the match; no set follows. */
   matchOver: boolean;
+  /** Each team's six and setter as the set in progress started. */
+  starting: Pair<StartingView | null>;
   timeouts: Pair<number>;
   substitutions: Pair<number>;
   groups: Group[];

@@ -800,6 +800,51 @@ fn open_file(text: &str) -> (Session, tempfile::TempDir) {
 }
 
 #[test]
+fn a_lineup_is_corrected_in_place() {
+    let (mut session, dir) = opened();
+    let snap = session.snapshot().expect("snapshot");
+    let start = snap.starting.home.clone().expect("home six");
+    assert_eq!(start.court, [1, 2, 3, 4, 5, 6].map(Some));
+    assert_eq!(start.setter, Some(1));
+
+    // 1 and 2 were the other way round; the setter, 1, starts in zone 2.
+    let snap = session
+        .correct_lineup(Team::Home, [2, 1, 3, 4, 5, 6], 1, None)
+        .expect("correct");
+    let start = snap.starting.home.clone().expect("home six");
+    assert_eq!(start.court, [2, 1, 3, 4, 5, 6].map(Some));
+    let t = texts(&snap);
+    assert!(t.contains(&"*z2>LUp".to_string()), "{t:?}");
+    assert!(!t.contains(&"*z1>LUp".to_string()), "{t:?}");
+    assert_eq!(
+        snap.starting.visiting,
+        session.snapshot().expect("s").starting.visiting
+    );
+
+    // The export has the corrected starting zones.
+    let out = dir.path().join("lineup.dvw");
+    session.export_dvw(&out).expect("export");
+    let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
+    assert!(text.contains("0;1;1;2;"), "#1 starts in zone 2");
+    assert!(text.contains("0;2;2;1;"), "#2 starts in zone 1");
+
+    assert!(
+        session
+            .correct_lineup(Team::Home, [2, 1, 3, 4, 5, 7], 9, None)
+            .is_err(),
+        "setter not in the six"
+    );
+
+    // One undo takes it all back.
+    let snap = session.undo().expect("undo");
+    assert_eq!(
+        snap.starting.home.as_ref().expect("home six").court,
+        [1, 2, 3, 4, 5, 6].map(Some)
+    );
+    assert!(texts(&snap).contains(&"*z1>LUp".to_string()));
+}
+
+#[test]
 fn no_set_follows_a_won_match() {
     let sets = |n: u8| {
         (1..=n)

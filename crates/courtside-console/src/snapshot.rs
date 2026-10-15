@@ -70,6 +70,9 @@ pub struct Snapshot {
     pub needs_lineup: Pair<bool>,
     /// A team has won the match: no set follows the last one.
     pub match_over: bool,
+    /// Each team's six and setter as the set in progress started, once
+    /// anything is coded in it; what the lineup editor starts from.
+    pub starting: Pair<Option<StartingView>>,
     /// Used in the current set.
     pub timeouts: Pair<u8>,
     pub substitutions: Pair<u8>,
@@ -78,6 +81,13 @@ pub struct Snapshot {
     pub issues: Vec<IssueView>,
     /// Events in the log, saved or not.
     pub events: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StartingView {
+    /// Shirt numbers in zones 1–6.
+    pub court: [Option<u8>; 6],
+    pub setter: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -220,6 +230,38 @@ fn is_serve(e: &MatchEvent) -> Option<Team> {
         Some(Code::Touch(t)) if t.skill == Skill::Serve => Some(t.team),
         _ => None,
     }
+}
+
+/// `team`'s six and setter once the lineup codes leading `set` are read:
+/// the state after the last of them, or after the set's first event.
+fn starting(
+    events: &[&MatchEvent],
+    folded: &vb_engine::Folded,
+    set: u8,
+    team: Team,
+) -> Option<StartingView> {
+    let mut at = None;
+    for (i, (e, s)) in events.iter().zip(&folded.states).enumerate() {
+        if s.set != set || e.kind() == EventKind::SetEnd {
+            continue;
+        }
+        let lineup = matches!(
+            e.kind(),
+            EventKind::Lineup | EventKind::StartingSix | EventKind::Comment
+        );
+        if at.is_none() || lineup {
+            at = Some(i);
+        }
+        if !lineup {
+            break;
+        }
+    }
+    let st = folded.states.get(at?)?;
+    let court = *st.court.get(team);
+    (!court.iter().all(Option::is_none)).then(|| StartingView {
+        court,
+        setter: *st.setter.get(team),
+    })
 }
 
 pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Snapshot {
@@ -450,6 +492,7 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
         ),
         needs_lineup: Pair::from_fn(|team| !match_over && court(team).iter().all(Option::is_none)),
         match_over,
+        starting: Pair::from_fn(|team| starting(&events, &folded, set, team)),
         timeouts: count(EventKind::Timeout),
         substitutions: count(EventKind::Substitution),
         groups,

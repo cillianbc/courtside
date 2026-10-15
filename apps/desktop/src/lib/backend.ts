@@ -126,6 +126,16 @@ export async function setLineup(team: Side, court: number[], setter: number): Pr
   return invoke<Snapshot>("lineup_set", { team, court, setter, clock: clock() });
 }
 
+/** Corrects a team's six and setter for the set in progress. */
+export async function correctLineup(
+  team: Side,
+  court: number[],
+  setter: number,
+): Promise<Snapshot> {
+  if (!inTauri) throw new Error("Coding needs the desktop app.");
+  return invoke<Snapshot>("lineup_correct", { team, court, setter, clock: clock() });
+}
+
 export async function exportDvw(path: string): Promise<void> {
   await invoke("export_dvw", { path });
 }

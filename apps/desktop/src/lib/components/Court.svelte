@@ -95,10 +95,23 @@
         <button
           type="button"
           class="tool"
+          title="Correct the six this set started with"
+          aria-pressed={ui.lineupFor === side}
+          disabled={!snap.starting[side] || snap.matchOver}
+          onclick={() => {
+            ui.lineupFor = ui.lineupFor === side ? null : side;
+            ui.subFor = null;
+          }}><Icon name="lineup" />Lineup</button
+        >
+        <button
+          type="button"
+          class="tool"
           aria-pressed={ui.subFor === side}
           disabled={snap.needsLineup[side]}
-          onclick={() => (ui.subFor = ui.subFor === side ? null : side)}
-          ><Icon name="sub" />Sub <b>{snap.substitutions[side]}/6</b></button
+          onclick={() => {
+            ui.subFor = ui.subFor === side ? null : side;
+            ui.lineupFor = null;
+          }}><Icon name="sub" />Sub <b>{snap.substitutions[side]}/6</b></button
         >
         <span class="rot-group">
           <span>Rotation</span>
@@ -122,6 +135,11 @@
   {#each ui.order as side (side)}
     {#if snap.needsLineup[side]}<LineupForm {snap} {side} />{/if}
   {/each}
+  {#if ui.lineupFor && snap.starting[ui.lineupFor]}
+    {#key ui.lineupFor}
+      <LineupForm {snap} side={ui.lineupFor} onclose={() => (ui.lineupFor = null)} />
+    {/key}
+  {/if}
   {#if ui.subFor && !snap.needsLineup[ui.subFor]}
     <SubForm {snap} side={ui.subFor} onclose={() => (ui.subFor = null)} />
   {/if}

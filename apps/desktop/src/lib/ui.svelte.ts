@@ -32,6 +32,8 @@ class Ui {
   editing = $state<Editing | null>(null);
   /** The team whose substitution picker is open. */
   subFor = $state<Side | null>(null);
+  /** The team whose lineup is being corrected. */
+  lineupFor = $state<Side | null>(null);
   /** The season's keys, defaults filled in. */
   keymap = $state<KeyBinding[]>(effectiveKeymap([]));
 

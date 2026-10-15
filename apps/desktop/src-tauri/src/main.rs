@@ -240,14 +240,34 @@ fn lineup_set(
     setter: u8,
     clock: Option<[u8; 3]>,
 ) -> Reply<Snapshot> {
-    let team = match team.as_str() {
-        "home" => Team::Home,
-        "visiting" => Team::Visiting,
-        other => return Err(format!("unknown team {other:?}")),
-    };
+    let team = side(&team)?;
     with(&state, |s| {
         s.set_lineup(team, court, setter, clock_time(clock))
     })
+}
+
+/// Corrects a team's six and setter for the set in progress; the rest of
+/// the set replays from it.
+#[tauri::command]
+fn lineup_correct(
+    state: State<'_, Shared>,
+    team: String,
+    court: [u8; 6],
+    setter: u8,
+    clock: Option<[u8; 3]>,
+) -> Reply<Snapshot> {
+    let team = side(&team)?;
+    with(&state, |s| {
+        s.correct_lineup(team, court, setter, clock_time(clock))
+    })
+}
+
+fn side(team: &str) -> Result<Team, String> {
+    match team {
+        "home" => Ok(Team::Home),
+        "visiting" => Ok(Team::Visiting),
+        other => Err(format!("unknown team {other:?}")),
+    }
 }
 
 #[tauri::command]
@@ -326,6 +346,7 @@ fn main() {
             preview,
             commit,
             lineup_set,
+            lineup_correct,
             undo,
             redo,
             code_correct,

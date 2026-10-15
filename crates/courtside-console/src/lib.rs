@@ -14,7 +14,9 @@ use std::path::Path;
 use courtside_store::Season;
 use vb_engine::log::{EventLog, LogError};
 use vb_engine::model::Outcome;
-use vb_engine::{Body, EventId, IdGen, Match, MatchEvent, NewEvent, Producer, fold};
+use vb_engine::{
+    Body, EventId, EventKind, IdGen, Match, MatchEvent, NewEvent, Producer, TeamSheet, fold,
+};
 use vb_grammar::expand::{Combination, Defaults, follow_combination, follow_pair, is_pair};
 use vb_grammar::{Code, Skill, Touch};
 
@@ -110,6 +112,27 @@ fn match_combinations(template: &dvw_codec::Dvw) -> Vec<Combination> {
             })
         })
         .collect()
+}
+
+/// Checks a six for `sheet`'s team; the setter's zone.
+fn check_six(sheet: &TeamSheet, court: &[u8; 6], setter: u8) -> Result<u8> {
+    for (i, n) in court.iter().enumerate() {
+        if court[..i].contains(n) {
+            return Err(Error::BadLineup(format!("#{n} is in two zones")));
+        }
+        match sheet.player(*n) {
+            None => return Err(Error::BadLineup(format!("#{n} is not on the team sheet"))),
+            Some(p) if p.libero => {
+                return Err(Error::BadLineup(format!("#{n} is a libero")));
+            }
+            Some(_) => {}
+        }
+    }
+    let zone = court
+        .iter()
+        .position(|&n| n == setter)
+        .ok_or_else(|| Error::BadLineup(format!("setter #{setter} is not in the six")))?;
+    Ok(u8::try_from(zone + 1).unwrap_or(1))
 }
 
 /// Settings the scout can't save: what a `.dvw` couldn't hold.
@@ -625,24 +648,7 @@ impl Session {
     ) -> Result<Snapshot> {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
-        let sheet = c.game.teams.get(team);
-        for (i, n) in court.iter().enumerate() {
-            if court[..i].contains(n) {
-                return Err(Error::BadLineup(format!("#{n} is in two zones")));
-            }
-            match sheet.player(*n) {
-                None => return Err(Error::BadLineup(format!("#{n} is not on the team sheet"))),
-                Some(p) if p.libero => {
-                    return Err(Error::BadLineup(format!("#{n} is a libero")));
-                }
-                Some(_) => {}
-            }
-        }
-        let zone = court
-            .iter()
-            .position(|&n| n == setter)
-            .ok_or_else(|| Error::BadLineup(format!("setter #{setter} is not in the six")))?
-            + 1;
+        let zone = check_six(c.game.teams.get(team), &court, setter)?;
         let before = c.game.log.len();
         c.game.log.append(
             &mut c.ids,
@@ -720,6 +726,96 @@ impl Session {
             c.redo.push(events);
             return Err(e.into());
         }
+        self.snapshot()
+    }
+
+    /// Corrects `team`'s starting six for the set in progress (zones 1–6)
+    /// and its setter; the rest of the set replays from it. The six entered
+    /// for the set is corrected, or for a set whose six came from the team
+    /// sheet (an imported file) one is put before the set's first code. The
+    /// set's `P` and `z` codes marked `>LUp` follow, written by the console,
+    /// so one undo takes back the whole change. With nothing coded in the
+    /// set yet, this enters the lineup.
+    pub fn correct_lineup(
+        &mut self,
+        team: Team,
+        court: [u8; 6],
+        setter: u8,
+        clock: Option<ClockTime>,
+    ) -> Result<Snapshot> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let zone = check_six(c.game.teams.get(team), &court, setter)?;
+        let folded = fold(&c.game);
+        let visible: Vec<MatchEvent> = c.game.log.visible().into_iter().cloned().collect();
+        let set = folded.states.last().map_or(1, |s| s.set);
+        let in_set: Vec<&MatchEvent> = visible
+            .iter()
+            .zip(&folded.states)
+            .filter(|(e, s)| s.set == set && e.kind() != EventKind::SetEnd)
+            .map(|(e, _)| e)
+            .collect();
+        let Some(first) = in_set.first() else {
+            return self.set_lineup(team, court, setter, clock);
+        };
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let before = c.game.log.len();
+        let event = |body: Body, producer: Producer| NewEvent {
+            body,
+            video_ms: None,
+            clock,
+            producer,
+        };
+        let six = event(Body::StartingSix { team, court }, Producer::Keyboard);
+        let entered = in_set
+            .iter()
+            .find(|e| matches!(e.body, Body::StartingSix { team: t, .. } if t == team));
+        let log = &mut c.game.log;
+        match entered {
+            Some(e) => log.correct(&mut c.ids, e.id, six)?,
+            None => log.insert_before(&mut c.ids, first.id, six)?,
+        };
+        // The set's lineup codes: the run of them before play starts.
+        let lineup = |e: &&&MatchEvent| {
+            matches!(
+                e.kind(),
+                EventKind::Lineup | EventKind::StartingSix | EventKind::Comment
+            )
+        };
+        let t = team.as_char();
+        let wanted = [
+            Code::parse(&format!("{t}P{setter:02}>LUp")),
+            Code::parse(&format!("{t}z{zone}>LUp")),
+        ];
+        let mut missing = Vec::new();
+        for code in wanted {
+            let same_kind = |e: &&&MatchEvent| {
+                e.kind() == EventKind::Lineup
+                    && e.code().is_some_and(|x| {
+                        x.team() == Some(team)
+                            && std::mem::discriminant(x) == std::mem::discriminant(&code)
+                    })
+            };
+            match in_set.iter().take_while(lineup).find(same_kind) {
+                Some(e) if e.code() == Some(&code) => {}
+                Some(e) => {
+                    log.correct(&mut c.ids, e.id, event(Body::Code(code), Producer::Repair))?;
+                }
+                None => missing.push(code),
+            }
+        }
+        let play = in_set.iter().find(|e| !lineup(e));
+        for code in missing {
+            let new = event(Body::Code(code), Producer::Repair);
+            match play {
+                Some(e) => {
+                    log.insert_before(&mut c.ids, e.id, new)?;
+                }
+                None => {
+                    log.append(&mut c.ids, new);
+                }
+            }
+        }
+        c.persist(season, before)?;
         self.snapshot()
     }
 
