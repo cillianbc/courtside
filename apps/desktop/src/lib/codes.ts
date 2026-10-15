@@ -1,12 +1,19 @@
 // Codes the console's buttons and forms write. They go through the same
 // commit as typed codes.
 
-import { prefix, type Side } from "./snapshot";
+import { prefix, type Pair, type Side } from "./snapshot";
 
 const two = (n: number) => String(n).padStart(2, "0");
 
 export function timeoutCode(side: Side): string {
   return `${prefix(side)}T`;
+}
+
+/** `side` wins the rally: the point code with the score after it. */
+export function pointCode(side: Side, score: Pair<number>): string {
+  const home = score.home + (side === "home" ? 1 : 0);
+  const visiting = score.visiting + (side === "visiting" ? 1 : 0);
+  return `${prefix(side)}p${two(home)}:${two(visiting)}`;
 }
 
 export function substitutionCode(side: Side, off: number, on: number): string {

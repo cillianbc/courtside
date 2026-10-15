@@ -1486,3 +1486,30 @@ label.inline {
 .code-menu button.danger {
   color: var(--err);
 }
+
+/* Point buttons at either end of the command bar */
+.point-btn {
+  flex: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: transparent;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.point-btn.home {
+  color: var(--home);
+}
+.point-btn.away {
+  color: var(--away);
+}
+.point-btn:hover:not(:disabled) {
+  background: var(--line);
+}
+.point-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

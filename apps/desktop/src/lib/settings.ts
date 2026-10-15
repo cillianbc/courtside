@@ -45,6 +45,8 @@ export const ACTIONS: readonly { id: string; label: string; keys: string }[] = [
   { id: "undo", label: "Undo", keys: "Mod+Z" },
   { id: "redo", label: "Redo", keys: "Mod+Shift+Z" },
   { id: "focusCode", label: "Go to the command line", keys: "Mod+K" },
+  { id: "pointLeft", label: "Point to the team on the left", keys: "Alt+ArrowLeft" },
+  { id: "pointRight", label: "Point to the team on the right", keys: "Alt+ArrowRight" },
   { id: "timeoutHome", label: "Timeout, home", keys: "Alt+T" },
   { id: "timeoutAway", label: "Timeout, away", keys: "Alt+Shift+T" },
   { id: "subHome", label: "Substitution, home", keys: "Alt+S" },

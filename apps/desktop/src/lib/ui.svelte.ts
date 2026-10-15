@@ -2,6 +2,7 @@
 // open tabs and the command line's text.
 
 import * as backend from "./backend";
+import { pointCode } from "./codes";
 import type { Hint } from "./hint";
 import { effectiveKeymap, type KeyBinding } from "./settings";
 import type { Side, Snapshot } from "./snapshot";
@@ -47,6 +48,8 @@ class Ui {
    * the command bar. Returns whether it worked.
    */
   async apply(what: string, change: () => Promise<Snapshot>): Promise<boolean> {
+    // Any change cancels a point waiting for its second click.
+    this.pointPending = null;
     try {
       this.snapshot = await change();
       this.shownSet = null;
@@ -109,6 +112,41 @@ class Ui {
       this.selected = null;
     }
     return ok;
+  }
+
+  /** A point with no rally codes waiting for a second click, by team. */
+  pointPending = $state<Side | null>(null);
+
+  /**
+   * `side` wins the rally in progress; the console rotates and ends the set
+   * as usual. With nothing coded in the rally the last one is already over
+   * (a deciding code wrote its point), so the first click only says so and
+   * a second click on the same team gives a point with no rally (a penalty).
+   */
+  point(side: Side): Promise<boolean> {
+    const snap = this.snapshot;
+    if (!snap || snap.matchOver || snap.needsLineup.home || snap.needsLineup.visiting)
+      return Promise.resolve(false);
+    const open = snap.groups.at(-1);
+    const empty = !open || (!open.closed && open.rows.length === 0);
+    if (empty && this.pointPending !== side) {
+      this.pointPending = side;
+      const last = [...snap.groups].reverse().find((g) => g.closed);
+      const name = snap.teams[side].name;
+      const decided = [...(last?.rows ?? [])].reverse().find((r) => !r.auto && r.kind !== "point");
+      const before = last?.wonBy
+        ? `The last rally already went to ${snap.teams[last.wonBy].name}` +
+          (decided ? ` (${decided.text})` : "") +
+          (last.wonBy === side ? "." : `: undo or modify it if ${name} won.`)
+        : "No codes in this rally yet.";
+      this.result = {
+        text: `${before} Click again to give ${name} a point with no rally (e.g. a penalty).`,
+        bad: true,
+      };
+      return Promise.resolve(false);
+    }
+    this.pointPending = null;
+    return this.commit(pointCode(side, snap.score));
   }
 
   /** The id of the code after `id` in the whole match, if any. */

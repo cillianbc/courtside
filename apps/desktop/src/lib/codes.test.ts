@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseSix, rotationCode, substitutionCode, timeoutCode } from "./codes";
+import { parseSix, pointCode, rotationCode, substitutionCode, timeoutCode } from "./codes";
 
 describe("button codes", () => {
+  it("writes the point with the score after it", () => {
+    expect(pointCode("home", { home: 24, visiting: 9 })).toBe("*p25:09");
+    expect(pointCode("visiting", { home: 3, visiting: 4 })).toBe("ap03:05");
+  });
+
   it("writes timeouts and substitutions", () => {
     expect(timeoutCode("visiting")).toBe("aT");
     expect(substitutionCode("home", 6, 17)).toBe("*c06:17");

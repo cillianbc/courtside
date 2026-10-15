@@ -42,6 +42,12 @@ export function run(action: string): boolean {
     case "focusCode":
       ui.focusCode += 1;
       return true;
+    case "pointLeft":
+      void ui.point(ui.order[0] ?? "home");
+      return true;
+    case "pointRight":
+      void ui.point(ui.order[1] ?? "visiting");
+      return true;
     case "timeoutHome":
       void ui.commit(timeoutCode("home"));
       return true;

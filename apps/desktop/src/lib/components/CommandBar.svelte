@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as backend from "../backend";
   import { hintFor } from "../hint";
-  import type { Preview } from "../snapshot";
+  import type { Preview, Side } from "../snapshot";
   import { ui } from "../ui.svelte";
 
   let input: HTMLInputElement | undefined = $state();
@@ -31,6 +31,14 @@
 
   const hint = $derived(ui.result ?? hintFor(ui.code, preview));
 
+  // Point buttons sit on the side of the team they score for, as the
+  // court is drawn (they follow a side swap).
+  const snap = $derived(ui.snapshot);
+  const canPoint = $derived(
+    !!snap && !snap.matchOver && !snap.needsLineup.home && !snap.needsLineup.visiting,
+  );
+  const pointLabel = (side: Side) => `Point to ${snap?.teams[side].name ?? side}`;
+
   async function commit() {
     const text = ui.code.trim();
     if (busy) return;
@@ -56,6 +64,20 @@
 </script>
 
 <section class="cmd" class:bad={hint.bad} aria-label="Command bar">
+  {#snippet point(side: Side, left: boolean)}
+    <button
+      type="button"
+      class="point-btn"
+      class:home={side === "home"}
+      class:away={side === "visiting"}
+      title="{pointLabel(side)} ({left ? 'Alt+←' : 'Alt+→'})"
+      disabled={!canPoint}
+      onclick={() => void ui.point(side)}
+      >{#if left}◀
+      {/if}Point {snap?.teams[side].name ?? ""}{#if !left}&nbsp;▶{/if}</button
+    >
+  {/snippet}
+  {@render point(ui.order[0] ?? "home", true)}
   {#if ui.editing}
     <span class="edit-tag"
       >{{ correct: "Modify", insert: "Before", after: "After" }[ui.editing.mode]}
@@ -76,4 +98,5 @@
     placeholder="a08RM+"
   />
   <output class="hint" id="hint">{hint.text}</output>
+  {@render point(ui.order[1] ?? "visiting", false)}
 </section>
