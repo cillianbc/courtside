@@ -43,10 +43,93 @@ pub struct Issue {
     /// Index into the visible events.
     pub index: usize,
     pub message: String,
+    /// What the issue is, for code; the message is for people.
+    pub kind: IssueKind,
     /// For a knock-on: the event (index into the visible events) whose
     /// issue this one follows from. Knock-ons are downgraded to Info, so
     /// one slip is reported once (CONTEXT.md "Knock-on").
     pub cause: Option<usize>,
+}
+
+/// What an issue is about, with the team it concerns where the check
+/// knows it. One per kind of message the validator writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IssueKind {
+    // Rule::Code
+    UnrecognisedCode,
+    NotOnTeamSheet(Team),
+    UnknownEvaluation,
+    UnknownSkillType,
+    ZoneOutOfRange,
+    CustomTextTooLong,
+    SetterPositionOutOfRange,
+    UnreadableScore,
+    WrongSetEnd,
+    // Rule::Score
+    PointAfterSetWon,
+    WrongScore,
+    SetEndNotWon,
+    // Rule::Rotation
+    /// The team that served out of turn.
+    WrongServer(Team),
+    SetterCorrected(Team),
+    MissedRotation(Team),
+    SetterMoved(Team),
+    SetterSetAway(Team),
+    NotOnCourt(Team),
+    ServerOutOfZone(Team),
+    // Rule::BackRow
+    BackRowBlock,
+    BackRowAttack,
+    // Rule::Substitution
+    LiberoOnCourt(Team),
+    LiberoPlayed,
+    UnreadableSubstitution,
+    SubstitutedBySelf,
+    LiberoSubstitution,
+    OffNotOnCourt,
+    OnAlreadyOnCourt,
+    SeventhSubstitution(Team),
+    ReEntry,
+    WrongPartner,
+    // Rule::ServeReception
+    NoPointCode,
+    SecondServe,
+    ServeWithoutReception,
+    ReceptionWithoutServe,
+    Overpass,
+    BlockedWithoutBlockPoint,
+    BlockPointWithoutBlockedAttack,
+    RallyContinues,
+    PointToWrongTeam,
+}
+
+impl IssueKind {
+    /// The team the issue is about, when the check knows it.
+    pub fn team(self) -> Option<Team> {
+        use IssueKind::*;
+        match self {
+            NotOnTeamSheet(t)
+            | WrongServer(t)
+            | SetterCorrected(t)
+            | MissedRotation(t)
+            | SetterMoved(t)
+            | SetterSetAway(t)
+            | NotOnCourt(t)
+            | ServerOutOfZone(t)
+            | LiberoOnCourt(t)
+            | SeventhSubstitution(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// A setter-zone issue: the scout set the zone by hand.
+    pub fn is_setter_zone(self) -> bool {
+        matches!(
+            self,
+            IssueKind::SetterCorrected(_) | IssueKind::SetterMoved(_) | IssueKind::SetterSetAway(_)
+        )
+    }
 }
 
 fn side(team: Team) -> &'static str {
@@ -102,13 +185,14 @@ struct Validator<'a> {
 }
 
 impl Validator<'_> {
-    fn push(&mut self, i: usize, severity: Severity, rule: Rule, message: String) {
+    fn push(&mut self, i: usize, severity: Severity, rule: Rule, kind: IssueKind, message: String) {
         self.issues.push(Issue {
             severity,
             rule,
             event: self.events[i].id,
             index: i,
             message,
+            kind,
             cause: None,
         });
     }
@@ -154,10 +238,14 @@ impl Validator<'_> {
             let Some(code) = self.events[i].code() else {
                 continue;
             };
-            let mut found: Vec<(Severity, String)> = Vec::new();
+            let mut found: Vec<(Severity, IssueKind, String)> = Vec::new();
             match code {
                 Code::Unrecognised(s) if !s.is_empty() => {
-                    found.push((Severity::Warning, format!("unrecognised code {s:?}")));
+                    found.push((
+                        Severity::Warning,
+                        IssueKind::UnrecognisedCode,
+                        format!("unrecognised code {s:?}"),
+                    ));
                 }
                 Code::Touch(t) => {
                     if let Some((team, n)) = touch_player(code)
@@ -165,30 +253,48 @@ impl Validator<'_> {
                     {
                         found.push((
                             Severity::Error,
+                            IssueKind::NotOnTeamSheet(team),
                             format!("player {n} is not on the {} team sheet", side(team)),
                         ));
                     }
                     if t.skill != Skill::Green {
                         if let Some(e) = t.evaluation().filter(|e| !"#+!-/=".contains(*e)) {
-                            found.push((Severity::Error, format!("unknown evaluation {e:?}")));
+                            found.push((
+                                Severity::Error,
+                                IssueKind::UnknownEvaluation,
+                                format!("unknown evaluation {e:?}"),
+                            ));
                         }
                         if let Some(k) = t.skill_type().filter(|k| !"HMQTUNO".contains(*k)) {
-                            found.push((Severity::Warning, format!("unknown skill type {k:?}")));
+                            found.push((
+                                Severity::Warning,
+                                IssueKind::UnknownSkillType,
+                                format!("unknown skill type {k:?}"),
+                            ));
                         }
                     }
                     for (what, z) in [("start zone", t.start_zone()), ("end zone", t.end_zone())] {
                         if let Some(z) = z.filter(|z| !('1'..='9').contains(z)) {
-                            found.push((Severity::Error, format!("{what} {z:?} is not 1–9")));
+                            found.push((
+                                Severity::Error,
+                                IssueKind::ZoneOutOfRange,
+                                format!("{what} {z:?} is not 1–9"),
+                            ));
                         }
                     }
                     if let Some(z) = t.end_subzone().filter(|z| !('A'..='D').contains(z)) {
-                        found.push((Severity::Error, format!("end subzone {z:?} is not A–D")));
+                        found.push((
+                            Severity::Error,
+                            IssueKind::ZoneOutOfRange,
+                            format!("end subzone {z:?} is not A–D"),
+                        ));
                     }
                     // DataVolley stores codes in 20 characters, leaving 5
                     // for custom text, and cuts anything longer on load.
                     if t.custom().chars().count() > 5 {
                         found.push((
                             Severity::Warning,
+                            IssueKind::CustomTextTooLong,
                             format!(
                                 "custom text {:?} is over 5 characters; DataVolley cuts it to {:?}",
                                 t.custom(),
@@ -202,6 +308,7 @@ impl Validator<'_> {
                 {
                     found.push((
                         Severity::Error,
+                        IssueKind::SetterPositionOutOfRange,
                         format!("setter position {position} is not 1–6"),
                     ));
                 }
@@ -210,6 +317,7 @@ impl Validator<'_> {
                 {
                     found.push((
                         Severity::Error,
+                        IssueKind::UnreadableScore,
                         "point code without a readable score".into(),
                     ));
                 }
@@ -218,14 +326,15 @@ impl Validator<'_> {
                     if num(set) != Some(ending) {
                         found.push((
                             Severity::Error,
+                            IssueKind::WrongSetEnd,
                             format!("set end {set} where set {ending} is being played"),
                         ));
                     }
                 }
                 _ => {}
             }
-            for (severity, message) in found {
-                self.push(i, severity, Rule::Code, message);
+            for (severity, kind, message) in found {
+                self.push(i, severity, Rule::Code, kind, message);
             }
         }
     }
@@ -241,6 +350,7 @@ impl Validator<'_> {
                             i,
                             Severity::Error,
                             Rule::Score,
+                            IssueKind::PointAfterSetWon,
                             format!(
                                 "point after the set was won at {}:{}; missing set end?",
                                 before.home, before.visiting
@@ -258,6 +368,7 @@ impl Validator<'_> {
                             i,
                             Severity::Error,
                             Rule::Score,
+                            IssueKind::WrongScore,
                             format!(
                                 "point to {}: score {}:{} → {}:{}, expected {}:{}",
                                 side(*team),
@@ -278,6 +389,7 @@ impl Validator<'_> {
                             i,
                             Severity::Error,
                             Rule::Score,
+                            IssueKind::SetEndNotWon,
                             format!(
                                 "set {set} ends at {}:{}, which doesn't win it",
                                 st.score.home, st.score.visiting
@@ -315,6 +427,7 @@ impl Validator<'_> {
                     s,
                     Severity::Error,
                     Rule::Rotation,
+                    IssueKind::WrongServer(other(winner)),
                     format!(
                         "{} serves but {} won the last rally",
                         side(other(winner)),
@@ -356,9 +469,10 @@ impl Validator<'_> {
                     });
                     z_for_team.then(|| *self.f.states[i].setter_position.get(team))
                 });
-                let (severity, message) = if stepped == Some(Some(expected)) {
+                let (severity, kind, message) = if stepped == Some(Some(expected)) {
                     (
                         Severity::Info,
+                        IssueKind::SetterCorrected(team),
                         format!(
                             "{} setter position corrected from zone {expected} to {q} after the side-out step",
                             side(team)
@@ -369,11 +483,13 @@ impl Validator<'_> {
                         .push((check_at, team, self.issues.len()));
                     (
                         Severity::Error,
+                        IssueKind::MissedRotation(team),
                         format!("{} won a side-out but didn't rotate", side(team)),
                     )
                 } else if stepped.is_some() {
                     (
                         Severity::Warning,
+                        IssueKind::SetterMoved(team),
                         format!(
                             "{} setter moved from zone {p} to {q}; expected {expected}",
                             side(team)
@@ -382,13 +498,14 @@ impl Validator<'_> {
                 } else {
                     (
                         Severity::Info,
+                        IssueKind::SetterSetAway(team),
                         format!(
                             "{} setter position set from zone {p} to {q} away from a side-out step (expected {expected})",
                             side(team)
                         ),
                     )
                 };
-                self.push(check_at, severity, Rule::Rotation, message);
+                self.push(check_at, severity, Rule::Rotation, kind, message);
             }
         }
         for i in 0..self.events.len() {
@@ -415,6 +532,7 @@ impl Validator<'_> {
                     i,
                     Severity::Warning,
                     Rule::Rotation,
+                    IssueKind::NotOnCourt(team),
                     if sheet.played_in(n, st.set) {
                         format!(
                             "{} player {n} is not on court; missing substitution?",
@@ -432,6 +550,7 @@ impl Validator<'_> {
                     i,
                     Severity::Warning,
                     Rule::Rotation,
+                    IssueKind::ServerOutOfZone(team),
                     format!("{} server {n} is in zone {z}, not zone 1", side(team)),
                 ),
                 _ => {}
@@ -454,6 +573,7 @@ impl Validator<'_> {
                     i,
                     Severity::Error,
                     Rule::BackRow,
+                    IssueKind::BackRowBlock,
                     format!("back-row player {n} (zone {}) blocked", zone.unwrap_or(0)),
                 ),
                 Skill::Attack if back && matches!(t.start_zone(), Some('2' | '3' | '4')) => self
@@ -461,6 +581,7 @@ impl Validator<'_> {
                         i,
                         Severity::Warning,
                         Rule::BackRow,
+                        IssueKind::BackRowAttack,
                         format!(
                             "back-row player {n} (zone {}) attacked from zone {}",
                             zone.unwrap_or(0),
@@ -498,6 +619,7 @@ impl Validator<'_> {
                         i,
                         Severity::Warning,
                         Rule::Substitution,
+                        IssueKind::LiberoOnCourt(team),
                         format!(
                             "{} player {n} is a libero on the team sheet but is on court in set {set}; team sheet wrong?",
                             side(team)
@@ -516,6 +638,7 @@ impl Validator<'_> {
                 i,
                 severity,
                 Rule::Substitution,
+                IssueKind::LiberoPlayed,
                 format!("libero {n} {what}"),
             );
         }
@@ -542,48 +665,62 @@ impl Validator<'_> {
                     i,
                     Severity::Error,
                     Rule::Substitution,
+                    IssueKind::UnreadableSubstitution,
                     "substitution without readable shirt numbers".into(),
                 );
                 continue;
             };
             let sheet = self.m.teams.get(team);
             let court = self.court_before(i, team);
-            let mut found: Vec<(Severity, String)> = Vec::new();
+            let mut found: Vec<(Severity, IssueKind, String)> = Vec::new();
             if out == inn {
                 found.push((
                     Severity::Error,
+                    IssueKind::SubstitutedBySelf,
                     format!("player {out} replaced by themselves"),
                 ));
             }
             if sheet.is_libero(out) || sheet.is_libero(inn) {
                 found.push((
                     Severity::Warning,
+                    IssueKind::LiberoSubstitution,
                     "libero replacements are not substitutions".into(),
                 ));
             }
             if sheet.player(inn).is_none() {
                 found.push((
                     Severity::Error,
+                    IssueKind::NotOnTeamSheet(team),
                     format!("player {inn} is not on the {} team sheet", side(team)),
                 ));
             }
             if !court.contains(&Some(out)) && court.iter().any(Option::is_some) {
-                found.push((Severity::Error, format!("player {out} is not on court")));
+                found.push((
+                    Severity::Error,
+                    IssueKind::OffNotOnCourt,
+                    format!("player {out} is not on court"),
+                ));
             }
             if court.contains(&Some(inn)) {
-                found.push((Severity::Error, format!("player {inn} is already on court")));
+                found.push((
+                    Severity::Error,
+                    IssueKind::OnAlreadyOnCourt,
+                    format!("player {inn} is already on court"),
+                ));
             }
             let book = books.entry((self.f.states[i].set, team)).or_default();
             book.count += 1;
             if book.count == 7 {
                 found.push((
                     Severity::Error,
+                    IssueKind::SeventhSubstitution(team),
                     format!("seventh {} substitution in the set", side(team)),
                 ));
             }
             if let Some(p) = [out, inn].into_iter().find(|p| book.closed.contains(p)) {
                 found.push((
                     Severity::Error,
+                    IssueKind::ReEntry,
                     format!("player {p} has already gone off and come back on this set"),
                 ));
             } else if let Some(&partner) = book.pairs.get(&out) {
@@ -593,20 +730,22 @@ impl Validator<'_> {
                 } else {
                     found.push((
                         Severity::Error,
+                        IssueKind::WrongPartner,
                         format!("player {out} can only be replaced by {partner}"),
                     ));
                 }
             } else if let Some(&partner) = book.pairs.get(&inn) {
                 found.push((
                     Severity::Error,
+                    IssueKind::WrongPartner,
                     format!("player {inn} can only come on for {partner}"),
                 ));
             } else {
                 book.pairs.insert(out, inn);
                 book.pairs.insert(inn, out);
             }
-            for (severity, message) in found {
-                self.push(i, severity, Rule::Substitution, message);
+            for (severity, kind, message) in found {
+                self.push(i, severity, Rule::Substitution, kind, message);
             }
         }
     }
@@ -628,6 +767,7 @@ impl Validator<'_> {
                     r.last,
                     Severity::Error,
                     Rule::ServeReception,
+                    IssueKind::NoPointCode,
                     "rally has no point code".into(),
                 );
             }
@@ -645,6 +785,7 @@ impl Validator<'_> {
                                 *i,
                                 Severity::Error,
                                 Rule::ServeReception,
+                                IssueKind::SecondServe,
                                 "second serve in one rally; missing point code before it?".into(),
                             );
                         }
@@ -656,6 +797,7 @@ impl Validator<'_> {
                                 *ni,
                                 Severity::Warning,
                                 Rule::ServeReception,
+                                IssueKind::ServeWithoutReception,
                                 "a serve should be followed by the other team's reception".into(),
                             );
                         }
@@ -667,6 +809,7 @@ impl Validator<'_> {
                                 *i,
                                 Severity::Warning,
                                 Rule::ServeReception,
+                                IssueKind::ReceptionWithoutServe,
                                 "reception without a serve from the other team".into(),
                             );
                         }
@@ -687,6 +830,7 @@ impl Validator<'_> {
                         *i,
                         Severity::Info,
                         Rule::ServeReception,
+                        IssueKind::Overpass,
                         format!(
                             "{} is an overpass but {} won the rally; check the evaluation",
                             Code::Touch(t.clone()),
@@ -701,6 +845,7 @@ impl Validator<'_> {
                         *i,
                         Severity::Warning,
                         Rule::ServeReception,
+                        IssueKind::BlockedWithoutBlockPoint,
                         format!(
                             "{} was blocked but the other team has no block point (B#) after it",
                             Code::Touch(t.clone())
@@ -714,6 +859,7 @@ impl Validator<'_> {
                         *i,
                         Severity::Warning,
                         Rule::ServeReception,
+                        IssueKind::BlockPointWithoutBlockedAttack,
                         format!(
                             "block point {} without a blocked attack (A/) from the other team before it",
                             Code::Touch(t.clone())
@@ -742,6 +888,7 @@ impl Validator<'_> {
                         *ni,
                         Severity::Warning,
                         Rule::ServeReception,
+                        IssueKind::RallyContinues,
                         format!(
                             "the rally continues after {} ended it",
                             Code::Touch(t.clone())
@@ -769,6 +916,7 @@ impl Validator<'_> {
                     r.last,
                     Severity::Error,
                     Rule::ServeReception,
+                    IssueKind::PointToWrongTeam,
                     format!(
                         "point to {} but {} means {} won the rally",
                         side(won),
@@ -800,7 +948,7 @@ impl Validator<'_> {
                 && matches!(i.rule, Rule::Score | Rule::ServeReception)
                 && self.events[i.index].kind() == EventKind::Point
             {
-                let wrong_team = i.rule == Rule::ServeReception;
+                let wrong_team = i.kind == IssueKind::PointToWrongTeam;
                 match seeds.iter_mut().find(|(p, _)| *p == i.index) {
                     Some(seed) => seed.1 |= wrong_team,
                     None => seeds.push((i.index, wrong_team)),
@@ -872,10 +1020,8 @@ impl Validator<'_> {
         }
         for (e, team, seed) in self.missed_rotations.clone() {
             let set = self.f.states[e].set;
-            // Rotation messages name the team they are about first; the
-            // setter ones sit on the next serve, which may be the other
-            // team's.
-            let about = format!("{} ", side(team));
+            // The setter issues sit on the next serve, which may be the
+            // other team's, so go by the team each issue is about.
             let mut later: Vec<(usize, usize)> = self
                 .issues
                 .iter()
@@ -886,7 +1032,7 @@ impl Validator<'_> {
                         && i.severity >= Severity::Warning
                         && i.index >= e
                         && self.f.states[i.index].set == set
-                        && i.message.starts_with(&about)
+                        && i.kind.team() == Some(team)
                 })
                 .map(|(n, i)| (i.index, n))
                 .collect();
@@ -894,7 +1040,7 @@ impl Validator<'_> {
             for (_, n) in later {
                 downgrade.push((n, e));
                 // The scout's `z` correction ends the chain.
-                if self.issues[n].message.contains(" setter ") {
+                if self.issues[n].kind.is_setter_zone() {
                     break;
                 }
             }
