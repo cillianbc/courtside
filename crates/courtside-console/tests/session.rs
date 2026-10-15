@@ -32,6 +32,8 @@ fn file() -> String {
             "1;{n};{n};{zone};;;;;v{n};Away{n};P;;{libero};2;False;v{n};;\r\n"
         ));
     }
+    // Its own table, unlike the season's default X5 (fast set to zone 4).
+    s.push_str("[3ATTACKCOMBINATION]\r\nX5;3;;Q;Made-up quick;;;;C;;\r\n");
     s.push_str("[3SCOUT]\r\n");
     let codes = [
         "*P01>LUp", "*z1>LUp", "aP14>LUp", "az4>LUp", // lineups
@@ -775,9 +777,10 @@ fn correcting_one_half_of_a_pair_updates_the_other() {
 #[test]
 fn the_command_line_types_with_the_season_settings() {
     let (mut session, _dir) = opened();
-    // Default season tables know X5: a fast set to zone 4.
+    // The imported match types with its own combinations: its X5 is a
+    // quick from zone 3, the season's default X5 a fast set to zone 4.
     let p = session.preview("a2AX5").expect("preview");
-    assert_eq!(p.codes[0].text, "a02AT+X5~4");
+    assert_eq!(p.codes[0].text, "a02AQ+X5~3");
 
     let mut settings = session.settings().expect("settings");
     settings.typing.evaluations[1] = '!'; // reception
@@ -787,6 +790,9 @@ fn the_command_line_types_with_the_season_settings() {
     // from the serve, its evaluation from the new default.
     let p = session.preview("a16").expect("preview");
     assert_eq!(p.codes[0].text, "a16RH!");
+    // The season's combinations reach new matches, not this one.
+    let p = session.preview("a2AX5").expect("preview");
+    assert_eq!(p.codes[0].text, "a02AQ+X5~3");
 
     settings.typing.evaluations[1] = 'x';
     assert!(

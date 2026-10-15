@@ -78,24 +78,36 @@ fn won(game: &Match, set: u8, score: vb_engine::Score) -> bool {
     hi >= target && hi - lo >= 2
 }
 
-/// The command line's defaults from the season settings.
-fn defaults_from(s: &Settings) -> Defaults {
+/// The command line's defaults: typing from the season settings, attack
+/// combinations from the match's own table (`combinations`).
+fn defaults_from(s: &Settings, combinations: &[(String, char, char)]) -> Defaults {
     let skill = |c: char| Skill::from_char(c).unwrap_or(Skill::Attack);
     Defaults {
         skill: skill(s.typing.skill),
         types: s.typing.types,
         evaluations: s.typing.evaluations,
         predict: s.typing.predict,
-        combinations: s
-            .tables
-            .combinations
-            .iter()
-            .map(|c| {
-                let zone = char::from_digit(u32::from(c.start_zone), 10).unwrap_or('~');
-                (c.code.clone(), c.tempo, zone)
-            })
-            .collect(),
+        combinations: combinations.to_vec(),
     }
+}
+
+/// A match's attack combinations as expansion takes them (code, type,
+/// start zone): the imported file's `[3ATTACKCOMBINATION]`, or for a match
+/// coded here the table frozen into its blank template when it was created.
+/// Like DataVolley, a match uses its own table, not the season's.
+fn match_combinations(template: &dvw_codec::Dvw) -> Vec<(String, char, char)> {
+    template
+        .attack_combinations
+        .iter()
+        .filter_map(|c| {
+            let tempo = c.tempo().chars().next()?;
+            let zone = c
+                .start_zone()
+                .and_then(|z| char::from_digit(u32::from(z), 10))
+                .unwrap_or('~');
+            Some((c.code().to_owned(), tempo, zone))
+        })
+        .collect()
 }
 
 /// Settings the scout can't save: what a `.dvw` couldn't hold.
@@ -318,12 +330,13 @@ impl Session {
     }
 
     /// Saves the season's settings; the open match types with them at
-    /// once. Tables reach matches created from now on.
+    /// once. Tables reach matches created from now on; the open match keeps
+    /// its own combinations.
     pub fn save_settings(&mut self, settings: &Settings) -> Result<()> {
         check_settings(settings)?;
         self.season_mut()?.save_settings(settings)?;
         if let Some(c) = self.current.as_mut() {
-            c.defaults = defaults_from(settings);
+            c.defaults = defaults_from(settings, &c.defaults.combinations);
         }
         Ok(())
     }
@@ -464,13 +477,14 @@ impl Session {
         let season = self.season()?;
         let open = season.open_match(id)?;
         let teams = season.match_teams(id)?;
+        let combinations = match_combinations(&open.template);
         self.current = Some(Current {
             id,
             game: open.game,
             teams,
             ids: IdGen::new(now_ms),
             redo: Vec::new(),
-            defaults: defaults_from(&season.settings()?),
+            defaults: defaults_from(&season.settings()?, &combinations),
         });
         self.snapshot()
     }
