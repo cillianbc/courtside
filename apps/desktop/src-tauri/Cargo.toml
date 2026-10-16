@@ -21,5 +21,18 @@ serde.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 
-[lints]
-workspace = true
+# Video (phase 4 spike): libmpv drawn into a native view over the video panel.
+[target.'cfg(target_os = "macos")'.dependencies]
+libmpv2 = "6"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSView", "NSResponder", "NSWindow", "NSGraphics"] }
+objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+
+# The workspace's lints, except that `unsafe` is denied rather than
+# forbidden: the video module needs a few AppKit calls (allowed there only).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

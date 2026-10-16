@@ -1524,3 +1524,24 @@ label.inline {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+.rate-btn {
+  font: inherit;
+  font-size: 12px;
+  color: var(--screen-fg);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.rate-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.scrub {
+  cursor: pointer;
+}
+.video-error {
+  color: var(--err);
+}

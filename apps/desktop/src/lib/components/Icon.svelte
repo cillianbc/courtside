@@ -1,7 +1,19 @@
 <!-- Inline SVG icons (16×16, stroke), drawn for Courtside. -->
 <script lang="ts">
   export type IconName =
-    "timeout" | "sub" | "fwd" | "back" | "play" | "rewind" | "forward" | "swap" | "turn" | "lineup";
+    | "timeout"
+    | "sub"
+    | "fwd"
+    | "back"
+    | "play"
+    | "rewind"
+    | "forward"
+    | "swap"
+    | "turn"
+    | "lineup"
+    | "pause"
+    | "stepBack"
+    | "stepFwd";
   let { name }: { name: IconName } = $props();
 </script>
 
@@ -24,6 +36,12 @@
     <path d="M13.5 8.5a5.5 5.5 0 1 1-1.6-3.9" /><path d="M12.5 1.5v3.5H9" />
   {:else if name === "back"}
     <path d="M2.5 8.5a5.5 5.5 0 1 0 1.6-3.9" /><path d="M3.5 1.5v3.5H7" />
+  {:else if name === "pause"}
+    <path d="M5 3v10M11 3v10" />
+  {:else if name === "stepBack"}
+    <path d="M4 3v10M13 3 6 8l7 5V3Z" />
+  {:else if name === "stepFwd"}
+    <path d="M12 3v10M3 3l7 5-7 5V3Z" />
   {:else if name === "play"}
     <path d="M5 3v10l8-5-8-5Z" />
   {:else if name === "rewind"}

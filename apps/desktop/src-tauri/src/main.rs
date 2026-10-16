@@ -13,6 +13,10 @@ use courtside_console::{
 };
 use tauri::{AppHandle, Manager, State};
 
+mod video;
+
+type Video = Mutex<video::Player>;
+
 type Shared = Mutex<Session>;
 type Reply<T> = Result<T, String>;
 
@@ -332,10 +336,125 @@ fn snapshot(state: State<'_, Shared>) -> Reply<Option<Snapshot>> {
     with(&state, |s| Ok(s.snapshot().ok()))
 }
 
+fn with_video<T>(
+    state: &State<'_, Video>,
+    f: impl FnOnce(&mut video::Player) -> Result<T, String>,
+) -> Reply<T> {
+    let mut player = state.lock().map_err(|_| "video lock poisoned".to_owned())?;
+    f(&mut player)
+}
+
+// Video commands are synchronous, so Tauri runs them on the main thread,
+// where AppKit wants the player's view touched.
+
+/// Opens a video file in the panel at `bounds`.
+#[tauri::command]
+fn video_open(
+    window: tauri::WebviewWindow,
+    state: State<'_, Video>,
+    path: String,
+    bounds: video::Bounds,
+) -> Reply<video::PlayerState> {
+    with_video(&state, |p| {
+        p.open(&window, &path, bounds)?;
+        Ok(p.state())
+    })
+}
+
+/// Keeps the video on the panel as the layout changes.
+#[tauri::command]
+fn video_place(state: State<'_, Video>, bounds: video::Bounds, visible: bool) -> Reply<()> {
+    with_video(&state, |p| p.place(bounds, visible))
+}
+
+/// An mpv command (`seek`, `frame-step`, `cycle pause` …).
+#[tauri::command]
+fn video_command(state: State<'_, Video>, args: Vec<String>) -> Reply<video::PlayerState> {
+    with_video(&state, |p| {
+        p.command(&args)?;
+        Ok(p.state())
+    })
+}
+
+#[tauri::command]
+fn video_speed(state: State<'_, Video>, speed: f64) -> Reply<video::PlayerState> {
+    with_video(&state, |p| {
+        p.set_speed(speed)?;
+        Ok(p.state())
+    })
+}
+
+#[tauri::command]
+fn video_pause(state: State<'_, Video>, paused: bool) -> Reply<video::PlayerState> {
+    with_video(&state, |p| {
+        p.set_paused(paused)?;
+        Ok(p.state())
+    })
+}
+
+#[tauri::command]
+fn video_state(state: State<'_, Video>) -> Reply<video::PlayerState> {
+    with_video(&state, |p| Ok(p.state()))
+}
+
+#[tauri::command]
+fn video_close(state: State<'_, Video>) -> Reply<()> {
+    with_video(&state, video::Player::close)
+}
+
+/// Development check that playback works without clicking through the UI:
+/// with `COURTSIDE_VIDEO_SMOKE=<file>` the app opens it over the top left of
+/// the window, plays two seconds and prints what mpv reports.
+fn video_smoke(app: &AppHandle) {
+    let Ok(path) = std::env::var("COURTSIDE_VIDEO_SMOKE") else {
+        return;
+    };
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let step = |what: &'static str, f: fn(&AppHandle, &str)| {
+            let (app2, path2) = (app.clone(), path.clone());
+            let _ = app.run_on_main_thread(move || f(&app2, &path2));
+            eprintln!("video smoke: {what}");
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        };
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        step("open", |app, path| {
+            let (Some(window), Some(state)) =
+                (app.get_webview_window("main"), app.try_state::<Video>())
+            else {
+                return;
+            };
+            let bounds = video::Bounds {
+                x: 24.0,
+                y: 90.0,
+                width: 640.0,
+                height: 360.0,
+            };
+            let opened = state.lock().map_err(|e| e.to_string()).and_then(|mut p| {
+                p.open(&window, path, bounds)?;
+                p.set_paused(false)
+            });
+            eprintln!("video smoke: opened {opened:?}");
+        });
+        step("state", |app, _| {
+            if let Some(state) = app.try_state::<Video>()
+                && let Ok(p) = state.lock()
+            {
+                eprintln!("video smoke: {:?}", p.state());
+            }
+        });
+    });
+}
+
 fn main() {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Shared::new(Session::new()))
+        .manage(Video::default())
+        .setup(|app| {
+            video_smoke(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             season_create,
             season_open,
@@ -368,7 +487,14 @@ fn main() {
             code_correct,
             code_insert,
             code_remove,
-            export_dvw
+            export_dvw,
+            video_open,
+            video_place,
+            video_command,
+            video_speed,
+            video_pause,
+            video_state,
+            video_close
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {

@@ -149,6 +149,52 @@ export async function correctLineup(
   return invoke<Snapshot>("lineup_correct", { team, set, court, setter, clock: clock() });
 }
 
+/** The video player's state, for the transport bar. */
+export interface PlayerState {
+  path: string | null;
+  /** Seconds into the video. */
+  time: number | null;
+  duration: number | null;
+  paused: boolean;
+  speed: number;
+  fps: number | null;
+}
+
+/** The panel's place in the window, in CSS pixels. */
+export interface Bounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export async function videoOpen(path: string, bounds: Bounds): Promise<PlayerState> {
+  return invoke<PlayerState>("video_open", { path, bounds });
+}
+
+export async function videoPlace(bounds: Bounds, visible: boolean): Promise<void> {
+  if (!inTauri) return;
+  await invoke("video_place", { bounds, visible });
+}
+
+/** An mpv command: `["seek", "-5", "relative+exact"]`, `["frame-step"]` … */
+export async function videoCommand(args: string[]): Promise<PlayerState> {
+  return invoke<PlayerState>("video_command", { args });
+}
+
+export async function videoPause(paused: boolean): Promise<PlayerState> {
+  return invoke<PlayerState>("video_pause", { paused });
+}
+
+export async function videoSpeed(speed: number): Promise<PlayerState> {
+  return invoke<PlayerState>("video_speed", { speed });
+}
+
+export async function videoState(): Promise<PlayerState | null> {
+  if (!inTauri) return null;
+  return invoke<PlayerState>("video_state");
+}
+
 export async function exportDvw(path: string): Promise<void> {
   await invoke("export_dvw", { path });
 }

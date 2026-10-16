@@ -1,5 +1,7 @@
 <!-- Right-click menu on a code in the stream. -->
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { ui } from "../ui.svelte";
   export interface MenuItem {
     label: string;
     run: () => void;
@@ -20,6 +22,12 @@
     left = Math.max(4, Math.min(x, window.innerWidth - r.width - 4));
     top = Math.max(4, Math.min(y, window.innerHeight - r.height - 4));
     box.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  });
+
+  // The match video's native view would hide the menu.
+  onMount(() => {
+    ui.covering += 1;
+    return () => (ui.covering -= 1);
   });
 
   function pick(item: MenuItem) {

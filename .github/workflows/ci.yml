@@ -44,6 +44,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
+      # Video plays through libmpv on macOS (docs/adr/0004).
+      - if: runner.os == 'macOS'
+        run: brew install mpv
       - run: cargo test --workspace
 
   # The desktop UI (apps/desktop): types, lint, formatting, unit tests and a

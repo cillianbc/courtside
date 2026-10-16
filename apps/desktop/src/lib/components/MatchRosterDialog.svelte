@@ -14,6 +14,12 @@
   let rows = $state<PlayerDetail[]>([]);
   let error = $state("");
 
+  // The match video's native view would hide the dialog.
+  onMount(() => {
+    ui.covering += 1;
+    return () => (ui.covering -= 1);
+  });
+
   onMount(() => {
     dialog?.showModal();
     backend.matchRoster(side === "home").then(

@@ -37,6 +37,11 @@ class Ui {
   subFor = $state<Side | null>(null);
   /** The team whose lineup is being modified. */
   lineupFor = $state<Side | null>(null);
+  /**
+   * Menus and dialogs open over the window: the video's native view is
+   * drawn above the page, so it hides while this is above 0.
+   */
+  covering = $state(0);
   /** The set whose lineup is being modified. */
   lineupSet = $state(1);
   /** The season's keys, defaults filled in. */
