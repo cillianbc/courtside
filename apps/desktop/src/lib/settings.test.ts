@@ -27,6 +27,10 @@ describe("keymap", () => {
     expect(press({ key: "†", code: "KeyT", altKey: true })).toBe("Alt+T");
     expect(press({ key: "F5", code: "F5" })).toBe("F5");
     expect(press({ key: "Shift", code: "ShiftLeft", shiftKey: true })).toBeNull();
+    // Option+comma types ≤, Shift+period types >: the key is still the same.
+    expect(press({ key: "≤", code: "Comma", altKey: true })).toBe("Alt+,");
+    expect(press({ key: "˘", code: "Period", altKey: true, shiftKey: true })).toBe("Alt+Shift+.");
+    expect(press({ key: " ", code: "Space", altKey: true })).toBe("Alt+Space");
   });
 
   it("fills in defaults and finds actions", () => {
@@ -41,6 +45,7 @@ describe("keymap", () => {
     const km = effectiveKeymap([{ action: "redo", keys: "Mod+Z" }]);
     expect([...conflicts(km)]).toEqual(["Mod+Z"]);
     expect(conflicts(effectiveKeymap([])).size).toBe(0);
+    expect(ACTIONS.every((a) => usableWhileTyping(a.keys))).toBe(true);
     expect(usableWhileTyping("Alt+T")).toBe(true);
     expect(usableWhileTyping("F5")).toBe(true);
     expect(usableWhileTyping("Shift+T")).toBe(false);

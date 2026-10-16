@@ -64,7 +64,34 @@ export const ACTIONS: readonly { id: string; label: string; keys: string }[] = [
   { id: "swapSides", label: "Swap court sides", keys: "Alt+W" },
   { id: "endView", label: "Side or end view", keys: "Alt+V" },
   { id: "exportDvw", label: "Export .dvw", keys: "Mod+E" },
+  // Video transport. Alt so they work while typing a code.
+  { id: "videoPlay", label: "Video: play or pause", keys: "Alt+K" },
+  { id: "videoBack", label: "Video: back 5 seconds", keys: "Alt+J" },
+  { id: "videoForward", label: "Video: forward 5 seconds", keys: "Alt+L" },
+  { id: "videoFrameBack", label: "Video: one frame back", keys: "Alt+," },
+  { id: "videoFrameForward", label: "Video: one frame on", keys: "Alt+." },
+  { id: "videoSlower", label: "Video: slower", keys: "Alt+Shift+," },
+  { id: "videoFaster", label: "Video: faster", keys: "Alt+Shift+." },
 ];
+
+/**
+ * Keys named by their physical place, as on a US layout: a Mac's Option
+ * (and Shift) change what these keys type, not which key was pressed.
+ */
+const PHYSICAL: Record<string, string> = {
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Semicolon: ";",
+  Quote: "'",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Backslash: "\\",
+  Minus: "-",
+  Equal: "=",
+  Backquote: "`",
+  Space: "Space",
+};
 
 /** The season's keymap, with defaults for actions it doesn't list. */
 export function effectiveKeymap(saved: KeyBinding[]): KeyBinding[] {
@@ -73,9 +100,9 @@ export function effectiveKeymap(saved: KeyBinding[]): KeyBinding[] {
 
 /**
  * A key press as a binding string: modifiers in a fixed order, then the
- * key. Letters and digits come from the physical key, so Alt combinations
- * on a Mac (which type symbols) still read as `Alt+T`. `null` for a bare
- * modifier press.
+ * key. Letters, digits and punctuation come from the physical key, so Alt
+ * combinations on a Mac (which type symbols) still read as `Alt+T` or
+ * `Alt+,`. `null` for a bare modifier press.
  */
 export function keyString(e: {
   key: string;
@@ -89,6 +116,7 @@ export function keyString(e: {
   let key = e.key;
   if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
   else if (/^Digit[0-9]$/.test(e.code)) key = e.code.slice(5);
+  else if (PHYSICAL[e.code]) key = PHYSICAL[e.code] ?? key;
   else if (key.length === 1) key = key.toUpperCase();
   const parts: string[] = [];
   if (e.ctrlKey || e.metaKey) parts.push("Mod");

@@ -5,6 +5,7 @@ import * as backend from "./backend";
 import { rotationCode, timeoutCode } from "./codes";
 import type { Side } from "./snapshot";
 import { ui } from "./ui.svelte";
+import { JUMP, video } from "./video.svelte";
 
 export async function exportDvw(): Promise<void> {
   const snap = ui.snapshot;
@@ -74,6 +75,36 @@ export function run(action: string): boolean {
       return true;
     case "exportDvw":
       void exportDvw();
+      return true;
+    default:
+      return runVideo(action);
+  }
+}
+
+/** Video transport keys; false with no video open, so the key does its usual thing. */
+function runVideo(action: string): boolean {
+  if (!video.open) return false;
+  switch (action) {
+    case "videoPlay":
+      void video.togglePlay();
+      return true;
+    case "videoBack":
+      void video.seek(-JUMP);
+      return true;
+    case "videoForward":
+      void video.seek(JUMP);
+      return true;
+    case "videoFrameBack":
+      void video.step(true);
+      return true;
+    case "videoFrameForward":
+      void video.step(false);
+      return true;
+    case "videoSlower":
+      void video.speed(-1);
+      return true;
+    case "videoFaster":
+      void video.speed(1);
       return true;
     default:
       return false;

@@ -2,20 +2,18 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { onDestroy, onMount } from "svelte";
   import * as backend from "../backend";
-  import type { PlayerState } from "../backend";
   import { ui } from "../ui.svelte";
+  import { JUMP, video } from "../video.svelte";
   import Icon from "./Icon.svelte";
 
   // libmpv draws in a native view the backend keeps over `screen`; this
   // panel tells it where the screen is and drives playback.
   let screen: HTMLDivElement | undefined = $state();
-  let player = $state<PlayerState | null>(null);
-  let error = $state("");
+  const player = $derived(video.player);
 
   const VIDEO = [
     { name: "Video", extensions: ["mp4", "mov", "m4v", "mkv", "avi", "mts", "m2ts", "webm", "ts"] },
   ];
-  const SPEEDS = [0.25, 0.5, 1, 1.5, 2];
 
   function bounds(): backend.Bounds {
     const r = screen?.getBoundingClientRect();
@@ -29,31 +27,11 @@
     if (player?.path) place();
   });
 
-  async function run(f: () => Promise<PlayerState | null>) {
-    error = "";
-    try {
-      player = (await f()) ?? player;
-    } catch (e) {
-      error = String(e);
-    }
-  }
-
   const openVideo = () =>
-    run(async () => {
+    video.run(async () => {
       const path = await open({ filters: VIDEO });
       if (typeof path !== "string") return null;
       return backend.videoOpen(path, bounds());
-    });
-
-  const seek = (by: number) =>
-    run(() => backend.videoCommand(["seek", String(by), "relative+exact"]));
-  const step = (back: boolean) =>
-    run(() => backend.videoCommand([back ? "frame-back-step" : "frame-step"]));
-  const togglePlay = () => run(() => backend.videoPause(!(player?.paused ?? true)));
-  const cycleSpeed = () =>
-    run(() => {
-      const i = SPEEDS.indexOf(player?.speed ?? 1);
-      return backend.videoSpeed(SPEEDS[(i + 1) % SPEEDS.length] ?? 1);
     });
 
   function scrubTo(e: MouseEvent) {
@@ -61,8 +39,7 @@
     const bar = e.currentTarget as HTMLElement;
     if (!d) return;
     const r = bar.getBoundingClientRect();
-    const at = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * d;
-    void run(() => backend.videoCommand(["seek", at.toFixed(3), "absolute+exact"]));
+    void video.seekTo(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * d);
   }
 
   /** `m:ss.ff`, frames when the frame rate is known. */
@@ -85,7 +62,7 @@
     poll = setInterval(() => {
       if (player?.path)
         void backend.videoState().then(
-          (s) => s && (player = s),
+          (s) => s && (video.player = s),
           () => {},
         );
     }, 200);
@@ -93,7 +70,7 @@
     void backend.videoState().then(
       (s) => {
         if (s?.path) {
-          player = s;
+          video.player = s;
           place();
         }
       },
@@ -130,7 +107,7 @@
         <button class="btn" type="button" disabled={!backend.inTauri} onclick={openVideo}
           >Open video</button
         >
-        {#if error}<p class="video-error">{error}</p>{/if}
+        {#if video.error}<p class="video-error">{video.error}</p>{/if}
       </div>
     {/if}
   </div>
@@ -139,9 +116,9 @@
       class="icon-btn"
       type="button"
       disabled={!player?.path}
-      title="Back 5 seconds"
-      aria-label="Back 5 seconds"
-      onclick={() => seek(-5)}><Icon name="rewind" /></button
+      title="Back {JUMP} seconds"
+      aria-label="Back {JUMP} seconds"
+      onclick={() => video.seek(-JUMP)}><Icon name="rewind" /></button
     >
     <button
       class="icon-btn"
@@ -149,14 +126,14 @@
       disabled={!player?.path}
       title="One frame back"
       aria-label="One frame back"
-      onclick={() => step(true)}><Icon name="stepBack" /></button
+      onclick={() => video.step(true)}><Icon name="stepBack" /></button
     >
     <button
       class="icon-btn"
       type="button"
       disabled={!player?.path}
       aria-label={player?.paused === false ? "Pause" : "Play"}
-      onclick={togglePlay}><Icon name={player?.paused === false ? "pause" : "play"} /></button
+      onclick={video.togglePlay}><Icon name={player?.paused === false ? "pause" : "play"} /></button
     >
     <button
       class="icon-btn"
@@ -164,15 +141,15 @@
       disabled={!player?.path}
       title="One frame on"
       aria-label="One frame on"
-      onclick={() => step(false)}><Icon name="stepFwd" /></button
+      onclick={() => video.step(false)}><Icon name="stepFwd" /></button
     >
     <button
       class="icon-btn"
       type="button"
       disabled={!player?.path}
-      title="Forward 5 seconds"
-      aria-label="Forward 5 seconds"
-      onclick={() => seek(5)}><Icon name="forward" /></button
+      title="Forward {JUMP} seconds"
+      aria-label="Forward {JUMP} seconds"
+      onclick={() => video.seek(JUMP)}><Icon name="forward" /></button
     >
     <span class="timecode">{timecode(player?.time ?? null, player?.fps ?? null)}</span>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -193,7 +170,7 @@
       type="button"
       disabled={!player?.path}
       title="Playback speed"
-      onclick={cycleSpeed}>{player?.speed ?? 1}×</button
+      onclick={() => video.speed(1, true)}>{player?.speed ?? 1}×</button
     >
     {#if player?.path}
       <button class="rate rate-btn" type="button" title="Open another video" onclick={openVideo}
