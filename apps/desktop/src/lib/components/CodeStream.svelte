@@ -37,16 +37,16 @@
 
   const FLAG = { error: "err", warning: "warn", info: "info" } as const;
 
-  // A lineup row is modified in the lineup form, which works on the set in
-  // progress only.
-  function canModify(r: Row, g: Group): boolean {
+  // A lineup row is modified in the lineup form, for the row's set.
+  function canModify(r: Row): boolean {
     if (r.kind === "goldenSet") return false;
-    return r.kind !== "startingSix" || (g.set === snap.set && !snap.matchOver && r.team !== null);
+    return r.kind !== "startingSix" || r.team !== null;
   }
 
-  function modify(r: Row) {
+  function modify(r: Row, g: Group) {
     if (r.kind === "startingSix") {
       ui.lineupFor = r.team;
+      ui.lineupSet = g.set;
       ui.subFor = null;
       ui.selected = null;
     } else ui.startEdit("correct", r.id, r.text);
@@ -142,13 +142,13 @@
             <span class="meaning">{r.meaning}</span>
             {#if ui.selected === r.id}
               <span class="row-actions">
-                {#if canModify(r, g)}
+                {#if canModify(r)}
                   <button
                     type="button"
                     class="btn"
                     onclick={(e) => {
                       e.stopPropagation();
-                      modify(r);
+                      modify(r, g);
                     }}>Modify</button
                   >
                 {/if}
@@ -196,7 +196,7 @@
       y={m.y}
       onclose={() => (menu = null)}
       items={[
-        { label: "Modify", disabled: !canModify(m.row, m.group), run: () => modify(m.row) },
+        { label: "Modify", disabled: !canModify(m.row), run: () => modify(m.row, m.group) },
         { label: "Add before", run: () => ui.startEdit("insert", m.row.id, m.row.text) },
         { label: "Add after", run: () => ui.startEdit("after", m.row.id, m.row.text) },
         { label: "Remove", danger: true, run: () => void ui.remove(m.row.id, m.row.text) },

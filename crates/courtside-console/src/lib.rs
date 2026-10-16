@@ -800,16 +800,17 @@ impl Session {
         self.snapshot()
     }
 
-    /// Corrects `team`'s starting six for the set in progress (zones 1–6)
-    /// and its setter; the rest of the set replays from it. The six entered
+    /// Corrects `team`'s starting six for `set` (zones 1–6) and its
+    /// setter; the rest of the match replays from it. The six entered
     /// for the set is corrected, or for a set whose six came from the team
     /// sheet (an imported file) one is put before the set's first code. The
     /// set's `P` and `z` codes marked `>LUp` follow, written by the console,
     /// so one undo takes back the whole change. With nothing coded in the
-    /// set yet, this enters the lineup.
+    /// set in progress yet, this enters its lineup.
     pub fn correct_lineup(
         &mut self,
         team: Team,
+        set: u8,
         court: [u8; 6],
         setter: u8,
         clock: Option<ClockTime>,
@@ -818,7 +819,7 @@ impl Session {
         let zone = check_six(c.game.teams.get(team), &court, setter)?;
         let folded = fold(&c.game);
         let visible: Vec<MatchEvent> = c.game.log.visible().into_iter().cloned().collect();
-        let set = folded.states.last().map_or(1, |s| s.set);
+        let current = folded.states.last().map_or(1, |s| s.set);
         let in_set: Vec<&MatchEvent> = visible
             .iter()
             .zip(&folded.states)
@@ -826,7 +827,10 @@ impl Session {
             .map(|(e, _)| e)
             .collect();
         let Some(first) = in_set.first() else {
-            return self.set_lineup(team, court, setter, clock);
+            if set == current {
+                return self.set_lineup(team, court, setter, clock);
+            }
+            return Err(Error::BadLineup(format!("set {set} has no codes")));
         };
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
         let before = c.game.log.len();

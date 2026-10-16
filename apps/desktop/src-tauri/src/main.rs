@@ -259,19 +259,20 @@ fn golden_set_start(state: State<'_, Shared>, clock: Option<[u8; 3]>) -> Reply<S
     with(&state, |s| s.start_golden_set(clock_time(clock)))
 }
 
-/// Corrects a team's six and setter for the set in progress; the rest of
-/// the set replays from it.
+/// Corrects a team's six and setter for a set; the rest of the match
+/// replays from it.
 #[tauri::command]
 fn lineup_correct(
     state: State<'_, Shared>,
     team: String,
+    set: u8,
     court: [u8; 6],
     setter: u8,
     clock: Option<[u8; 3]>,
 ) -> Reply<Snapshot> {
     let team = side(&team)?;
     with(&state, |s| {
-        s.correct_lineup(team, court, setter, clock_time(clock))
+        s.correct_lineup(team, set, court, setter, clock_time(clock))
     })
 }
 

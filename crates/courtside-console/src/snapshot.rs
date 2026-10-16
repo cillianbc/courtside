@@ -78,9 +78,9 @@ pub struct Snapshot {
     pub set_end_due: bool,
     /// Substitutions allowed per team and set.
     pub substitution_limit: u8,
-    /// Each team's six and setter as the set in progress started, once
-    /// anything is coded in it; what the lineup editor starts from.
-    pub starting: Pair<Option<StartingView>>,
+    /// Each set's starting six and setter per team, once anything is
+    /// coded in the set; what the lineup editor starts from.
+    pub starting: Vec<SetStart>,
     /// Used in the current set.
     pub timeouts: Pair<u8>,
     pub substitutions: Pair<u8>,
@@ -89,6 +89,13 @@ pub struct Snapshot {
     pub issues: Vec<IssueView>,
     /// Events in the log, saved or not.
     pub events: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SetStart {
+    pub set: u8,
+    pub home: Option<StartingView>,
+    pub visiting: Option<StartingView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -527,7 +534,13 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
         golden_set: folded.golden_set,
         set_end_due: set_end_due(game, &folded).is_some(),
         substitution_limit: game.rules.substitutions,
-        starting: Pair::from_fn(|team| starting(&events, &folded, set, team)),
+        starting: (1..=set)
+            .map(|n| SetStart {
+                set: n,
+                home: starting(&events, &folded, n, Team::Home),
+                visiting: starting(&events, &folded, n, Team::Visiting),
+            })
+            .collect(),
         timeouts: count(EventKind::Timeout),
         substitutions: count(EventKind::Substitution),
         groups,

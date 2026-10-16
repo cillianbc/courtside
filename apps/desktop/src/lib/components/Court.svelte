@@ -2,7 +2,7 @@
   import * as backend from "../backend";
   import { LAYOUT, columns, type Net } from "../court";
   import { rotationCode, timeoutCode } from "../codes";
-  import type { Side, Snapshot } from "../snapshot";
+  import { startOf, type Side, type Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
   import Icon from "./Icon.svelte";
   import LineupForm from "./LineupForm.svelte";
@@ -10,6 +10,9 @@
   import SubForm from "./SubForm.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
+
+  // The Lineup buttons work on the set whose codes are shown.
+  const shownSet = $derived(ui.shownSet ?? snap.set);
 
   const nets = $derived<[Net, Net]>(ui.endView ? ["bottom", "top"] : ["right", "left"]);
 
@@ -111,11 +114,12 @@
         <button
           type="button"
           class="tool"
-          title="Modify the six this set started with"
+          title="Modify the six set {shownSet} started with"
           aria-pressed={ui.lineupFor === side}
-          disabled={!snap.starting[side] || snap.matchOver}
+          disabled={!startOf(snap, shownSet, side)}
           onclick={() => {
             ui.lineupFor = ui.lineupFor === side ? null : side;
+            ui.lineupSet = shownSet;
             ui.subFor = null;
           }}><Icon name="lineup" />Lineup</button
         >
@@ -152,9 +156,14 @@
   {#each ui.order as side (side)}
     {#if snap.needsLineup[side]}<LineupForm {snap} {side} />{/if}
   {/each}
-  {#if ui.lineupFor && snap.starting[ui.lineupFor]}
-    {#key ui.lineupFor}
-      <LineupForm {snap} side={ui.lineupFor} onclose={() => (ui.lineupFor = null)} />
+  {#if ui.lineupFor && startOf(snap, ui.lineupSet, ui.lineupFor)}
+    {#key `${ui.lineupFor}-${ui.lineupSet}`}
+      <LineupForm
+        {snap}
+        side={ui.lineupFor}
+        set={ui.lineupSet}
+        onclose={() => (ui.lineupFor = null)}
+      />
     {/key}
   {/if}
   {#if ui.subFor && !snap.needsLineup[ui.subFor]}

@@ -78,6 +78,17 @@ export interface IssueView {
   knockOn: boolean;
 }
 
+export interface SetStart {
+  set: number;
+  home: StartingView | null;
+  visiting: StartingView | null;
+}
+
+/** The six and setter `side` started `set` with, if known. */
+export function startOf(snap: Snapshot, set: number, side: Side): StartingView | null {
+  return snap.starting.find((s) => s.set === set)?.[side] ?? null;
+}
+
 export interface StartingView {
   /** Shirt numbers in zones 1–6. */
   court: (number | null)[];
@@ -105,7 +116,8 @@ export interface Snapshot {
   /** Substitutions allowed per team and set. */
   substitutionLimit: number;
   /** Each team's six and setter as the set in progress started. */
-  starting: Pair<StartingView | null>;
+  /** Each set's starting six and setter per team, once anything is coded in it. */
+  starting: SetStart[];
   timeouts: Pair<number>;
   substitutions: Pair<number>;
   groups: Group[];

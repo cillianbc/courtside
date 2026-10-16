@@ -37,6 +37,8 @@ class Ui {
   subFor = $state<Side | null>(null);
   /** The team whose lineup is being modified. */
   lineupFor = $state<Side | null>(null);
+  /** The set whose lineup is being modified. */
+  lineupSet = $state(1);
   /** The season's keys, defaults filled in. */
   keymap = $state<KeyBinding[]>(effectiveKeymap([]));
 

@@ -2,16 +2,22 @@
   import { untrack } from "svelte";
   import * as backend from "../backend";
   import { parseSix } from "../codes";
-  import type { Side, Snapshot } from "../snapshot";
+  import { startOf, type Side, type Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
   import SideTag from "./SideTag.svelte";
 
-  // `onclose` set: modifying the set's lineup, starting from the six it
+  // `onclose` set: modifying set `set`'s lineup, starting from the six it
   // started with; otherwise entering the lineup for a new set.
-  let { snap, side, onclose }: { snap: Snapshot; side: Side; onclose?: () => void } = $props();
+  let {
+    snap,
+    side,
+    set,
+    onclose,
+  }: { snap: Snapshot; side: Side; set?: number; onclose?: () => void } = $props();
 
   // Filled once when the form opens; later snapshots don't overwrite typing.
-  const start = untrack(() => (onclose ? snap.starting[side] : null));
+  const forSet = $derived(set ?? snap.set);
+  const start = untrack(() => (onclose ? startOf(snap, set ?? snap.set, side) : null));
   let six = $state(start ? start.court.map((n) => n ?? "").join(" ") : "");
   let setter = $state(start?.setter != null ? String(start.setter) : "");
   let note = $state("");
@@ -45,7 +51,7 @@
     note = "";
     const ok = onclose
       ? await ui.apply(`${team.name} lineup modified`, () =>
-          backend.correctLineup(side, read.court, s),
+          backend.correctLineup(side, forSet, read.court, s),
         )
       : await ui.apply(`${team.name} lineup entered`, () => backend.setLineup(side, read.court, s));
     if (ok && onclose) onclose();
@@ -59,7 +65,7 @@
 <form class="sub-form" onsubmit={submit}>
   <div class="title">
     <SideTag {side} />
-    {team.name}: {onclose ? "modify the lineup" : "lineup"} for set {snap.set}
+    {team.name}: {onclose ? "modify the lineup" : "lineup"} for set {forSet}
   </div>
   <div class="pick">
     <label

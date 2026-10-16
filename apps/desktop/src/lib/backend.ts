@@ -138,14 +138,15 @@ export async function startGoldenSet(): Promise<Snapshot> {
   return invoke<Snapshot>("golden_set_start", { clock: clock() });
 }
 
-/** Corrects a team's six and setter for the set in progress. */
+/** Corrects a team's six and setter for a set; the rest replays from it. */
 export async function correctLineup(
   team: Side,
+  set: number,
   court: number[],
   setter: number,
 ): Promise<Snapshot> {
   if (!inTauri) throw new Error("Coding needs the desktop app.");
-  return invoke<Snapshot>("lineup_correct", { team, court, setter, clock: clock() });
+  return invoke<Snapshot>("lineup_correct", { team, set, court, setter, clock: clock() });
 }
 
 export async function exportDvw(path: string): Promise<void> {

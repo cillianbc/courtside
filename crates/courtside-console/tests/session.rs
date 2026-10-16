@@ -803,22 +803,22 @@ fn open_file(text: &str) -> (Session, tempfile::TempDir) {
 fn a_lineup_is_corrected_in_place() {
     let (mut session, dir) = opened();
     let snap = session.snapshot().expect("snapshot");
-    let start = snap.starting.home.clone().expect("home six");
+    let start = snap.starting[0].home.clone().expect("home six");
     assert_eq!(start.court, [1, 2, 3, 4, 5, 6].map(Some));
     assert_eq!(start.setter, Some(1));
 
     // 1 and 2 were the other way round; the setter, 1, starts in zone 2.
     let snap = session
-        .correct_lineup(Team::Home, [2, 1, 3, 4, 5, 6], 1, None)
+        .correct_lineup(Team::Home, 1, [2, 1, 3, 4, 5, 6], 1, None)
         .expect("correct");
-    let start = snap.starting.home.clone().expect("home six");
+    let start = snap.starting[0].home.clone().expect("home six");
     assert_eq!(start.court, [2, 1, 3, 4, 5, 6].map(Some));
     let t = texts(&snap);
     assert!(t.contains(&"*z2>LUp".to_string()), "{t:?}");
     assert!(!t.contains(&"*z1>LUp".to_string()), "{t:?}");
     assert_eq!(
-        snap.starting.visiting,
-        session.snapshot().expect("s").starting.visiting
+        snap.starting[0].visiting,
+        session.snapshot().expect("s").starting[0].visiting
     );
 
     // The export has the corrected starting zones.
@@ -830,7 +830,7 @@ fn a_lineup_is_corrected_in_place() {
 
     assert!(
         session
-            .correct_lineup(Team::Home, [2, 1, 3, 4, 5, 7], 9, None)
+            .correct_lineup(Team::Home, 1, [2, 1, 3, 4, 5, 7], 9, None)
             .is_err(),
         "setter not in the six"
     );
@@ -838,10 +838,48 @@ fn a_lineup_is_corrected_in_place() {
     // One undo takes it all back.
     let snap = session.undo().expect("undo");
     assert_eq!(
-        snap.starting.home.as_ref().expect("home six").court,
+        snap.starting[0].home.as_ref().expect("home six").court,
         [1, 2, 3, 4, 5, 6].map(Some)
     );
     assert!(texts(&snap).contains(&"*z1>LUp".to_string()));
+}
+
+#[test]
+fn an_earlier_sets_lineup_is_corrected_after_the_match() {
+    let three: Vec<String> = (1..=3u8)
+        .flat_map(|s| [format!("*p25:{:02}", 10 + s), format!("**{s}set")])
+        .collect();
+    let (mut session, dir) = open_file(&file_with(
+        &three.iter().map(String::as_str).collect::<Vec<_>>(),
+    ));
+    assert!(session.snapshot().expect("snapshot").match_over);
+
+    let snap = session
+        .correct_lineup(Team::Home, 2, [6, 5, 4, 3, 2, 1], 3, None)
+        .expect("set 2");
+    assert!(snap.match_over);
+    let start = |n: usize| snap.starting[n].home.clone().expect("home six");
+    assert_eq!(start(1).court, [6, 5, 4, 3, 2, 1].map(Some));
+    assert_eq!(start(1).setter, Some(3));
+    assert_eq!(
+        start(0).court,
+        [1, 2, 3, 4, 5, 6].map(Some),
+        "set 1 untouched"
+    );
+
+    let out = dir.path().join("sets.dvw");
+    session.export_dvw(&out).expect("export");
+    let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
+    assert!(
+        text.contains("0;6;6;6;1;;"),
+        "#6: zone 6 in set 1, zone 1 in set 2"
+    );
+    assert!(
+        session
+            .correct_lineup(Team::Home, 5, [6, 5, 4, 3, 2, 1], 3, None)
+            .is_err(),
+        "no set 5"
+    );
 }
 
 #[test]

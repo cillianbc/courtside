@@ -126,7 +126,7 @@ export function fixture(): Snapshot {
     goldenSet: null,
     setEndDue: false,
     substitutionLimit: 6,
-    starting: { home: null, visiting: null },
+    starting: [],
     timeouts: { home: 1, visiting: 0 },
     substitutions: { home: 2, visiting: 4 },
     groups,
