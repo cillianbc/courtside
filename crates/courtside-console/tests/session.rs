@@ -890,9 +890,13 @@ fn no_set_follows_a_won_match() {
             .collect::<Vec<_>>()
     };
     let three = sets(3);
-    let (session, _dir) = open_file(&file_with(
+    let (mut session, _dir) = open_file(&file_with(
         &three.iter().map(String::as_str).collect::<Vec<_>>(),
     ));
+    assert!(
+        session.commit("*T", None).is_err(),
+        "nothing after the match"
+    );
     let snap = session.snapshot().expect("snapshot");
     assert!(snap.match_over);
     assert_eq!(snap.set, 3);
@@ -996,6 +1000,77 @@ fn a_set_no_longer_won_loses_its_set_end() {
     assert_eq!(snap.set, 1);
     assert_eq!((snap.score.home, snap.score.visiting), (24, 21));
     assert_eq!(t[t.len() - 2..], ["ap24:21", "az3"], "side-out rotation");
+}
+
+/// The four lineup codes: home setter 1 in zone 1, visiting 14 in zone 4.
+const LINEUPS: [&str; 4] = ["*P01>LUp", "*z1>LUp", "aP14>LUp", "az4>LUp"];
+
+#[test]
+fn review_fixes_on_rally_endings() {
+    let (mut session, _dir) = open_file(&file_with(&LINEUPS));
+    // Home serves into the net: visiting side-out, its setter 4 → 3.
+    let snap = session.commit("*01SH=", None).expect("serve error");
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 2..], ["ap00:01", "az3"]);
+
+    // A penalty point to home while visiting serves: home rotates too.
+    let snap = session.commit("*p01:01", None).expect("penalty");
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 2..], ["*p01:01", "*z6"], "{t:?}");
+
+    // Removing a console-written rotation sticks.
+    let snap = session.remove(&row_id(&snap, "*z6")).expect("remove");
+    assert!(!texts(&snap).contains(&"*z6".to_string()));
+
+    // Visiting's setter started in zone 2: its later rotation follows.
+    let snap = session
+        .correct_lineup(Team::Visiting, 1, [11, 14, 12, 13, 15, 16], 14, None)
+        .expect("lineup");
+    let t = texts(&snap);
+    assert!(t.contains(&"az2>LUp".to_string()), "{t:?}");
+    assert!(
+        t.contains(&"az1".to_string()) && !t.contains(&"az3".to_string()),
+        "{t:?}"
+    );
+}
+
+#[test]
+fn a_confirmed_set_end_follows_a_modified_deciding_code() {
+    let mut codes = LINEUPS.to_vec();
+    codes.push("*p24:10");
+    let (mut session, _dir) = open_file(&file_with(&codes));
+    let mut settings = session.settings().expect("settings");
+    settings.rules.confirm_set_end = true;
+    session.save_settings(&settings).expect("save");
+    let snap = session.commit("*01SH#", None).expect("ace");
+    assert!(snap.set_end_due);
+    let snap = session.end_set(None).expect("end set");
+    assert_eq!(snap.set, 2);
+
+    let snap = session
+        .correct(&row_id(&snap, "*01SH#"), "*01SH=", None)
+        .expect("modify");
+    assert_eq!(
+        (snap.set, snap.score.home, snap.score.visiting),
+        (1, 24, 11)
+    );
+    assert!(!texts(&snap).contains(&"**1set".to_string()));
+    // Back to the ace: the set is won again and waits to be confirmed.
+    let snap = session
+        .correct(&row_id(&snap, "*01SH="), "*01SH#", None)
+        .expect("modify back");
+    assert!(snap.set_end_due);
+}
+
+#[test]
+fn an_empty_combination_table_types_with_the_seasons() {
+    let text = file_with(&LINEUPS);
+    let start = text.find("[3ATTACKCOMBINATION]").expect("table");
+    let end = text.find("[3SCOUT]").expect("scout");
+    let text = format!("{}{}", &text[..start], &text[end..]);
+    let (session, _dir) = open_file(&text);
+    let p = session.preview("a2AX5").expect("preview");
+    assert_eq!(p.codes[0].text, "a02AT+X5~4", "the season's X5");
 }
 
 #[test]

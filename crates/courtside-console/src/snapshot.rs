@@ -289,12 +289,7 @@ pub fn set_end_due(game: &Match, folded: &vb_engine::Folded) -> Option<u8> {
         return None;
     }
     let st = folded.states.last()?;
-    let target = folded.set_target(game, st.set);
-    let (hi, lo) = (
-        st.score.home.max(st.score.visiting),
-        st.score.home.min(st.score.visiting),
-    );
-    (hi >= target && hi - lo >= 2).then_some(st.set)
+    crate::won(game, folded, st.set, st.score).then_some(st.set)
 }
 
 pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Snapshot {

@@ -68,13 +68,20 @@ struct Current {
     redo: Vec<Vec<MatchEvent>>,
     /// Typing defaults (season settings, step E).
     defaults: Defaults,
+    /// The match's own attack combinations (empty: the season's are used).
+    own_combinations: Vec<Combination>,
     /// Hold set ends until the scout confirms (season settings).
     confirm_set_end: bool,
 }
 
 /// Whether `score` wins `set` under the match's regulation (a golden set
 /// goes to 15).
-fn won(game: &Match, folded: &vb_engine::Folded, set: u8, score: vb_engine::Score) -> bool {
+pub(crate) fn won(
+    game: &Match,
+    folded: &vb_engine::Folded,
+    set: u8,
+    score: vb_engine::Score,
+) -> bool {
     let target = folded.set_target(game, set);
     let (hi, lo) = (
         score.home.max(score.visiting),
@@ -84,21 +91,36 @@ fn won(game: &Match, folded: &vb_engine::Folded, set: u8, score: vb_engine::Scor
 }
 
 /// The command line's defaults: typing from the season settings, attack
-/// combinations from the match's own table (`combinations`).
-fn defaults_from(s: &Settings, combinations: &[Combination]) -> Defaults {
+/// combinations from the match's own table (`own`), or the season's when
+/// the match has none (DataVolley files often leave the table empty).
+fn defaults_from(s: &Settings, own: &[Combination]) -> Defaults {
     let skill = |c: char| Skill::from_char(c).unwrap_or(Skill::Attack);
+    let combinations = if own.is_empty() {
+        s.tables
+            .combinations
+            .iter()
+            .map(|c| Combination {
+                code: c.code.clone(),
+                tempo: c.tempo,
+                start_zone: char::from_digit(u32::from(c.start_zone), 10).unwrap_or('~'),
+                target: c.target.chars().next(),
+            })
+            .collect()
+    } else {
+        own.to_vec()
+    };
     Defaults {
         skill: skill(s.typing.skill),
         types: s.typing.types,
         evaluations: s.typing.evaluations,
         predict: s.typing.predict,
-        combinations: combinations.to_vec(),
+        combinations,
     }
 }
 
 /// A match's attack combinations as expansion takes them: the imported file's `[3ATTACKCOMBINATION]`, or for a match
 /// coded here the table frozen into its blank template when it was created.
-/// Like DataVolley, a match uses its own table, not the season's.
+/// Like DataVolley, a match uses its own table when it has one.
 fn match_combinations(template: &dvw_codec::Dvw) -> Vec<Combination> {
     template
         .attack_combinations
@@ -153,7 +175,6 @@ fn check_six(sheet: &TeamSheet, court: &[u8; 6], setter: u8) -> Result<u8> {
     Ok(u8::try_from(zone + 1).unwrap_or(1))
 }
 
-/// Settings the scout can't save: what a `.dvw` couldn't hold.
 /// The season's rule options onto the open match.
 fn apply_rules(c: &mut Current, s: &Settings) {
     c.game.rules = vb_engine::Rules {
@@ -163,6 +184,7 @@ fn apply_rules(c: &mut Current, s: &Settings) {
     c.confirm_set_end = s.rules.confirm_set_end;
 }
 
+/// Settings the scout can't save: what a `.dvw` couldn't hold.
 fn check_settings(s: &Settings) -> Result<()> {
     let bad = |m: String| Err(Error::BadCode(m));
     if !(1..=20).contains(&s.rules.substitutions) {
@@ -361,18 +383,31 @@ impl Current {
 
     /// What the console writes when a rally is over: the point (unless the
     /// scout typed it), then the set end when the set is won (held when the
-    /// season asks to confirm it) or the winner's rotation after a side-out.
+    /// season asks to confirm it, unless `keep_set_end`: the scout already
+    /// confirmed it) or the winner's rotation after a side-out.
     fn close_rally(
         &mut self,
         typed_point: Option<Team>,
         decided: Option<Team>,
+        keep_set_end: bool,
         clock: Option<ClockTime>,
     ) {
         let Some(winner) = typed_point.or(decided) else {
             return;
         };
         let folded = fold(&self.game);
-        let serving = folded.rallies.last().and_then(|r| r.serving);
+        // A point with no serve (a penalty): the last rally's winner served.
+        let serving = folded.rallies.last().and_then(|now| {
+            now.serving.or_else(|| {
+                folded
+                    .rallies
+                    .iter()
+                    .rev()
+                    .skip(1)
+                    .take_while(|r| r.set == now.set)
+                    .find_map(|r| r.won_by)
+            })
+        });
         let last = folded.states.last();
         if typed_point.is_none() {
             let score = last.map(|s| s.score).unwrap_or_default();
@@ -389,7 +424,7 @@ impl Current {
         let score = end.map(|s| s.score).unwrap_or_default();
         if won(&self.game, &after, set, score) {
             // Held for the scout to confirm (`end_set`) when the season asks.
-            if !self.confirm_set_end {
+            if !self.confirm_set_end || keep_set_end {
                 self.add(Code::parse(&format!("**{set}set")), Producer::Repair, clock);
             }
         } else {
@@ -403,24 +438,78 @@ impl Current {
         }
     }
 
+    /// The console's side-out rotations for `team` in `set`, written again
+    /// from the court as it now stands (after its lineup was corrected):
+    /// each one moves the setter one zone on from where it was.
+    fn rotations_follow(&mut self, team: Team, set: u8) -> std::result::Result<(), LogError> {
+        for _ in 0..self.game.log.len() {
+            let wrong = {
+                let folded = fold(&self.game);
+                let visible = self.game.log.visible();
+                visible.iter().enumerate().find_map(|(i, e)| {
+                    if e.producer != Producer::Repair
+                        || e.kind() != EventKind::SetterPosition
+                        || folded.states.get(i)?.set != set
+                        || e.code().and_then(Code::team) != Some(team)
+                    {
+                        return None;
+                    }
+                    let z = (*folded
+                        .states
+                        .get(i.checked_sub(1)?)?
+                        .setter_position
+                        .get(team))?;
+                    let next = if z == 1 { 6 } else { z - 1 };
+                    let want = Code::parse(&format!("{}z{next}", team.as_char()));
+                    (e.code() != Some(&want)).then_some((e.id, want, e.clock))
+                })
+            };
+            let Some((id, want, clock)) = wrong else {
+                return Ok(());
+            };
+            self.game.log.correct(
+                &mut self.ids,
+                id,
+                NewEvent {
+                    body: Body::Code(want),
+                    video_ms: None,
+                    clock,
+                    producer: Producer::Repair,
+                },
+            )?;
+        }
+        Ok(())
+    }
+
     /// After an edit, writes again what the console wrote at the end of the
     /// last rally (point, rotation, set end), from the rally as it now
     /// stands: a deciding code modified to the other team moves the point,
     /// a set no longer won loses its set end, a rally now decided gets
     /// closed. Only the last rally: a point earlier in the match carries a
     /// score every later point code repeats. Nothing changes when the
-    /// result is the same.
+    /// result is the same. The codes written again keep the rally's time.
     fn reclose(&mut self, clock: Option<ClockTime>) -> std::result::Result<(), LogError> {
         let visible: Vec<MatchEvent> = self.game.log.visible().into_iter().cloned().collect();
-        let console_end = |e: &MatchEvent| {
-            e.producer == Producer::Repair
-                && matches!(
-                    e.kind(),
-                    EventKind::Point | EventKind::SetterPosition | EventKind::SetEnd
-                )
+        let folded = fold(&self.game);
+        // The console's codes, and a set end the scout confirmed (`end_set`)
+        // on a set the score had won; a set end typed on any other score
+        // is the scout's own and stays.
+        let console_end = |i: usize| {
+            let e = &visible[i];
+            match e.kind() {
+                EventKind::Point | EventKind::SetterPosition => e.producer == Producer::Repair,
+                EventKind::SetEnd => {
+                    e.producer == Producer::Repair
+                        || i.checked_sub(1).is_some_and(|p| {
+                            let st = &folded.states[p];
+                            won(&self.game, &folded, st.set, st.score)
+                        })
+                }
+                _ => false,
+            }
         };
         let mut k = visible.len();
-        while k > 0 && console_end(&visible[k - 1]) {
+        while k > 0 && console_end(k - 1) {
             k -= 1;
         }
         let typed_point = k.checked_sub(1).and_then(|i| match visible[i].code() {
@@ -443,20 +532,19 @@ impl Current {
         if old.is_empty() && typed_point.or(decided).is_none() {
             return Ok(());
         }
+        let keep_set_end = visible[k..].iter().any(|e| e.kind() == EventKind::SetEnd);
+        let rally_clock = visible[j..k].iter().rev().find_map(|e| e.clock).or(clock);
         let before = self.game.log.len();
         for e in &visible[k..] {
             self.game
                 .log
                 .remove(&mut self.ids, e.id, Producer::Repair)?;
         }
-        self.close_rally(typed_point, decided, clock);
+        self.close_rally(typed_point, decided, keep_set_end, rally_clock);
+        // The codes after the rally's own, as they now stand.
         let now: Vec<String> = {
             let v = self.game.log.visible();
-            let mut i = v.len();
-            while i > 0 && console_end(v[i - 1]) {
-                i -= 1;
-            }
-            v[i..]
+            v[k.min(v.len())..]
                 .iter()
                 .filter_map(|e| e.code().map(Code::to_string))
                 .collect()
@@ -519,7 +607,7 @@ impl Session {
         check_settings(settings)?;
         self.season_mut()?.save_settings(settings)?;
         if let Some(c) = self.current.as_mut() {
-            c.defaults = defaults_from(settings, &c.defaults.combinations);
+            c.defaults = defaults_from(settings, &c.own_combinations);
             apply_rules(c, settings);
         }
         Ok(())
@@ -670,6 +758,7 @@ impl Session {
             ids: IdGen::new(now_ms),
             redo: Vec::new(),
             defaults: defaults_from(&settings, &combinations),
+            own_combinations: combinations.clone(),
             confirm_set_end: false,
         };
         apply_rules(&mut c, &settings);
@@ -716,6 +805,11 @@ impl Session {
     /// it is saved before the new state is returned; if saving fails the
     /// match is left as it was.
     pub fn commit(&mut self, text: &str, clock: Option<ClockTime>) -> Result<Snapshot> {
+        if self.snapshot()?.match_over {
+            return Err(Error::BadCode(
+                "The match is over: codes can be modified, or start a golden set.".into(),
+            ));
+        }
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
         if let Some(set) = snapshot::set_end_due(&c.game, &fold(&c.game)) {
@@ -743,7 +837,7 @@ impl Session {
         for code in codes {
             c.add(code, Producer::Keyboard, clock);
         }
-        c.close_rally(typed_point, decided, clock);
+        c.close_rally(typed_point, decided, false, clock);
         c.persist(season, before)?;
         self.snapshot()
     }
@@ -977,6 +1071,12 @@ impl Session {
                 }
             }
         }
+        if let Err(e) = c.rotations_follow(team, set) {
+            while c.game.log.len() > before {
+                c.game.log.undo();
+            }
+            return Err(e.into());
+        }
         c.persist(season, before)?;
         self.snapshot()
     }
@@ -1095,9 +1195,16 @@ impl Session {
                 })
             }
         };
+        // A console-written code the scout edits is the scout's call: the
+        // ending isn't written again over it.
+        let theirs = c
+            .game
+            .log
+            .get(target)
+            .is_some_and(|e| e.producer == Producer::Repair);
         let before = c.game.log.len();
         change(&mut c.game.log, &mut c.ids, target, new)?;
-        if let Err(e) = c.reclose(clock) {
+        if let Err(e) = if theirs { Ok(()) } else { c.reclose(clock) } {
             while c.game.log.len() > before {
                 c.game.log.undo();
             }

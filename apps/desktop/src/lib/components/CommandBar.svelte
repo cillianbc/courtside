@@ -80,7 +80,7 @@
       class="point-btn"
       class:home={side === "home"}
       class:away={side === "visiting"}
-      title="{pointLabel(side)} ({left ? 'Alt+←' : 'Alt+→'})"
+      title="{pointLabel(side)} ({left ? 'Alt+1' : 'Alt+2'})"
       disabled={!canPoint}
       onclick={() => void ui.point(side)}
       >{#if left}◀
