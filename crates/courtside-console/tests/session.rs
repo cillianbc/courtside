@@ -938,6 +938,66 @@ fn set_ends_wait_for_the_scout_when_the_season_asks() {
     assert!(session.save_settings(&settings).is_err());
 }
 
+/// The id of the row reading `text`.
+fn row_id(snap: &courtside_console::Snapshot, text: &str) -> String {
+    snap.groups
+        .iter()
+        .flat_map(|g| &g.rows)
+        .rev()
+        .find(|r| r.text == text)
+        .map(|r| r.id.clone())
+        .expect(text)
+}
+
+#[test]
+fn modifying_the_deciding_code_moves_the_point() {
+    let (mut session, _dir) = opened();
+    // Home serves at 1:1; the visiting kill is a side-out.
+    let snap = session.commit("a12RH+ a14EH+ a13AH#", None).expect("rally");
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 2..], ["ap01:02", "az2"]);
+
+    // It was an attack error: home wins, no side-out.
+    let snap = session
+        .correct(&row_id(&snap, "a13AH#"), "a13AH=", None)
+        .expect("modify");
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 2..], ["a13AH=", "*p02:01"], "{t:?}");
+    assert_eq!((snap.score.home, snap.score.visiting), (2, 1));
+
+    // A change that keeps the result leaves the console's codes alone.
+    let events = snap.events;
+    let snap = session
+        .correct(&row_id(&snap, "a14EH+"), "a14EH#", None)
+        .expect("modify set");
+    assert_eq!(snap.events, events + 1, "only the correction");
+
+    // One undo per edit.
+    session.undo().expect("undo");
+    let t = texts(&session.undo().expect("undo"));
+    assert_eq!(t[t.len() - 2..], ["ap01:02", "az2"]);
+}
+
+#[test]
+fn a_set_no_longer_won_loses_its_set_end() {
+    let (mut session, _dir) = open_file(&file_with(&[
+        "*P01>LUp", "*z1>LUp", "aP14>LUp", "az4>LUp", "*p24:20",
+    ]));
+    let snap = session.commit("*02SH#", None).expect("ace");
+    assert!(texts(&snap).contains(&"**1set".to_string()));
+    assert_eq!(snap.set, 2);
+
+    // A serve error, not an ace: 24:21, the set goes on.
+    let snap = session
+        .correct(&row_id(&snap, "*02SH#"), "*02SH=", None)
+        .expect("modify");
+    let t = texts(&snap);
+    assert!(!t.contains(&"**1set".to_string()), "{t:?}");
+    assert_eq!(snap.set, 1);
+    assert_eq!((snap.score.home, snap.score.visiting), (24, 21));
+    assert_eq!(t[t.len() - 2..], ["ap24:21", "az3"], "side-out rotation");
+}
+
 #[test]
 fn a_golden_set_after_the_match() {
     let three: Vec<String> = (1..=3u8)

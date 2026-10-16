@@ -117,6 +117,21 @@ fn match_combinations(template: &dvw_codec::Dvw) -> Vec<Combination> {
         .collect()
 }
 
+/// The team the last deciding touch among `codes` gives the rally to.
+fn decided_by<'a>(game: &Match, codes: impl DoubleEndedIterator<Item = &'a Code>) -> Option<Team> {
+    codes.rev().find_map(|code| match code {
+        Code::Touch(t) => {
+            let o = game.winning_symbols.outcome(t.skill, t.evaluation()?)?;
+            Some(if o == Outcome::Win {
+                t.team
+            } else {
+                other(t.team)
+            })
+        }
+        _ => None,
+    })
+}
+
 /// Checks a six for `sheet`'s team; the setter's zone.
 fn check_six(sheet: &TeamSheet, court: &[u8; 6], setter: u8) -> Result<u8> {
     for (i, n) in court.iter().enumerate() {
@@ -342,6 +357,116 @@ impl Current {
             producer,
         };
         self.game.log.append(&mut self.ids, event);
+    }
+
+    /// What the console writes when a rally is over: the point (unless the
+    /// scout typed it), then the set end when the set is won (held when the
+    /// season asks to confirm it) or the winner's rotation after a side-out.
+    fn close_rally(
+        &mut self,
+        typed_point: Option<Team>,
+        decided: Option<Team>,
+        clock: Option<ClockTime>,
+    ) {
+        let Some(winner) = typed_point.or(decided) else {
+            return;
+        };
+        let folded = fold(&self.game);
+        let serving = folded.rallies.last().and_then(|r| r.serving);
+        let last = folded.states.last();
+        if typed_point.is_none() {
+            let score = last.map(|s| s.score).unwrap_or_default();
+            let (h, v) = match winner {
+                Team::Home => (score.home.saturating_add(1), score.visiting),
+                Team::Visiting => (score.home, score.visiting.saturating_add(1)),
+            };
+            let point = format!("{}p{h:02}:{v:02}", winner.as_char());
+            self.add(Code::parse(&point), Producer::Repair, clock);
+        }
+        let after = fold(&self.game);
+        let end = after.states.last();
+        let set = end.map_or(1, |s| s.set);
+        let score = end.map(|s| s.score).unwrap_or_default();
+        if won(&self.game, &after, set, score) {
+            // Held for the scout to confirm (`end_set`) when the season asks.
+            if !self.confirm_set_end {
+                self.add(Code::parse(&format!("**{set}set")), Producer::Repair, clock);
+            }
+        } else {
+            // Side-out: the winner rotates, its setter one zone on.
+            let zone = last.and_then(|s| *s.setter_position.get(winner));
+            if let (true, Some(z)) = (serving.is_some_and(|s| s != winner), zone) {
+                let next = if z == 1 { 6 } else { z - 1 };
+                let rotation = format!("{}z{next}", winner.as_char());
+                self.add(Code::parse(&rotation), Producer::Repair, clock);
+            }
+        }
+    }
+
+    /// After an edit, writes again what the console wrote at the end of the
+    /// last rally (point, rotation, set end), from the rally as it now
+    /// stands: a deciding code modified to the other team moves the point,
+    /// a set no longer won loses its set end, a rally now decided gets
+    /// closed. Only the last rally: a point earlier in the match carries a
+    /// score every later point code repeats. Nothing changes when the
+    /// result is the same.
+    fn reclose(&mut self, clock: Option<ClockTime>) -> std::result::Result<(), LogError> {
+        let visible: Vec<MatchEvent> = self.game.log.visible().into_iter().cloned().collect();
+        let console_end = |e: &MatchEvent| {
+            e.producer == Producer::Repair
+                && matches!(
+                    e.kind(),
+                    EventKind::Point | EventKind::SetterPosition | EventKind::SetEnd
+                )
+        };
+        let mut k = visible.len();
+        while k > 0 && console_end(&visible[k - 1]) {
+            k -= 1;
+        }
+        let typed_point = k.checked_sub(1).and_then(|i| match visible[i].code() {
+            Some(Code::Point { team, .. }) => Some(*team),
+            _ => None,
+        });
+        let rally_end = if typed_point.is_some() { k - 1 } else { k };
+        let mut j = rally_end;
+        while j > 0 && !matches!(visible[j - 1].kind(), EventKind::Point | EventKind::SetEnd) {
+            j -= 1;
+        }
+        let decided = decided_by(
+            &self.game,
+            visible[j..rally_end].iter().filter_map(MatchEvent::code),
+        );
+        let old: Vec<String> = visible[k..]
+            .iter()
+            .filter_map(|e| e.code().map(Code::to_string))
+            .collect();
+        if old.is_empty() && typed_point.or(decided).is_none() {
+            return Ok(());
+        }
+        let before = self.game.log.len();
+        for e in &visible[k..] {
+            self.game
+                .log
+                .remove(&mut self.ids, e.id, Producer::Repair)?;
+        }
+        self.close_rally(typed_point, decided, clock);
+        let now: Vec<String> = {
+            let v = self.game.log.visible();
+            let mut i = v.len();
+            while i > 0 && console_end(v[i - 1]) {
+                i -= 1;
+            }
+            v[i..]
+                .iter()
+                .filter_map(|e| e.code().map(Code::to_string))
+                .collect()
+        };
+        if now == old {
+            while self.game.log.len() > before {
+                self.game.log.undo();
+            }
+        }
+        Ok(())
     }
 }
 
@@ -614,52 +739,11 @@ impl Session {
             Code::Point { team, .. } => Some(*team),
             _ => None,
         });
-        let decided = codes.iter().rev().find_map(|code| match code {
-            Code::Touch(t) => {
-                let o = c.game.winning_symbols.outcome(t.skill, t.evaluation()?)?;
-                Some(if o == Outcome::Win {
-                    t.team
-                } else {
-                    other(t.team)
-                })
-            }
-            _ => None,
-        });
+        let decided = decided_by(&c.game, codes.iter());
         for code in codes {
             c.add(code, Producer::Keyboard, clock);
         }
-        if let Some(winner) = typed_point.or(decided) {
-            let folded = fold(&c.game);
-            let serving = folded.rallies.last().and_then(|r| r.serving);
-            let last = folded.states.last();
-            if typed_point.is_none() {
-                let score = last.map(|s| s.score).unwrap_or_default();
-                let (h, v) = match winner {
-                    Team::Home => (score.home.saturating_add(1), score.visiting),
-                    Team::Visiting => (score.home, score.visiting.saturating_add(1)),
-                };
-                let point = format!("{}p{h:02}:{v:02}", winner.as_char());
-                c.add(Code::parse(&point), Producer::Repair, clock);
-            }
-            let after = fold(&c.game);
-            let end = after.states.last();
-            let set = end.map_or(1, |s| s.set);
-            let score = end.map(|s| s.score).unwrap_or_default();
-            if won(&c.game, &after, set, score) {
-                // Held for the scout to confirm (`end_set`) when the season asks.
-                if !c.confirm_set_end {
-                    c.add(Code::parse(&format!("**{set}set")), Producer::Repair, clock);
-                }
-            } else {
-                // Side-out: the winner rotates, its setter one zone on.
-                let zone = last.and_then(|s| *s.setter_position.get(winner));
-                if let (true, Some(z)) = (serving.is_some_and(|s| s != winner), zone) {
-                    let next = if z == 1 { 6 } else { z - 1 };
-                    let rotation = format!("{}z{next}", winner.as_char());
-                    c.add(Code::parse(&rotation), Producer::Repair, clock);
-                }
-            }
-        }
+        c.close_rally(typed_point, decided, clock);
         c.persist(season, before)?;
         self.snapshot()
     }
@@ -1013,6 +1097,12 @@ impl Session {
         };
         let before = c.game.log.len();
         change(&mut c.game.log, &mut c.ids, target, new)?;
+        if let Err(e) = c.reclose(clock) {
+            while c.game.log.len() > before {
+                c.game.log.undo();
+            }
+            return Err(e.into());
+        }
         c.persist(season, before)?;
         self.snapshot()
     }
