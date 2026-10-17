@@ -1343,3 +1343,100 @@ fn the_video_path_is_exported_only_when_asked() {
         "[3VIDEO]\r\nCamera0=/clips/other.mov\r\n"
     );
 }
+
+fn clip_texts(clips: &courtside_console::Clips) -> Vec<&str> {
+    clips.clips.iter().map(|c| c.text.as_str()).collect()
+}
+
+#[test]
+fn clip_playlists_filter_touches_with_video() {
+    use courtside_console::ClipFilter;
+    use courtside_console::clips::ClipPhase;
+
+    let (mut session, _dir) = opened();
+    // Coded live and not synced yet: nothing to play, but the scout is told.
+    let all = session.clips(&ClipFilter::default()).expect("clips");
+    assert!(all.clips.is_empty());
+    assert_eq!(all.without_video, 6);
+
+    // Synced: line i is at 100 s + (i - 4) s.
+    session.sync_video(100_000).expect("sync");
+    let all = session.clips(&ClipFilter::default()).expect("clips");
+    assert_eq!(
+        clip_texts(&all),
+        ["*01SM-", "a12RM+", "a14EH+", "a13AH#", "a12SM=", "*02SH+"]
+    );
+    assert_eq!(all.without_video, 0);
+
+    let attack = session
+        .clips(&ClipFilter {
+            skill: Some('A'),
+            ..ClipFilter::default()
+        })
+        .expect("attacks");
+    let a = &attack.clips[0];
+    assert_eq!(a.text, "a13AH#");
+    assert_eq!(
+        (a.video_ms, a.start_ms, a.end_ms),
+        (103_000, 100_000, 106_000)
+    );
+    assert_eq!(a.team, Side::Visiting);
+    assert_eq!(
+        a.score,
+        Pair {
+            home: 0,
+            visiting: 0
+        }
+    );
+
+    // Side-out by the visitors: their reception and what follows it.
+    let side_out = session
+        .clips(&ClipFilter {
+            team: Some(Side::Visiting),
+            phase: Some(ClipPhase::Reception),
+            ..ClipFilter::default()
+        })
+        .expect("side-out");
+    assert_eq!(clip_texts(&side_out), ["a12RM+", "a14EH+", "a13AH#"]);
+
+    let player = session
+        .clips(&ClipFilter {
+            team: Some(Side::Visiting),
+            player: Some(12),
+            evaluations: "=".into(),
+            ..ClipFilter::default()
+        })
+        .expect("player");
+    assert_eq!(clip_texts(&player), ["a12SM="]);
+
+    // Home's rotation: setter in 1 for the first serve, in 6 after the side-out.
+    let rotation = |zone| {
+        session
+            .clips(&ClipFilter {
+                team: Some(Side::Home),
+                rotation: Some(zone),
+                ..ClipFilter::default()
+            })
+            .expect("rotation")
+    };
+    assert_eq!(clip_texts(&rotation(1)), ["*01SM-"]);
+    assert_eq!(clip_texts(&rotation(6)), ["*02SH+"]);
+
+    // Pre- and post-roll come from the season settings.
+    let mut settings = session.settings().expect("settings");
+    settings.video.pre_roll_ms = 1_000;
+    settings.video.post_roll_ms = 5_000;
+    session.save_settings(&settings).expect("save");
+    let attack = session
+        .clips(&ClipFilter {
+            skill: Some('A'),
+            ..ClipFilter::default()
+        })
+        .expect("attacks");
+    assert_eq!(
+        (attack.clips[0].start_ms, attack.clips[0].end_ms),
+        (102_000, 108_000)
+    );
+    settings.video.post_roll_ms = 31_000;
+    assert!(session.save_settings(&settings).is_err());
+}

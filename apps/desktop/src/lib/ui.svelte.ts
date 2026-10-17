@@ -25,6 +25,8 @@ class Ui {
   /** Court drawn from the end line instead of the side. */
   endView = $state(false);
   sideTab = $state<"checks" | "set">("checks");
+  /** The clip playlist shows where the code stream does. */
+  clipsOpen = $state(false);
   /** Set whose codes the stream shows; `null` follows the set in progress. */
   shownSet = $state<number | null>(null);
   code = $state("");

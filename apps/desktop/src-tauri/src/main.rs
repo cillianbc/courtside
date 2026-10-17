@@ -8,8 +8,8 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use courtside_console::{
-    ClockTime, MatchId, MatchItem, PlayerDetail, PlayerListItem, Preview, Resume, Session,
-    Settings, Snapshot, Team, TeamDetail, TeamForm, TeamImportView,
+    ClipFilter, Clips, ClockTime, MatchId, MatchItem, PlayerDetail, PlayerListItem, Preview,
+    Resume, Session, Settings, Snapshot, Team, TeamDetail, TeamForm, TeamImportView,
 };
 use tauri::{AppHandle, Manager, State};
 
@@ -251,6 +251,12 @@ fn match_video_set(state: State<'_, Shared>, path: Option<String>) -> Reply<Snap
 #[tauri::command]
 fn video_sync(state: State<'_, Shared>, serve_ms: u64) -> Reply<Snapshot> {
     with(&state, |s| s.sync_video(serve_ms))
+}
+
+/// The open match's clip playlist for `filter`.
+#[tauri::command]
+fn clips(state: State<'_, Shared>, filter: ClipFilter) -> Reply<Clips> {
+    with(&state, |s| s.clips(&filter))
 }
 
 /// Enters a team's six for the set in progress: `team` is `"home"` or
@@ -509,6 +515,7 @@ fn main() {
             export_dvw,
             video_open,
             video_sync,
+            clips,
             match_video_set,
             video_place,
             video_command,

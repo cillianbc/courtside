@@ -4,6 +4,7 @@
 //!
 //! Nothing here knows about Tauri, so the whole loop is tested headless.
 
+pub mod clips;
 pub mod manage;
 pub mod readback;
 pub mod resume;
@@ -20,6 +21,7 @@ use vb_engine::{
 use vb_grammar::expand::{Combination, Defaults, follow_combination, follow_pair, is_pair};
 use vb_grammar::{Code, Skill, Touch};
 
+pub use clips::{ClipFilter, Clips};
 pub use courtside_store::{Error as StoreError, MatchId, SKILLS, Settings};
 pub use manage::{PlayerDetail, PlayerListItem, TeamDetail, TeamForm, TeamImportView};
 pub use readback::Preview;
@@ -274,6 +276,9 @@ fn check_settings(s: &Settings) -> Result<()> {
     let bad = |m: String| Err(Error::BadCode(m));
     if !(200..=5000).contains(&s.video.step_ms) {
         return bad("The step between touches is 0.2 to 5 seconds.".into());
+    }
+    if s.video.pre_roll_ms > 30_000 || s.video.post_roll_ms > 30_000 {
+        return bad("A clip's time before and after its code is 0 to 30 seconds.".into());
     }
     if !(1..=20).contains(&s.rules.substitutions) {
         return bad("Substitutions per set: 1 to 20.".into());
@@ -1402,6 +1407,18 @@ impl Session {
     }
 
     /// Writes the open match as a `.dvw` file.
+    /// The playlist `filter` picks from the open match (PRD F-23): its
+    /// touches with a video time, each with the season's pre- and
+    /// post-roll.
+    pub fn clips(&self, filter: &ClipFilter) -> Result<Clips> {
+        let c = self.current.as_ref().ok_or(Error::NoMatch)?;
+        let roll = clips::Roll {
+            pre_ms: u64::from(c.video.pre_roll_ms),
+            post_ms: u64::from(c.video.post_roll_ms),
+        };
+        Ok(clips::build(&c.game, &c.teams, filter, roll))
+    }
+
     /// Remembers the video opened with the match (`None` forgets it).
     pub fn set_video(&mut self, path: Option<&str>) -> Result<Snapshot> {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;

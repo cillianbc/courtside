@@ -22,7 +22,8 @@ pub struct Settings {
     pub video: Video,
 }
 
-/// How codes get their video time (PRD F-21).
+/// How codes get their video time (PRD F-21) and how much video a clip
+/// shows around its code (F-23).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Video {
@@ -32,6 +33,9 @@ pub struct Video {
     pub predictive: bool,
     /// Milliseconds between touches in predictive mode.
     pub step_ms: u32,
+    /// Milliseconds of video a clip shows before and after its code.
+    pub pre_roll_ms: u32,
+    pub post_roll_ms: u32,
 }
 
 impl Default for Video {
@@ -39,6 +43,8 @@ impl Default for Video {
         Video {
             predictive: false,
             step_ms: 1500,
+            pre_roll_ms: 3000,
+            post_roll_ms: 3000,
         }
     }
 }

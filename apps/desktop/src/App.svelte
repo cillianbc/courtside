@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import * as backend from "./lib/backend";
   import ChecksPanel from "./lib/components/ChecksPanel.svelte";
+  import ClipsPanel from "./lib/components/ClipsPanel.svelte";
   import CodeStream from "./lib/components/CodeStream.svelte";
   import CommandBar from "./lib/components/CommandBar.svelte";
   import Court from "./lib/components/Court.svelte";
@@ -51,7 +52,11 @@
       <div class="stage">
         <VideoPanel />
         <div class="mid">
-          <CodeStream {snap} />
+          {#if ui.clipsOpen}
+            <ClipsPanel {snap} />
+          {:else}
+            <CodeStream {snap} />
+          {/if}
           <Rosters {snap} />
         </div>
         <CommandBar />

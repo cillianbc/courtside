@@ -84,6 +84,12 @@
       <button
         class="btn"
         type="button"
+        title="Play the codes as video clips, picked by player, skill, rotation or phase"
+        onclick={() => (ui.clipsOpen = true)}>Clips</button
+      >
+      <button
+        class="btn"
+        type="button"
         title="Undo the last code (Ctrl+Z)"
         onclick={() => ui.undo()}>Undo</button
       >

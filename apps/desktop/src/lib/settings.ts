@@ -34,6 +34,9 @@ export interface Settings {
      */
     predictive: boolean;
     stepMs: number;
+    /** Video a clip shows before and after its code. */
+    preRollMs: number;
+    postRollMs: number;
   };
 }
 
@@ -80,6 +83,8 @@ export const ACTIONS: readonly { id: string; label: string; keys: string }[] = [
   { id: "videoFrameForward", label: "Video: one frame on", keys: "Alt+." },
   { id: "videoSlower", label: "Video: slower", keys: "Alt+Shift+," },
   { id: "videoFaster", label: "Video: faster", keys: "Alt+Shift+." },
+  { id: "clipPrev", label: "Clips: previous clip", keys: "Alt+[" },
+  { id: "clipNext", label: "Clips: next clip", keys: "Alt+]" },
 ];
 
 /**

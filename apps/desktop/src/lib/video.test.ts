@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { stampTokens, stepSpeed } from "./video.svelte";
+import type { Clip } from "./snapshot";
+import { clipCue, stampTokens, stepSpeed } from "./video.svelte";
 
 describe("video speed", () => {
   it("steps through the speeds without wrapping", () => {
@@ -25,5 +26,30 @@ describe("keystroke stamps", () => {
     expect(t).toEqual([1000]);
     expect(stampTokens("a16RM+ a14", t, null)).toEqual([1000, null]);
     expect(stampTokens("  ", t, 3000)).toEqual([]);
+  });
+});
+
+describe("clip playlists", () => {
+  const clip: Clip = {
+    id: "x",
+    set: 1,
+    score: { home: 0, visiting: 0 },
+    team: "home",
+    text: "*01SM-",
+    meaning: "",
+    videoMs: 13_000,
+    startMs: 10_000,
+    endMs: 16_000,
+  };
+  it("plays a clip to its end, then moves on", () => {
+    expect(clipCue(clip, 10_000)).toBe("play");
+    expect(clipCue(clip, 15_999)).toBe("play");
+    expect(clipCue(clip, 16_000)).toBe("next");
+    // A poll a little late still moves on.
+    expect(clipCue(clip, 16_400)).toBe("next");
+  });
+  it("lets go when the scout moves the video elsewhere", () => {
+    expect(clipCue(clip, 60_000)).toBe("left");
+    expect(clipCue(clip, 2_000)).toBe("left");
   });
 });

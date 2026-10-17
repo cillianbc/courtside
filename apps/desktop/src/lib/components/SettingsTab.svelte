@@ -132,6 +132,22 @@
             >{/each}
         </select>
       </label>
+      <label
+        >Clips start before the code
+        <select bind:value={settings.video.preRollMs}>
+          {#each [0, 1000, 2000, 3000, 4000, 5000, 8000] as ms (ms)}<option value={ms}
+              >{ms / 1000} s</option
+            >{/each}
+        </select>
+      </label>
+      <label
+        >and run on after it
+        <select bind:value={settings.video.postRollMs}>
+          {#each [0, 1000, 2000, 3000, 4000, 5000, 8000] as ms (ms)}<option value={ms}
+              >{ms / 1000} s</option
+            >{/each}
+        </select>
+      </label>
     </div>
 
     <h2>Winning symbols</h2>

@@ -165,3 +165,36 @@ export function other(side: Side): Side {
 export function prefix(side: Side): string {
   return side === "home" ? "*" : "a";
 }
+
+/** Which touches a clip playlist holds; empty fields match all (`clips.rs`). */
+export interface ClipFilter {
+  team: Side | null;
+  player: number | null;
+  /** Skill letter. */
+  skill: string | null;
+  /** Evaluation symbols, any of which matches; "" for all. */
+  evaluations: string;
+  /** The touching team's setter zone, 1–6. */
+  rotation: number | null;
+  phase: "serve" | "reception" | "transition" | null;
+  set: number | null;
+}
+
+export interface Clip {
+  /** The code's event id, as in the stream's rows. */
+  id: string;
+  set: number;
+  score: Pair<number>;
+  team: Side;
+  text: string;
+  meaning: string;
+  videoMs: number;
+  startMs: number;
+  endMs: number;
+}
+
+export interface Clips {
+  clips: Clip[];
+  /** Touches the filter picks that have no video time. */
+  withoutVideo: number;
+}

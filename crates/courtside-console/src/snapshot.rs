@@ -4,14 +4,14 @@
 
 use courtside_ffi::validate::{rule_name, severity_name};
 use courtside_store::{MatchSummary, Team as StoreTeam};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use vb_engine::validate::{Severity, validate_folded};
 use vb_engine::{EventKind, Match, MatchEvent, Producer, Sides, fold::fold_events};
 
 use crate::readback;
 use vb_grammar::{Code, Skill, Team};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Side {
     Home,

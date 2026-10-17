@@ -5,7 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { fixture } from "./fixture";
 import type { Settings } from "./settings";
-import type { MatchItem, Preview, Side, Snapshot } from "./snapshot";
+import type { ClipFilter, Clips, MatchItem, Preview, Side, Snapshot } from "./snapshot";
 import type { PlayerDetail, PlayerListItem, TeamDetail, TeamForm, TeamImportView } from "./teams";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -131,6 +131,12 @@ export async function commit(
 export async function videoSync(serveMs: number): Promise<Snapshot> {
   if (!inTauri) throw new Error("Syncing needs the desktop app.");
   return invoke<Snapshot>("video_sync", { serveMs: Math.round(serveMs) });
+}
+
+/** The open match's clip playlist for `filter`. */
+export async function clips(filter: ClipFilter): Promise<Clips> {
+  if (!inTauri) return { clips: [], withoutVideo: 0 };
+  return invoke<Clips>("clips", { filter });
 }
 
 /** Enters a team's six (zones 1–6) and setter for the set in progress. */
