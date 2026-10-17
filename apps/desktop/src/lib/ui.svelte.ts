@@ -6,6 +6,7 @@ import { pointCode } from "./codes";
 import { setNews } from "./news";
 import type { Hint } from "./hint";
 import { effectiveKeymap, type KeyBinding } from "./settings";
+import { stampTokens, video } from "./video.svelte";
 import type { Side, Snapshot } from "./snapshot";
 
 /** The command bar is editing an earlier code rather than adding one. */
@@ -77,9 +78,31 @@ class Ui {
     return this.apply("Set ended", backend.endSet);
   }
 
-  /** Adds codes as if typed on the command bar. */
-  commit(text: string): Promise<boolean> {
-    return this.apply(`Added ${text}`, () => backend.commit(text));
+  /** Video times at the first keystroke of each code on the command line. */
+  private stamps: (number | null)[] = [];
+  /** When the command line's first key was typed. */
+  private typedAt: Date | undefined;
+
+  /** The command line changed: stamps codes typed anew. */
+  keyed() {
+    if (!this.code.trim()) return this.clearStamps();
+    this.typedAt ??= new Date();
+    this.stamps = stampTokens(this.code, this.stamps, video.nowMs());
+  }
+
+  clearStamps() {
+    this.stamps = [];
+    this.typedAt = undefined;
+  }
+
+  /**
+   * Adds codes: `typed` from the command line, with the times its keys
+   * were typed at; otherwise (buttons) stamped now.
+   */
+  commit(text: string, typed = false): Promise<boolean> {
+    const stamps = stampTokens(text, typed ? this.stamps : [], video.nowMs());
+    const at = typed ? this.typedAt : undefined;
+    return this.apply(`Added ${text}`, () => backend.commit(text, stamps, at));
   }
 
   undo(): Promise<boolean> {
@@ -94,6 +117,7 @@ class Ui {
   startEdit(mode: Editing["mode"], id: string, text: string) {
     this.editing = { mode, id, text };
     this.code = mode === "correct" ? text : "";
+    this.clearStamps();
     this.result = null;
     this.focusCode += 1;
   }
@@ -101,13 +125,14 @@ class Ui {
   cancelEdit() {
     this.editing = null;
     this.code = "";
+    this.clearStamps();
   }
 
   /** Enter on the command bar: add, correct or insert. */
   async submit(text: string): Promise<boolean> {
     const e = this.editing;
     let ok: boolean;
-    if (!e) ok = await this.commit(text);
+    if (!e) ok = await this.commit(text, true);
     else if (e.mode === "correct")
       ok = await this.apply(`Modified ${e.text} to ${text}`, () => backend.correct(e.id, text));
     else if (e.mode === "insert")
@@ -119,9 +144,10 @@ class Ui {
       const next = this.codeAfter(e.id);
       ok = next
         ? await this.apply(`Added ${text} after ${e.text}`, () => backend.insertBefore(next, text))
-        : await this.commit(text);
+        : await this.commit(text, true);
     }
     if (ok) {
+      this.clearStamps();
       this.editing = null;
       this.selected = null;
     }
@@ -188,6 +214,8 @@ class Ui {
   /** Puts `text` in the command bar and focuses it. */
   startCode(text: string) {
     this.code = text;
+    this.clearStamps();
+    this.keyed();
     this.focusCode += 1;
   }
 }

@@ -51,6 +51,7 @@ function row(text: string, kind: Row["kind"] = "touch", severity: Row["severity"
     auto,
     edited: false,
     severity,
+    videoMs: null,
   };
 }
 

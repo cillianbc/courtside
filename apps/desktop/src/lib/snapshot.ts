@@ -57,6 +57,8 @@ export interface Row {
   /** A correction of an earlier code, or a code inserted later. */
   edited: boolean;
   severity: Severity | null;
+  /** Where the code is in the match video, in ms. */
+  videoMs: number | null;
 }
 
 export interface Group {

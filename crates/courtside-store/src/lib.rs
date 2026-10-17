@@ -14,7 +14,7 @@ mod teams;
 mod template;
 
 pub use settings::{
-    Combination, KeyBinding, Rules, SKILLS, SetterCall, Settings, Tables, Typing, WinningRow,
+    Combination, KeyBinding, Rules, SKILLS, SetterCall, Settings, Tables, Typing, Video, WinningRow,
 };
 pub use teams::{
     Player, PlayerInput, SeasonPlayer, Team, TeamImport, TeamInput, suggest_player_code,
@@ -476,6 +476,26 @@ impl Season {
             params![id.to_string(), i64::try_from(same).unwrap_or(i64::MAX)],
         )?;
         write_events(&tx, id, &events[same..], same)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Saves every event's video time as the log now has it (after a sync
+    /// moved them), in one transaction. The events themselves are already
+    /// saved.
+    pub fn save_video_times(&mut self, id: MatchId, log: &EventLog) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt =
+                tx.prepare("UPDATE event SET video_ms = ?1 WHERE match_id = ?2 AND id = ?3")?;
+            for e in log.all() {
+                stmt.execute(params![
+                    e.video_ms.map(ms),
+                    id.to_string(),
+                    e.id.to_string()
+                ])?;
+            }
+        }
         tx.commit()?;
         Ok(())
     }

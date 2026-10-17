@@ -163,6 +163,8 @@ pub struct Row {
     pub edited: bool,
     /// The worst issue on this code.
     pub severity: Option<&'static str>,
+    /// Where the code is in the match video.
+    pub video_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -374,6 +376,7 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             auto: e.producer == Producer::Repair,
             edited: e.supersedes.is_some() || e.before.is_some(),
             severity: worst.get(i).copied().flatten().map(severity_name),
+            video_ms: e.video_ms,
         });
         let ended = rally_end.get(i).copied().flatten();
         if ended.is_some() || kind == EventKind::SetEnd {

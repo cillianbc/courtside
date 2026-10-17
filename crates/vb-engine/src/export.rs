@@ -311,14 +311,19 @@ fn line(e: &MatchEvent, st: &State, template: &Dvw) -> Option<ScoutLine> {
             if let Some(c) = e.clock {
                 row[7] = format!("{:02}.{:02}.{:02}", c.hour, c.minute, c.second);
             }
-            if let Some(ms) = e.video_ms {
-                row[12] = (ms / 1000).to_string();
-            }
             row
         }
     };
     if row.len() < WIDTH {
         row.resize(WIDTH, String::new());
+    }
+    // Video seconds (whole, as VolleyStation writes them), where the event
+    // has a time the source line doesn't already say.
+    if let Some(ms) = e.video_ms {
+        let secs = ms / 1000;
+        if source.and_then(ScoutLine::video_time) != Some(secs as f64) {
+            row[12] = secs.to_string();
+        }
     }
     let num = |n: Option<u8>| n.map(|n| n.to_string()).unwrap_or_default();
     row[0] = code.to_string();
@@ -388,6 +393,20 @@ mod tests {
         let lines: Vec<String> = out.scout.iter().map(|l| l.0.to_line()).collect();
         assert_eq!(lines[2], "*08SM-;;;;;;;15.30.10;1;1;;;;;8;12;;;;;;;;;;;");
         assert_eq!(lines[3], "*c12:05;;;;;;;15.30.15;1;1;;;12;;8;5;;;;;;;;;;;");
+    }
+
+    #[test]
+    fn video_times_set_later_are_written() {
+        let dvw = Dvw::parse(SETS.as_bytes()).expect("parse");
+        let mut m = Match::from_dvw(&dvw, &mut IdGen::new(0));
+        let serve = m.log.visible()[2].id;
+        m.log.set_video_ms(serve, Some(83_900)).expect("set");
+        let out = m.to_dvw(&dvw);
+        assert_eq!(
+            out.scout[2].0.to_line(),
+            "*08SH#;;;;;;;15.30.10;1;1;;;83;;8;12;;;;;;;;;;;"
+        );
+        assert_eq!(out.scout[0].0.to_line(), dvw.scout[0].0.to_line());
     }
 
     const SETS: &str = "[3DATAVOLLEYSCOUT]\r\nFILEFORMAT: 2.0\r\n[3SET]\r\nTrue;;;;;;\r\n\

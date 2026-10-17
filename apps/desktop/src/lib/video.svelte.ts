@@ -16,9 +16,44 @@ export function stepSpeed(speed: number, by: number): number {
   return SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, at + by))] ?? 1;
 }
 
+/**
+ * The video time at the first keystroke of each code on the command line,
+ * kept as the line changes: a code typed anew gets `now`, codes already
+ * there keep theirs.
+ */
+export function stampTokens(
+  text: string,
+  times: (number | null)[],
+  now: number | null,
+): (number | null)[] {
+  const n = text.trim() ? text.trim().split(/\s+/).length : 0;
+  const out = times.slice(0, n);
+  while (out.length < n) out.push(now);
+  return out;
+}
+
 class Video {
-  player = $state<PlayerState | null>(null);
+  #player = $state<PlayerState | null>(null);
+  /** When `player` was last read (`performance.now()`). */
+  #readAt = 0;
   error = $state("");
+
+  get player(): PlayerState | null {
+    return this.#player;
+  }
+
+  set player(s: PlayerState | null) {
+    this.#player = s;
+    this.#readAt = performance.now();
+  }
+
+  /** The video time now in ms: the last state read, run on while playing. */
+  nowMs(): number | null {
+    const p = this.#player;
+    if (!p?.path || p.time === null) return null;
+    const run = p.paused ? 0 : ((performance.now() - this.#readAt) / 1000) * p.speed;
+    return Math.round((p.time + run) * 1000);
+  }
 
   get open(): boolean {
     return !!this.player?.path;

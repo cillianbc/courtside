@@ -1179,3 +1179,125 @@ fn the_command_line_types_with_the_season_settings() {
         "setter calls start with K"
     );
 }
+
+/// Each row's text and video time.
+fn video_times(snap: &courtside_console::Snapshot) -> Vec<(String, Option<u64>)> {
+    snap.groups
+        .iter()
+        .flat_map(|g| g.rows.iter().map(|r| (r.text.clone(), r.video_ms)))
+        .collect()
+}
+
+fn video_of(snap: &courtside_console::Snapshot, text: &str) -> Option<u64> {
+    video_times(snap)
+        .into_iter()
+        .rev()
+        .find(|(t, _)| t == text)
+        .and_then(|(_, v)| v)
+}
+
+#[test]
+fn exact_mode_stamps_each_code_with_its_keystroke() {
+    let (mut session, _dir) = opened();
+    let snap = session
+        .commit_at(
+            "a16RM+ a14EH+ a13AH#",
+            None,
+            &[Some(10_000), Some(11_200), Some(12_050)],
+        )
+        .expect("commit");
+    let v = video_times(&snap);
+    assert_eq!(
+        v[v.len() - 5..],
+        [
+            ("a16RM+".into(), Some(10_000)),
+            ("a14EH+".into(), Some(11_200)),
+            ("a13AH#".into(), Some(12_050)),
+            // What the console writes gets the last code's time.
+            ("ap01:02".into(), Some(12_050)),
+            ("az2".into(), Some(12_050)),
+        ]
+    );
+    // A correction keeps the code's time; an insertion takes the time of
+    // the code it goes before.
+    let id = |snap: &courtside_console::Snapshot, text: &str| {
+        snap.groups
+            .iter()
+            .flat_map(|g| &g.rows)
+            .rev()
+            .find(|r| r.text == text)
+            .map(|r| r.id.clone())
+            .expect("row")
+    };
+    let snap = session
+        .correct(&id(&snap, "a14EH+"), "a14EH#", None)
+        .expect("correct");
+    assert_eq!(video_of(&snap, "a14EH#"), Some(11_200));
+    let snap = session
+        .insert_before(&id(&snap, "a13AH#"), "*05BH-", None)
+        .expect("insert");
+    assert_eq!(video_of(&snap, "*05BH-"), Some(12_050));
+}
+
+#[test]
+fn predictive_mode_steps_from_the_rallys_first_touch() {
+    let (mut session, _dir) = opened();
+    let mut settings = session.settings().expect("settings");
+    settings.video.predictive = true;
+    settings.video.step_ms = 1_500;
+    session.save_settings(&settings).expect("save");
+    // Close the open rally, then code a new one with video.
+    session.commit("a16RM=", None).expect("point");
+    session
+        .commit_at("*02SM+", None, &[Some(20_000)])
+        .expect("serve");
+    let snap = session
+        .commit_at(
+            "a16RM+ a14EH+ a13AH#",
+            None,
+            &[Some(26_000), Some(26_100), Some(26_200)],
+        )
+        .expect("rally");
+    assert_eq!(video_of(&snap, "*02SM+"), Some(20_000));
+    assert_eq!(video_of(&snap, "a16RM+"), Some(21_500));
+    assert_eq!(video_of(&snap, "a14EH+"), Some(23_000));
+    assert_eq!(video_of(&snap, "a13AH#"), Some(24_500));
+}
+
+#[test]
+fn a_live_match_syncs_to_its_video_by_the_first_serve() {
+    let (mut session, dir) = opened();
+    // Coded live: times of day only (15.30.ss, ss = line number).
+    let snap = session.sync_video(100_000).expect("sync");
+    assert_eq!(video_of(&snap, "*01SM-"), Some(100_000));
+    assert_eq!(video_of(&snap, "*02SH+"), Some(110_000));
+    assert_eq!(video_of(&snap, "*P01>LUp"), Some(96_000));
+    // Again: everything moves with the serve.
+    let snap = session.sync_video(50_000).expect("sync again");
+    assert_eq!(video_of(&snap, "*01SM-"), Some(50_000));
+    assert_eq!(video_of(&snap, "*02SH+"), Some(60_000));
+    assert_eq!(video_of(&snap, "*P01>LUp"), Some(46_000));
+
+    // Saved, and written to the .dvw video column in whole seconds.
+    let id = snap.match_id.parse().expect("id");
+    let snap = session.open_match(id, 3_000).expect("reopen");
+    assert_eq!(video_of(&snap, "*02SH+"), Some(60_000));
+    let out = dir.path().join("synced.dvw");
+    session.export_dvw(&out).expect("export");
+    let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
+    let serve = text
+        .lines()
+        .find(|l| l.starts_with("*01SM-"))
+        .expect("serve line");
+    assert_eq!(serve.split(';').nth(12), Some("50"));
+}
+
+#[test]
+fn sync_needs_a_serve() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut session = Session::new();
+    session
+        .create_season(&dir.path().join("season.courtside"), "2026/27", 1)
+        .expect("season");
+    assert!(session.sync_video(1_000).is_err());
+}

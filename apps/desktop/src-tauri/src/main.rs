@@ -228,10 +228,23 @@ fn preview(state: State<'_, Shared>, text: String) -> Reply<Preview> {
 }
 
 /// Adds the command line's codes; `clock` is the local time of day
-/// (hour, minute, second) for the `.dvw` time column.
+/// (hour, minute, second) for the `.dvw` time column, `video` the video
+/// time in ms at the first keystroke of each code (none with no video).
 #[tauri::command]
-fn commit(state: State<'_, Shared>, text: String, clock: Option<[u8; 3]>) -> Reply<Snapshot> {
-    with(&state, |s| s.commit(&text, clock_time(clock)))
+fn commit(
+    state: State<'_, Shared>,
+    text: String,
+    clock: Option<[u8; 3]>,
+    video: Option<Vec<Option<u64>>>,
+) -> Reply<Snapshot> {
+    let video = video.unwrap_or_default();
+    with(&state, |s| s.commit_at(&text, clock_time(clock), &video))
+}
+
+/// Syncs the match to its video: the first serve is at `serve_ms`.
+#[tauri::command]
+fn video_sync(state: State<'_, Shared>, serve_ms: u64) -> Reply<Snapshot> {
+    with(&state, |s| s.sync_video(serve_ms))
 }
 
 /// Enters a team's six for the set in progress: `team` is `"home"` or
@@ -489,6 +502,7 @@ fn main() {
             code_remove,
             export_dvw,
             video_open,
+            video_sync,
             video_place,
             video_command,
             video_speed,

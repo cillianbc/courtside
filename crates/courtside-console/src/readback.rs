@@ -23,6 +23,9 @@ pub struct Readback {
     pub meaning: String,
     /// Why the code can't be read, or what's missing.
     pub error: Option<String>,
+    /// Which space-separated token of the line it came from.
+    #[serde(skip)]
+    pub token: usize,
 }
 
 /// What the command line holds: codes separated by spaces.
@@ -46,7 +49,7 @@ pub fn preview(
 ) -> Preview {
     let mut codes = Vec::new();
     let mut last = before.cloned();
-    for token in text.split_whitespace() {
+    for (n, token) in text.split_whitespace().enumerate() {
         match expand(token, last.as_ref(), defaults) {
             Err(e) => codes.push(Readback {
                 typed: token.to_owned(),
@@ -54,11 +57,13 @@ pub fn preview(
                 filled: Vec::new(),
                 meaning: String::new(),
                 error: Some(e),
+                token: n,
             }),
             Ok(x) => {
                 for (i, code) in x.codes.iter().enumerate() {
                     let mut r = read(&code.to_string(), game, names);
                     r.typed = token.to_owned();
+                    r.token = n;
                     if i == 0 {
                         r.filled.clone_from(&x.filled);
                     }
@@ -115,6 +120,7 @@ pub fn read(text: &str, game: &Match, names: (&str, &str)) -> Readback {
         filled: Vec::new(),
         meaning,
         error,
+        token: 0,
     }
 }
 

@@ -42,6 +42,15 @@
     void video.seekTo(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * d);
   }
 
+  // Sync on the frame shown: the first serve is here.
+  function syncHere() {
+    const at = video.nowMs();
+    if (at === null) return;
+    void ui.apply(`Synced: the first serve is at ${timecode(at / 1000, player?.fps ?? null)}`, () =>
+      backend.videoSync(at),
+    );
+  }
+
   /** `m:ss.ff`, frames when the frame rate is known. */
   function timecode(t: number | null, fps: number | null): string {
     if (t === null) return "--:--";
@@ -173,6 +182,12 @@
       onclick={() => video.speed(1, true)}>{player?.speed ?? 1}×</button
     >
     {#if player?.path}
+      <button
+        class="rate rate-btn"
+        type="button"
+        title="The match's first serve is at this frame: every code moves with it"
+        onclick={syncHere}>Sync</button
+      >
       <button class="rate rate-btn" type="button" title="Open another video" onclick={openVideo}
         >Open…</button
       >

@@ -27,6 +27,14 @@ export interface Settings {
     /** Hold each set end until the scout confirms it. */
     confirmSetEnd: boolean;
   };
+  video: {
+    /**
+     * Predictive: a rally's later touches follow its first by `stepMs`
+     * each. Exact: each code keeps its own first keystroke's video time.
+     */
+    predictive: boolean;
+    stepMs: number;
+  };
 }
 
 export interface KeyBinding {

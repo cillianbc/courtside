@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Group, Row, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
+  import { video } from "../video.svelte";
   import CodeMenu from "./CodeMenu.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
@@ -33,6 +34,12 @@
 
   function teamName(side: "home" | "visiting" | null): string {
     return side ? snap.teams[side].name : "";
+  }
+
+  // Picking a code shows it in the video, where it has a video time.
+  function pick(r: Row) {
+    ui.selected = ui.selected === r.id ? null : r.id;
+    if (ui.selected && r.videoMs !== null && video.open) void video.seekTo(r.videoMs / 1000);
   }
 
   const FLAG = { error: "err", warning: "warn", info: "info" } as const;
@@ -120,7 +127,7 @@
           <div
             role="row"
             tabindex="-1"
-            onclick={() => (ui.selected = ui.selected === r.id ? null : r.id)}
+            onclick={() => pick(r)}
             oncontextmenu={(e) => {
               e.preventDefault();
               ui.selected = r.id;

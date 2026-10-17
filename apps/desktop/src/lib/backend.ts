@@ -109,15 +109,28 @@ export async function preview(text: string): Promise<Preview> {
   return invoke<Preview>("preview", { text });
 }
 
-function clock(): number[] {
-  const now = new Date();
+function clock(now = new Date()): number[] {
   return [now.getHours(), now.getMinutes(), now.getSeconds()];
 }
 
-/** Adds the command line's codes, stamped with the local time of day. */
-export async function commit(text: string): Promise<Snapshot> {
+/**
+ * Adds the command line's codes, stamped with the local time of day the
+ * line was started (`at`, else now) and the video time in ms at the first
+ * keystroke of each code (`video`, one per space-separated code).
+ */
+export async function commit(
+  text: string,
+  video: (number | null)[] = [],
+  at?: Date,
+): Promise<Snapshot> {
   if (!inTauri) throw new Error("Coding needs the desktop app.");
-  return invoke<Snapshot>("commit", { text, clock: clock() });
+  return invoke<Snapshot>("commit", { text, clock: clock(at), video });
+}
+
+/** Syncs the match to its video: the first serve is at `serveMs`. */
+export async function videoSync(serveMs: number): Promise<Snapshot> {
+  if (!inTauri) throw new Error("Syncing needs the desktop app.");
+  return invoke<Snapshot>("video_sync", { serveMs: Math.round(serveMs) });
 }
 
 /** Enters a team's six (zones 1–6) and setter for the set in progress. */

@@ -110,6 +110,30 @@
       </label>
     </div>
 
+    <h2>Video</h2>
+    <p class="sub-note">
+      How codes get their place in the video. Exact: each code where its first key was typed.
+      Predictive: a rally's first code where it was typed, each later touch a fixed step after the
+      one before; suits coding live, behind the play.
+    </p>
+    <div class="pick">
+      <label
+        >Video times
+        <select bind:value={settings.video.predictive}>
+          <option value={false}>Exact</option>
+          <option value={true}>Predictive</option>
+        </select>
+      </label>
+      <label
+        >Step between touches
+        <select bind:value={settings.video.stepMs} disabled={!settings.video.predictive}>
+          {#each [800, 1000, 1200, 1500, 2000, 2500] as ms (ms)}<option value={ms}
+              >{ms / 1000} s</option
+            >{/each}
+        </select>
+      </label>
+    </div>
+
     <h2>Winning symbols</h2>
     <p class="sub-note">Evaluations that end the rally, for the touching team.</p>
     <table class="list compact">

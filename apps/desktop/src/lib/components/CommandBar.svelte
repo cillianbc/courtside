@@ -65,6 +65,7 @@
     if (e.key === "Escape") {
       if (ui.editing) ui.cancelEdit();
       ui.code = "";
+      ui.clearStamps();
       ui.result = null;
     } else if (e.key === "Enter") {
       e.preventDefault();
@@ -101,6 +102,7 @@
     bind:this={input}
     bind:value={ui.code}
     {onkeydown}
+    oninput={() => ui.keyed()}
     autocomplete="off"
     spellcheck="false"
     aria-label="Scout code"

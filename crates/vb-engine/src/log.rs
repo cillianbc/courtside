@@ -120,21 +120,38 @@ impl EventLog {
     /// target stays in the log, hidden from the fold. A correction can
     /// itself be corrected; an event can be corrected only once. It keeps
     /// the target's `source_line`, so what the engine doesn't model
-    /// (coordinates, the file's phase columns) carries over on export.
+    /// (coordinates, the file's phase columns) carries over on export, and
+    /// the target's clock and video time where `new` has none.
     pub fn correct(
         &mut self,
         ids: &mut IdGen,
         target: EventId,
         new: NewEvent,
     ) -> Result<EventId, LogError> {
-        let source_line = self
-            .get(target)
-            .ok_or(LogError::NotFound(target))?
-            .source_line;
+        let old = self.get(target).ok_or(LogError::NotFound(target))?;
+        let source_line = old.source_line;
+        let new = NewEvent {
+            video_ms: new.video_ms.or(old.video_ms),
+            clock: new.clock.or(old.clock),
+            ..new
+        };
         if let Some(by) = self.events.iter().find(|e| e.supersedes == Some(target)) {
             return Err(LogError::AlreadySuperseded(target, by.id));
         }
         Ok(self.push(ids, new, Some(target), None, source_line))
+    }
+
+    /// Sets an event's video time in place. Video times are a stamp on the
+    /// event, not part of the match, so this is no correction: syncing a
+    /// match to its video moves every stamp at once.
+    pub fn set_video_ms(&mut self, id: EventId, video_ms: Option<u64>) -> Result<(), LogError> {
+        let e = self
+            .events
+            .iter_mut()
+            .find(|e| e.id == id)
+            .ok_or(LogError::NotFound(id))?;
+        e.video_ms = video_ms;
+        Ok(())
     }
 
     /// Hides `target` from the match: a correction with no replacement.
@@ -269,6 +286,24 @@ mod tests {
             .iter()
             .filter_map(|e| e.code().map(ToString::to_string))
             .collect()
+    }
+
+    #[test]
+    fn correction_keeps_the_targets_times() {
+        let mut ids = IdGen::new(0);
+        let mut log = EventLog::new();
+        let s = log.append(
+            &mut ids,
+            NewEvent {
+                video_ms: Some(61_200),
+                ..new("*12SH-")
+            },
+        );
+        let c = log.correct(&mut ids, s, new("*12SM-")).expect("correct");
+        assert_eq!(log.get(c).and_then(|e| e.video_ms), Some(61_200));
+        log.set_video_ms(c, Some(70_000)).expect("set");
+        assert_eq!(log.get(c).and_then(|e| e.video_ms), Some(70_000));
+        assert_eq!(log.get(s).and_then(|e| e.video_ms), Some(61_200));
     }
 
     #[test]

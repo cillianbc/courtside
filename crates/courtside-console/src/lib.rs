@@ -56,6 +56,14 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// When a code was typed: the time of day and, with a video open, the video
+/// time.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Stamp {
+    pub clock: Option<ClockTime>,
+    pub video_ms: Option<u64>,
+}
+
 /// The match being coded.
 struct Current {
     id: MatchId,
@@ -72,6 +80,80 @@ struct Current {
     own_combinations: Vec<Combination>,
     /// Hold set ends until the scout confirms (season settings).
     confirm_set_end: bool,
+    /// How codes get their video time (season settings).
+    video: courtside_store::Video,
+}
+
+/// Each event's video time once the match's first serve is at
+/// `serve_ms` (see [`Session::sync_video`]).
+fn sync_plan(log: &EventLog, serve_ms: u64) -> Result<Vec<(EventId, Option<u64>)>> {
+    let visible = log.visible();
+    let serve = visible
+        .iter()
+        .find(|e| matches!(e.code(), Some(Code::Touch(t)) if t.skill == Skill::Serve))
+        .ok_or_else(|| Error::BadCode("There's no serve to sync the video to yet.".into()))?;
+    const DAY: i64 = 24 * 3600 * 1000;
+    let day_ms = |c: ClockTime| {
+        (i64::from(c.hour) * 3600 + i64::from(c.minute) * 60 + i64::from(c.second)) * 1000
+    };
+    let target = i64::try_from(serve_ms).unwrap_or(i64::MAX);
+    let by_video = serve
+        .video_ms
+        .map(|v| target - i64::try_from(v).unwrap_or(0));
+    let by_clock = serve.clock.map(|c| target - day_ms(c));
+    if by_video.is_none() && by_clock.is_none() {
+        return Err(Error::BadCode(
+            "The first serve has no time to sync from.".into(),
+        ));
+    }
+    let serve_day = serve.clock.map(day_ms);
+    let to_ms = |v: i64| Some(u64::try_from(v.max(0)).unwrap_or(0));
+    Ok(log
+        .all()
+        .iter()
+        .filter_map(|e| {
+            if let (Some(shift), Some(v)) = (by_video, e.video_ms) {
+                return Some((e.id, to_ms(i64::try_from(v).unwrap_or(0) + shift)));
+            }
+            let (offset, c) = (by_clock?, e.clock?);
+            // Past midnight from the serve, or before it.
+            let mut at = day_ms(c);
+            if let Some(s) = serve_day {
+                if at - s < -DAY / 2 {
+                    at += DAY;
+                } else if at - s > DAY / 2 {
+                    at -= DAY;
+                }
+            }
+            Some((e.id, to_ms(at + offset)))
+        })
+        .collect())
+}
+
+/// Predictive mode over the whole match: each rally's touches after its
+/// first get the first's video time plus `step` per touch. Only touches
+/// whose time changes.
+fn predicted(log: &EventLog, step: u64) -> Vec<(EventId, u64)> {
+    let (mut first, mut touches) = (None, 0);
+    let mut out = Vec::new();
+    for e in log.visible() {
+        match e.kind() {
+            EventKind::Point | EventKind::SetEnd => (first, touches) = (None, 0),
+            EventKind::Touch => {
+                if touches == 0 {
+                    first = e.video_ms;
+                } else if let Some(t0) = first {
+                    let want = t0 + touches * step;
+                    if e.video_ms != Some(want) {
+                        out.push((e.id, want));
+                    }
+                }
+                touches += 1;
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// Whether `score` wins `set` under the match's regulation (a golden set
@@ -182,11 +264,15 @@ fn apply_rules(c: &mut Current, s: &Settings) {
         libero_may_serve: s.rules.libero_may_serve,
     };
     c.confirm_set_end = s.rules.confirm_set_end;
+    c.video = s.video;
 }
 
 /// Settings the scout can't save: what a `.dvw` couldn't hold.
 fn check_settings(s: &Settings) -> Result<()> {
     let bad = |m: String| Err(Error::BadCode(m));
+    if !(200..=5000).contains(&s.video.step_ms) {
+        return bad("The step between touches is 0.2 to 5 seconds.".into());
+    }
     if !(1..=20).contains(&s.rules.substitutions) {
         return bad("Substitutions per set: 1 to 20.".into());
     }
@@ -342,6 +428,23 @@ impl Current {
         )
     }
 
+    /// The open rally's first touch's video time and how many touches it
+    /// has so far.
+    fn rally_so_far(&self) -> (Option<u64>, u64) {
+        let (mut first, mut touches) = (None, 0);
+        for e in self.game.log.visible().iter().rev() {
+            match e.kind() {
+                EventKind::Point | EventKind::SetEnd => break,
+                EventKind::Touch => {
+                    first = e.video_ms;
+                    touches += 1;
+                }
+                _ => {}
+            }
+        }
+        (first, touches)
+    }
+
     /// The last touch of the rally in progress (none after a point code,
     /// set end or at the start).
     fn open_rally_touch(&self) -> Option<Touch> {
@@ -371,11 +474,11 @@ impl Current {
         Ok(())
     }
 
-    fn add(&mut self, code: Code, producer: Producer, clock: Option<ClockTime>) {
+    fn add(&mut self, code: Code, producer: Producer, at: Stamp) {
         let event = NewEvent {
             body: Body::Code(code),
-            video_ms: None,
-            clock,
+            video_ms: at.video_ms,
+            clock: at.clock,
             producer,
         };
         self.game.log.append(&mut self.ids, event);
@@ -390,7 +493,7 @@ impl Current {
         typed_point: Option<Team>,
         decided: Option<Team>,
         keep_set_end: bool,
-        clock: Option<ClockTime>,
+        at: Stamp,
     ) {
         let Some(winner) = typed_point.or(decided) else {
             return;
@@ -416,7 +519,7 @@ impl Current {
                 Team::Visiting => (score.home, score.visiting.saturating_add(1)),
             };
             let point = format!("{}p{h:02}:{v:02}", winner.as_char());
-            self.add(Code::parse(&point), Producer::Repair, clock);
+            self.add(Code::parse(&point), Producer::Repair, at);
         }
         let after = fold(&self.game);
         let end = after.states.last();
@@ -425,7 +528,7 @@ impl Current {
         if won(&self.game, &after, set, score) {
             // Held for the scout to confirm (`end_set`) when the season asks.
             if !self.confirm_set_end || keep_set_end {
-                self.add(Code::parse(&format!("**{set}set")), Producer::Repair, clock);
+                self.add(Code::parse(&format!("**{set}set")), Producer::Repair, at);
             }
         } else {
             // Side-out: the winner rotates, its setter one zone on.
@@ -433,7 +536,7 @@ impl Current {
             if let (true, Some(z)) = (serving.is_some_and(|s| s != winner), zone) {
                 let next = if z == 1 { 6 } else { z - 1 };
                 let rotation = format!("{}z{next}", winner.as_char());
-                self.add(Code::parse(&rotation), Producer::Repair, clock);
+                self.add(Code::parse(&rotation), Producer::Repair, at);
             }
         }
     }
@@ -461,22 +564,16 @@ impl Current {
                         .get(team))?;
                     let next = if z == 1 { 6 } else { z - 1 };
                     let want = Code::parse(&format!("{}z{next}", team.as_char()));
-                    (e.code() != Some(&want)).then_some((e.id, want, e.clock))
+                    (e.code() != Some(&want)).then_some((e.id, want))
                 })
             };
-            let Some((id, want, clock)) = wrong else {
+            let Some((id, want)) = wrong else {
                 return Ok(());
             };
-            self.game.log.correct(
-                &mut self.ids,
-                id,
-                NewEvent {
-                    body: Body::Code(want),
-                    video_ms: None,
-                    clock,
-                    producer: Producer::Repair,
-                },
-            )?;
+            // The correction keeps the code's times.
+            self.game
+                .log
+                .correct(&mut self.ids, id, NewEvent::code(want, Producer::Repair))?;
         }
         Ok(())
     }
@@ -487,7 +584,7 @@ impl Current {
     /// a set no longer won loses its set end, a rally now decided gets
     /// closed. Only the last rally: a point earlier in the match carries a
     /// score every later point code repeats. Nothing changes when the
-    /// result is the same. The codes written again keep the rally's time.
+    /// result is the same. The codes written again keep the rally's times.
     fn reclose(&mut self, clock: Option<ClockTime>) -> std::result::Result<(), LogError> {
         let visible: Vec<MatchEvent> = self.game.log.visible().into_iter().cloned().collect();
         let folded = fold(&self.game);
@@ -533,14 +630,18 @@ impl Current {
             return Ok(());
         }
         let keep_set_end = visible[k..].iter().any(|e| e.kind() == EventKind::SetEnd);
-        let rally_clock = visible[j..k].iter().rev().find_map(|e| e.clock).or(clock);
+        let rally = &visible[j..k];
+        let at = Stamp {
+            clock: rally.iter().rev().find_map(|e| e.clock).or(clock),
+            video_ms: rally.iter().rev().find_map(|e| e.video_ms),
+        };
         let before = self.game.log.len();
         for e in &visible[k..] {
             self.game
                 .log
                 .remove(&mut self.ids, e.id, Producer::Repair)?;
         }
-        self.close_rally(typed_point, decided, keep_set_end, rally_clock);
+        self.close_rally(typed_point, decided, keep_set_end, at);
         // The codes after the rally's own, as they now stand.
         let now: Vec<String> = {
             let v = self.game.log.visible();
@@ -760,6 +861,7 @@ impl Session {
             defaults: defaults_from(&settings, &combinations),
             own_combinations: combinations.clone(),
             confirm_set_end: false,
+            video: courtside_store::Video::default(),
         };
         apply_rules(&mut c, &settings);
         self.current = Some(c);
@@ -805,6 +907,21 @@ impl Session {
     /// it is saved before the new state is returned; if saving fails the
     /// match is left as it was.
     pub fn commit(&mut self, text: &str, clock: Option<ClockTime>) -> Result<Snapshot> {
+        self.commit_at(text, clock, &[])
+    }
+
+    /// [`Session::commit`] with the video time at the first keystroke of
+    /// each code on the line (space-separated, in order; empty with no
+    /// video). In predictive mode (season settings) a touch after the
+    /// rally's first gets the first touch's time plus a fixed step per
+    /// touch instead. What the console writes after the codes gets the last
+    /// one's times.
+    pub fn commit_at(
+        &mut self,
+        text: &str,
+        clock: Option<ClockTime>,
+        video: &[Option<u64>],
+    ) -> Result<Snapshot> {
         if self.snapshot()?.match_over {
             return Err(Error::BadCode(
                 "The match is over: codes can be modified, or start a golden set.".into(),
@@ -827,17 +944,43 @@ impl Session {
             return Err(Error::BadCode(why));
         }
         let before = c.game.log.len();
-        // The expanded codes, in order.
-        let codes: Vec<Code> = preview.codes.iter().map(|r| Code::parse(&r.text)).collect();
-        let typed_point = codes.iter().rev().find_map(|code| match code {
+        // The expanded codes, in order, with the token each came from.
+        let codes: Vec<(Code, usize)> = preview
+            .codes
+            .iter()
+            .map(|r| (Code::parse(&r.text), r.token))
+            .collect();
+        let typed_point = codes.iter().rev().find_map(|(code, _)| match code {
             Code::Point { team, .. } => Some(*team),
             _ => None,
         });
-        let decided = decided_by(&c.game, codes.iter());
-        for code in codes {
-            c.add(code, Producer::Keyboard, clock);
+        let decided = decided_by(&c.game, codes.iter().map(|(code, _)| code));
+        let step = c.video.predictive.then_some(u64::from(c.video.step_ms));
+        let (mut first, mut touches) = c.rally_so_far();
+        let mut last = Stamp {
+            clock,
+            video_ms: None,
+        };
+        for (code, token) in codes {
+            let typed = video.get(token).copied().flatten();
+            let video_ms = match (&code, step, first) {
+                (Code::Touch(_), Some(step), Some(t0)) if touches > 0 => Some(t0 + touches * step),
+                _ => typed,
+            };
+            match code {
+                Code::Touch(_) => {
+                    if touches == 0 {
+                        first = video_ms;
+                    }
+                    touches += 1;
+                }
+                Code::Point { .. } => (first, touches) = (None, 0),
+                _ => {}
+            }
+            last = Stamp { clock, video_ms };
+            c.add(code, Producer::Keyboard, last);
         }
-        c.close_rally(typed_point, decided, false, clock);
+        c.close_rally(typed_point, decided, false, last);
         c.persist(season, before)?;
         self.snapshot()
     }
@@ -869,12 +1012,18 @@ impl Session {
         c.add(
             Code::parse(&format!("{t}P{setter:02}>LUp")),
             Producer::Repair,
-            clock,
+            Stamp {
+                clock,
+                video_ms: None,
+            },
         );
         c.add(
             Code::parse(&format!("{t}z{zone}>LUp")),
             Producer::Repair,
-            clock,
+            Stamp {
+                clock,
+                video_ms: None,
+            },
         );
         c.persist(season, before)?;
         self.snapshot()
@@ -935,6 +1084,29 @@ impl Session {
         self.snapshot()
     }
 
+    /// Syncs the match to its video (PRD F-20): the match's first serve is
+    /// at `serve_ms` in the video. Codes that have a video time move with
+    /// the serve; codes without one (coded live, before there was a video)
+    /// get it from their time of day, counted from the serve's. In
+    /// predictive mode each rally's later touches then follow its first
+    /// touch by the season's step. Video times are stamps, not codes, so
+    /// this isn't undone: sync again to move them.
+    pub fn sync_video(&mut self, serve_ms: u64) -> Result<Snapshot> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let plan = sync_plan(&c.game.log, serve_ms)?;
+        for (id, ms) in plan {
+            c.game.log.set_video_ms(id, ms)?;
+        }
+        if c.video.predictive {
+            for (id, ms) in predicted(&c.game.log, u64::from(c.video.step_ms)) {
+                c.game.log.set_video_ms(id, Some(ms))?;
+            }
+        }
+        season.save_video_times(c.id, &c.game.log)?;
+        self.snapshot()
+    }
+
     /// Ends the set in progress once its score wins it: the set end the
     /// console holds back when the season asks to confirm set ends.
     pub fn end_set(&mut self, clock: Option<ClockTime>) -> Result<Snapshot> {
@@ -947,7 +1119,10 @@ impl Session {
         c.add(
             Code::parse(&format!("**{set}set")),
             Producer::Keyboard,
-            clock,
+            Stamp {
+                clock,
+                video_ms: None,
+            },
         );
         c.persist(season, before)?;
         self.snapshot()
@@ -1102,13 +1277,14 @@ impl Session {
             };
             let partner = pair_partner(log, target);
             let set = touch_just_before(log, target);
-            let id = log.correct(ids, target, new)?;
-            let repair = |t: Touch| NewEvent {
-                body: Body::Code(Code::Touch(t)),
+            // A correction keeps the code's times: the touch happened then.
+            let new = NewEvent {
+                clock: None,
                 video_ms: None,
-                clock,
-                producer: Producer::Repair,
+                ..new
             };
+            let id = log.correct(ids, target, new)?;
+            let repair = |t: Touch| NewEvent::code(Code::Touch(t), Producer::Repair);
             if let Some((set_id, set)) = set
                 && let (Some(old), Some(now)) = (
                     log.get(target).and_then(touch_of),
@@ -1140,7 +1316,13 @@ impl Session {
         clock: Option<ClockTime>,
     ) -> Result<Snapshot> {
         self.edit(id, Some(text), clock, |log, ids, target, new| match new {
-            Some(new) => log.insert_before(ids, target, new),
+            // Placed in the video where the code it goes before is.
+            Some(new) => {
+                let video_ms = new
+                    .video_ms
+                    .or_else(|| log.get(target).and_then(|e| e.video_ms));
+                log.insert_before(ids, target, NewEvent { video_ms, ..new })
+            }
             None => Err(LogError::NotFound(target)),
         })
     }

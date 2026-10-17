@@ -19,6 +19,28 @@ pub struct Settings {
     pub tables: Tables,
     pub keymap: Vec<KeyBinding>,
     pub rules: Rules,
+    pub video: Video,
+}
+
+/// How codes get their video time (PRD F-21).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Video {
+    /// Predictive: a rally's first code keeps the video time of its first
+    /// keystroke and each later touch gets `step_ms` more than the one
+    /// before. Exact (`false`): every code keeps its own first keystroke's.
+    pub predictive: bool,
+    /// Milliseconds between touches in predictive mode.
+    pub step_ms: u32,
+}
+
+impl Default for Video {
+    fn default() -> Self {
+        Video {
+            predictive: false,
+            step_ms: 1500,
+        }
+    }
 }
 
 /// The competition's rule options and how the console ends a set. They
