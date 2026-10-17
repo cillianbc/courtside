@@ -9,19 +9,21 @@ fn main() {
     tauri_build::build();
 }
 
-/// Where the linker finds libmpv on macOS (video): `MPV_LIB_DIR` if set,
-/// else Homebrew's library folder.
+/// Where the linker finds libmpv (video): `MPV_LIB_DIR` if set (any
+/// system; on Windows the folder with `mpv.lib` or `libmpv.dll.a`), else
+/// Homebrew's library folder on macOS. Linux finds the distribution's
+/// libmpv (`libmpv-dev`, `mpv-libs-devel`) on the default path.
 fn mpv_search_path() {
     println!("cargo::rerun-if-env-changed=MPV_LIB_DIR");
+    if let Ok(dir) = std::env::var("MPV_LIB_DIR") {
+        println!("cargo::rustc-link-search=native={dir}");
+        return;
+    }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
     }
-    let dirs = match std::env::var("MPV_LIB_DIR") {
-        Ok(dir) => vec![dir],
-        Err(_) => vec!["/opt/homebrew/lib".into(), "/usr/local/lib".into()],
-    };
-    for dir in dirs {
-        if std::path::Path::new(&dir).join("libmpv.dylib").exists() {
+    for dir in ["/opt/homebrew/lib", "/usr/local/lib"] {
+        if std::path::Path::new(dir).join("libmpv.dylib").exists() {
             println!("cargo::rustc-link-search=native={dir}");
             return;
         }
