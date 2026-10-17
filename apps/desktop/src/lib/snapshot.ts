@@ -125,6 +125,8 @@ export interface Snapshot {
   groups: Group[];
   issues: IssueView[];
   events: number;
+  /** The match video's path: from the imported file or opened with it. */
+  videoPath: string | null;
 }
 
 export interface MatchItem {

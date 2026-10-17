@@ -24,6 +24,7 @@ pub use teams::{
 use std::path::Path;
 
 use dvw_codec::Dvw;
+use dvw_codec::dvw::VideoEntry;
 use rusqlite::{Connection, OptionalExtension, params};
 use ulid::Ulid;
 use vb_engine::event::{ClockTime, ImportFormat};
@@ -33,7 +34,7 @@ use vb_grammar::Code;
 use vb_grammar::Team as Side;
 
 /// Schema version, kept in SQLite's `user_version`.
-const VERSION: u32 = 5;
+const VERSION: u32 = 6;
 
 const SCHEMA: &str = "
 CREATE TABLE season (
@@ -61,7 +62,10 @@ CREATE TABLE match (
     source_dvw BLOB,
     created_ms INTEGER NOT NULL,
     -- JSON: the season's .dvw tables when a match coded here was created.
-    tables TEXT
+    tables TEXT,
+    -- The match video's path on this machine (personal data: written
+    -- into an export's [3VIDEO] only when the scout asks).
+    video_path TEXT
 );
 CREATE TABLE setting (
     key TEXT PRIMARY KEY,
@@ -227,7 +231,7 @@ impl Season {
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         match version {
             VERSION => {}
-            1..=4 => {
+            1..=5 => {
                 if version < 2 {
                     migrate_1_to_2(&conn)?;
                 }
@@ -237,7 +241,10 @@ impl Season {
                 if version < 4 {
                     migrate_3_to_4(&conn)?;
                 }
-                migrate_4_to_5(&conn)?;
+                if version < 5 {
+                    migrate_4_to_5(&conn)?;
+                }
+                migrate_5_to_6(&conn)?;
             }
             _ => return Err(Error::Version(version)),
         }
@@ -323,8 +330,8 @@ impl Season {
             team_ids.push(team_id);
         }
         tx.execute(
-            "INSERT INTO match (id, home_team_id, visiting_team_id, date, source_name, source_dvw, created_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO match (id, home_team_id, visiting_team_id, date, source_name, source_dvw, created_ms, video_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 id.to_string(),
                 team_ids[0],
@@ -332,7 +339,12 @@ impl Season {
                 dvw.match_date().map(|(d, _)| d.to_string()),
                 file_name,
                 bytes,
-                ms(now_ms)
+                ms(now_ms),
+                // The file's first camera.
+                dvw.video
+                    .first()
+                    .map(|v| v.path().trim())
+                    .filter(|p| !p.is_empty()),
             ],
         )?;
         for (side, rows) in (0u8..).zip(&rosters) {
@@ -500,11 +512,54 @@ impl Season {
         Ok(())
     }
 
+    /// The match video's path, from the imported file's `[3VIDEO]` or the
+    /// video last opened with the match.
+    pub fn match_video(&self, id: MatchId) -> Result<Option<String>> {
+        let path: Option<Option<String>> = self
+            .conn
+            .query_row(
+                "SELECT video_path FROM match WHERE id = ?1",
+                [id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        path.ok_or(Error::NoMatch(id))
+    }
+
+    pub fn set_match_video(&mut self, id: MatchId, path: Option<&str>) -> Result<()> {
+        let n = self.conn.execute(
+            "UPDATE match SET video_path = ?1 WHERE id = ?2",
+            params![path, id.to_string()],
+        )?;
+        if n == 0 {
+            return Err(Error::NoMatch(id));
+        }
+        Ok(())
+    }
+
     /// The match as `.dvw` bytes: headers from its source file, everything
-    /// the engine derives regenerated.
-    pub fn export_dvw(&self, id: MatchId) -> Result<Vec<u8>> {
+    /// the engine derives regenerated. `[3VIDEO]` holds the match video's
+    /// path only `with_video`; otherwise it is empty, also for an imported
+    /// file that had one (the path is personal data).
+    pub fn export_dvw(&self, id: MatchId, with_video: bool) -> Result<Vec<u8>> {
         let open = self.open_match(id)?;
-        let template = open.template;
+        let mut template = open.template;
+        let path = if with_video {
+            self.match_video(id)?
+        } else {
+            None
+        };
+        // An imported file's own line stays byte for byte when it is still
+        // the match's video.
+        let keep = template
+            .video
+            .first()
+            .is_some_and(|v| Some(v.path().trim()) == path.as_deref());
+        if !keep {
+            template.video = path
+                .map(|p| vec![VideoEntry(format!("Camera0={p}"))])
+                .unwrap_or_default();
+        }
         Ok(open.game.to_dvw(&template).to_bytes()?)
     }
 }
@@ -668,6 +723,17 @@ fn migrate_3_to_4(conn: &Connection) -> Result<()> {
          ALTER TABLE match ADD COLUMN tables TEXT;
          CREATE TABLE setting (key TEXT PRIMARY KEY, value TEXT NOT NULL);
          PRAGMA user_version = 4;
+         COMMIT;",
+    )?;
+    Ok(())
+}
+
+/// Version 6: the match video's path.
+fn migrate_5_to_6(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "BEGIN;
+         ALTER TABLE match ADD COLUMN video_path TEXT;
+         PRAGMA user_version = 6;
          COMMIT;",
     )?;
     Ok(())

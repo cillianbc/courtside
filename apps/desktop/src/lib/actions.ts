@@ -1,6 +1,6 @@
 // What each keymap action does. Buttons on screen run the same code.
 
-import { save } from "@tauri-apps/plugin-dialog";
+import { ask, save } from "@tauri-apps/plugin-dialog";
 import * as backend from "./backend";
 import { rotationCode, timeoutCode } from "./codes";
 import type { Side } from "./snapshot";
@@ -16,7 +16,16 @@ export async function exportDvw(): Promise<void> {
       filters: [{ name: "DataVolley scout", extensions: ["dvw"] }],
     });
     if (!path) return;
-    await backend.exportDvw(path);
+    // The video's location is personal data: only in the file when asked.
+    const withVideo =
+      !!snap.videoPath &&
+      (await ask(`Put the video's location in the file?\n\n${snap.videoPath}`, {
+        title: "Export .dvw",
+        kind: "info",
+        okLabel: "Include it",
+        cancelLabel: "Leave it out",
+      }));
+    await backend.exportDvw(path, withVideo);
     ui.result = { text: `Exported ${path}.`, bad: false };
   } catch (e) {
     ui.result = { text: String(e), bad: true };

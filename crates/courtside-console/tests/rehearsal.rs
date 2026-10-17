@@ -339,7 +339,7 @@ fn a_whole_match_coded_live() {
     let out = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("rehearsal");
     std::fs::create_dir_all(&out).expect("out dir");
     let file = out.join("rehearsal-match.dvw");
-    session.export_dvw(&file).expect("export");
+    session.export_dvw(&file, false).expect("export");
     let back = read_back(&file, tmp.path());
     assert_eq!(texts(&back), texts(&snap), "codes read back");
     assert_eq!(set_scores(&back), scores, "set scores read back");
@@ -368,7 +368,7 @@ fn a_whole_match_coded_live() {
     let (h, v) = set_scores(&snap)[usize::from(golden) - 1];
     assert_eq!(h.max(v), 15.max(h.min(v) + 2), "golden set to 15");
     let file = out.join("rehearsal-golden.dvw");
-    session.export_dvw(&file).expect("export");
+    session.export_dvw(&file, false).expect("export");
     let text = String::from_utf8_lossy(&std::fs::read(&file).expect("read")).into_owned();
     let teams: Vec<&str> = text
         .lines()

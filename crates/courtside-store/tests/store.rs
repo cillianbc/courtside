@@ -43,7 +43,10 @@ fn import_then_export_gives_the_file_back() {
     let id = season
         .import_dvw("m.dvw", FILE.as_bytes(), 1_000)
         .expect("import");
-    assert_eq!(season.export_dvw(id).expect("export"), FILE.as_bytes());
+    assert_eq!(
+        season.export_dvw(id, true).expect("export"),
+        FILE.as_bytes()
+    );
     let teams = season.teams().expect("teams");
     assert_eq!(
         teams.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
@@ -164,6 +167,7 @@ fn starting_sixes_are_stored() {
 fn downgrade_to_v2(conn: &rusqlite::Connection) {
     conn.execute_batch(
         "ALTER TABLE match DROP COLUMN tables;
+         ALTER TABLE match DROP COLUMN video_path;
          DROP TABLE setting;
          DROP INDEX team_code;
          ALTER TABLE team DROP COLUMN code;
@@ -237,7 +241,7 @@ fn version_1_files_are_migrated() {
     let (_, visiting) = season.match_roster(coded).expect("roster");
     assert_eq!(visiting.len(), 2);
     assert!(visiting.iter().any(|p| p.libero && p.number == 1));
-    assert!(season.export_dvw(coded).is_ok());
+    assert!(season.export_dvw(coded, false).is_ok());
 
     let mut open = season.open_match(id).expect("open");
     open.game.log.append(
@@ -299,7 +303,7 @@ fn corpus_round_trips_through_the_store() {
             .to_bytes()
             .expect("bytes");
         assert!(
-            season.export_dvw(id).expect("export") == direct,
+            season.export_dvw(id, true).expect("export") == direct,
             "{}",
             entry.path
         );
@@ -347,7 +351,7 @@ fn an_imported_match_roster_can_be_edited() {
         open.game.teams.home.player(20).is_some(),
         "the engine sees #20"
     );
-    let text = String::from_utf8_lossy(&season.export_dvw(id).expect("export")).into_owned();
+    let text = String::from_utf8_lossy(&season.export_dvw(id, false).expect("export")).into_owned();
     let original = |prefix: &str| {
         FILE.split("\r\n")
             .find(|l| l.starts_with(prefix))

@@ -150,5 +150,6 @@ export function fixture(): Snapshot {
       },
     ],
     events: 412,
+    videoPath: null,
   };
 }

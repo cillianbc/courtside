@@ -215,7 +215,7 @@ fn a_match_keeps_its_roster_when_the_team_changes() {
     );
 
     // The export carries the match roster, codes and roles.
-    let text = String::from_utf8_lossy(&season.export_dvw(m).expect("export")).into_owned();
+    let text = String::from_utf8_lossy(&season.export_dvw(m, false).expect("export")).into_owned();
     let row = text
         .lines()
         .find(|l| l.starts_with("0;7;"))
@@ -416,7 +416,8 @@ fn settings_are_saved_and_each_match_keeps_the_tables_it_started_with() {
     assert_eq!(season.settings().expect("load"), settings);
     let second = season.create_match(&a, &b, None, 6).expect("match");
 
-    let export = |m| String::from_utf8_lossy(&season.export_dvw(m).expect("export")).into_owned();
+    let export =
+        |m| String::from_utf8_lossy(&season.export_dvw(m, false).expect("export")).into_owned();
     let (one, two) = (export(first), export(second));
     assert!(
         one.contains("\r\nX5;4;L;T;Fast set to zone 4;;;;F;;\r\n"),

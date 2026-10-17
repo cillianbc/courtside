@@ -27,11 +27,18 @@
     if (player?.path) place();
   });
 
-  const openVideo = () =>
+  // The match's video (from its file, or opened with it before).
+  const linked = $derived(ui.snapshot?.videoPath ?? null);
+  const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p;
+
+  /** Opens `known`, or a video picked in a dialog; the match remembers it. */
+  const openVideo = (known?: string) =>
     video.run(async () => {
-      const path = await open({ filters: VIDEO });
+      const path = known ?? (await open({ filters: VIDEO }));
       if (typeof path !== "string") return null;
-      return backend.videoOpen(path, bounds());
+      const state = await backend.videoOpen(path, bounds());
+      if (path !== linked) ui.snapshot = await backend.matchVideoSet(path);
+      return state;
     });
 
   function scrubTo(e: MouseEvent) {
@@ -112,10 +119,24 @@
             d="M90 8v74M63 15v60M117 15v60"
           /><circle cx="90" cy="8" r="2" /><circle cx="90" cy="82" r="2" /></svg
         >
-        <p>No match video.</p>
-        <button class="btn" type="button" disabled={!backend.inTauri} onclick={openVideo}
-          >Open video</button
-        >
+        {#if linked}
+          <p>Match video: {fileName(linked)}</p>
+          <button
+            class="btn"
+            type="button"
+            disabled={!backend.inTauri}
+            title={linked}
+            onclick={() => openVideo(linked)}>Open it</button
+          >
+          <button class="btn" type="button" disabled={!backend.inTauri} onclick={() => openVideo()}
+            >Another…</button
+          >
+        {:else}
+          <p>No match video.</p>
+          <button class="btn" type="button" disabled={!backend.inTauri} onclick={() => openVideo()}
+            >Open video</button
+          >
+        {/if}
         {#if video.error}<p class="video-error">{video.error}</p>{/if}
       </div>
     {/if}
@@ -188,8 +209,11 @@
         title="The match's first serve is at this frame: every code moves with it"
         onclick={syncHere}>Sync</button
       >
-      <button class="rate rate-btn" type="button" title="Open another video" onclick={openVideo}
-        >Open…</button
+      <button
+        class="rate rate-btn"
+        type="button"
+        title="Open another video"
+        onclick={() => openVideo()}>Open…</button
       >
     {/if}
   </div>

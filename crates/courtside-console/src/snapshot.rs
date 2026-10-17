@@ -89,6 +89,8 @@ pub struct Snapshot {
     pub issues: Vec<IssueView>,
     /// Events in the log, saved or not.
     pub events: usize,
+    /// The match video's path: from the imported file or opened with it.
+    pub video_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -554,5 +556,6 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             })
             .collect(),
         events: game.log.len(),
+        video_path: None,
     }
 }

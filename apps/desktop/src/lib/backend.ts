@@ -208,8 +208,14 @@ export async function videoState(): Promise<PlayerState | null> {
   return invoke<PlayerState>("video_state");
 }
 
-export async function exportDvw(path: string): Promise<void> {
-  await invoke("export_dvw", { path });
+/** Writes the match as a .dvw; the video's path goes in only `withVideo`. */
+export async function exportDvw(path: string, withVideo = false): Promise<void> {
+  await invoke("export_dvw", { path, withVideo });
+}
+
+/** Remembers the video opened with the match. */
+export async function matchVideoSet(path: string | null): Promise<Snapshot> {
+  return invoke<Snapshot>("match_video_set", { path });
 }
 
 function needsApp(): void {

@@ -82,6 +82,8 @@ struct Current {
     confirm_set_end: bool,
     /// How codes get their video time (season settings).
     video: courtside_store::Video,
+    /// The match video's path (saved with the match).
+    video_path: Option<String>,
 }
 
 /// Each event's video time once the match's first serve is at
@@ -862,6 +864,7 @@ impl Session {
             own_combinations: combinations.clone(),
             confirm_set_end: false,
             video: courtside_store::Video::default(),
+            video_path: season.match_video(id)?,
         };
         apply_rules(&mut c, &settings);
         self.current = Some(c);
@@ -892,7 +895,9 @@ impl Session {
     /// The open match's state, for the UI.
     pub fn snapshot(&self) -> Result<Snapshot> {
         let c = self.current.as_ref().ok_or(Error::NoMatch)?;
-        Ok(snapshot::build(&c.id.to_string(), &c.game, &c.teams))
+        let mut snap = snapshot::build(&c.id.to_string(), &c.game, &c.teams);
+        snap.video_path.clone_from(&c.video_path);
+        Ok(snap)
     }
 
     /// Reads back what the command line holds, without changing anything.
@@ -1397,9 +1402,20 @@ impl Session {
     }
 
     /// Writes the open match as a `.dvw` file.
-    pub fn export_dvw(&self, path: &Path) -> Result<()> {
+    /// Remembers the video opened with the match (`None` forgets it).
+    pub fn set_video(&mut self, path: Option<&str>) -> Result<Snapshot> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        season.set_match_video(c.id, path)?;
+        c.video_path = path.map(str::to_owned);
+        self.snapshot()
+    }
+
+    /// Writes the match as a `.dvw`; the video's path goes into
+    /// `[3VIDEO]` only `with_video` (it is personal data).
+    pub fn export_dvw(&self, path: &Path, with_video: bool) -> Result<()> {
         let c = self.current.as_ref().ok_or(Error::NoMatch)?;
-        let bytes = self.season()?.export_dvw(c.id)?;
+        let bytes = self.season()?.export_dvw(c.id, with_video)?;
         std::fs::write(path, bytes).map_err(|source| Error::Write {
             path: path.display().to_string(),
             source,

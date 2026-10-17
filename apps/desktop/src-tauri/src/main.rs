@@ -241,6 +241,12 @@ fn commit(
     with(&state, |s| s.commit_at(&text, clock_time(clock), &video))
 }
 
+/// Remembers the video opened with the match.
+#[tauri::command]
+fn match_video_set(state: State<'_, Shared>, path: Option<String>) -> Reply<Snapshot> {
+    with(&state, |s| s.set_video(path.as_deref()))
+}
+
 /// Syncs the match to its video: the first serve is at `serve_ms`.
 #[tauri::command]
 fn video_sync(state: State<'_, Shared>, serve_ms: u64) -> Reply<Snapshot> {
@@ -339,8 +345,8 @@ fn code_remove(state: State<'_, Shared>, id: String) -> Reply<Snapshot> {
 }
 
 #[tauri::command]
-fn export_dvw(state: State<'_, Shared>, path: PathBuf) -> Reply<()> {
-    with(&state, |s| s.export_dvw(&path))
+fn export_dvw(state: State<'_, Shared>, path: PathBuf, with_video: Option<bool>) -> Reply<()> {
+    with(&state, |s| s.export_dvw(&path, with_video.unwrap_or(false)))
 }
 
 /// The open match's state, or `None` when no match is open.
@@ -503,6 +509,7 @@ fn main() {
             export_dvw,
             video_open,
             video_sync,
+            match_video_set,
             video_place,
             video_command,
             video_speed,

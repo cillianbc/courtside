@@ -375,7 +375,7 @@ fn a_won_set_ends_and_the_next_needs_lineups() {
 
     // The export has set 2's starting zones from the six.
     let out = dir.path().join("out.dvw");
-    session.export_dvw(&out).expect("export");
+    session.export_dvw(&out, false).expect("export");
     let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
     let row = text
         .lines()
@@ -562,7 +562,7 @@ fn a_new_match_codes_and_exports() {
     assert!(errors.is_empty(), "{errors:?}");
 
     let out = dir.path().join("new.dvw");
-    session.export_dvw(&out).expect("export");
+    session.export_dvw(&out, false).expect("export");
     let bytes = std::fs::read(&out).expect("read");
     let text = String::from_utf8_lossy(&bytes);
     assert!(text.contains("GENERATOR-PRG: Courtside\r\n"));
@@ -699,7 +699,7 @@ fn from_an_empty_season_to_an_exported_match() {
     );
 
     let out = dir.path().join("m.dvw");
-    session.export_dvw(&out).expect("export");
+    session.export_dvw(&out, false).expect("export");
     let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
     assert!(text.contains("\r\nHC;Harbour City;"));
     let setter = text
@@ -823,7 +823,7 @@ fn a_lineup_is_corrected_in_place() {
 
     // The export has the corrected starting zones.
     let out = dir.path().join("lineup.dvw");
-    session.export_dvw(&out).expect("export");
+    session.export_dvw(&out, false).expect("export");
     let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
     assert!(text.contains("0;1;1;2;"), "#1 starts in zone 2");
     assert!(text.contains("0;2;2;1;"), "#2 starts in zone 1");
@@ -868,7 +868,7 @@ fn an_earlier_sets_lineup_is_corrected_after_the_match() {
     );
 
     let out = dir.path().join("sets.dvw");
-    session.export_dvw(&out).expect("export");
+    session.export_dvw(&out, false).expect("export");
     let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
     assert!(
         text.contains("0;6;6;6;1;;"),
@@ -1108,7 +1108,7 @@ fn a_golden_set_after_the_match() {
 
     // The golden set doesn't count as a set won.
     let out = dir.path().join("golden.dvw");
-    session.export_dvw(&out).expect("export");
+    session.export_dvw(&out, false).expect("export");
     let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
     assert!(text.contains("T1;Harbour City;3;"), "{text}");
 
@@ -1283,7 +1283,7 @@ fn a_live_match_syncs_to_its_video_by_the_first_serve() {
     let snap = session.open_match(id, 3_000).expect("reopen");
     assert_eq!(video_of(&snap, "*02SH+"), Some(60_000));
     let out = dir.path().join("synced.dvw");
-    session.export_dvw(&out).expect("export");
+    session.export_dvw(&out, false).expect("export");
     let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
     let serve = text
         .lines()
@@ -1300,4 +1300,46 @@ fn sync_needs_a_serve() {
         .create_season(&dir.path().join("season.courtside"), "2026/27", 1)
         .expect("season");
     assert!(session.sync_video(1_000).is_err());
+}
+
+#[test]
+fn the_video_path_is_exported_only_when_asked() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let dvw = dir.path().join("demo.dvw");
+    let with_video = file().replace(
+        "[3SCOUT]\r\n",
+        "[3VIDEO]\r\nCamera0=C:\\video\\made-up.mp4\r\n[3SCOUT]\r\n",
+    );
+    std::fs::write(&dvw, with_video).expect("write");
+    let mut session = Session::new();
+    session
+        .create_season(&dir.path().join("season.courtside"), "2026/27", 1)
+        .expect("season");
+    let id = session.import_file(&dvw, 1_000).expect("import");
+    let snap = session.open_match(id, 2_000).expect("open");
+    assert_eq!(snap.video_path.as_deref(), Some("C:\\video\\made-up.mp4"));
+
+    let video_section = |session: &Session, with: bool| {
+        let out = dir.path().join("out.dvw");
+        session.export_dvw(&out, with).expect("export");
+        let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
+        let at = text.find("[3VIDEO]").expect("section");
+        let end = text[at..].find("[3SCOUT]").expect("scout") + at;
+        text[at..end].to_owned()
+    };
+    assert_eq!(video_section(&session, false), "[3VIDEO]\r\n");
+    assert_eq!(
+        video_section(&session, true),
+        "[3VIDEO]\r\nCamera0=C:\\video\\made-up.mp4\r\n"
+    );
+
+    // A video opened with the match replaces it, and is kept.
+    let snap = session.set_video(Some("/clips/other.mov")).expect("set");
+    assert_eq!(snap.video_path.as_deref(), Some("/clips/other.mov"));
+    let snap = session.open_match(id, 3_000).expect("reopen");
+    assert_eq!(snap.video_path.as_deref(), Some("/clips/other.mov"));
+    assert_eq!(
+        video_section(&session, true),
+        "[3VIDEO]\r\nCamera0=/clips/other.mov\r\n"
+    );
 }
