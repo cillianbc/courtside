@@ -1,0 +1,28 @@
+name: Docs tasks
+
+# Each `Docs-Update:` / `Docs-New:` trailer in a commit pushed to main
+# opens a docs issue (tools/docs/tasks.sh, convention in CLAUDE.md).
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+# One push at a time, so two pushes can't open the same issue twice.
+concurrency: docs-tasks
+
+jobs:
+  tasks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Open an issue per docs trailer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: tools/docs/tasks.sh "$BEFORE" "$AFTER"
