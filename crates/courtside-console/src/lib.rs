@@ -426,12 +426,14 @@ impl Current {
 
     fn preview(&self, text: &str) -> Preview {
         let before = self.open_rally_touch();
+        let setters = fold(&self.game).states.last().map(|s| s.setter);
         readback::preview(
             text,
             &self.game,
             self.names(),
             before.as_ref(),
             &self.defaults,
+            Some(setters.unwrap_or_default()),
         )
     }
 
@@ -1369,8 +1371,9 @@ impl Session {
                     return Err(Error::BadCode("One code at a time here.".into()));
                 }
                 let before = c.touch_before(target);
+                // One code in, one code out: no set is added in front.
                 let preview =
-                    readback::preview(text, &c.game, c.names(), before.as_ref(), &c.defaults);
+                    readback::preview(text, &c.game, c.names(), before.as_ref(), &c.defaults, None);
                 if let Some(e) = preview.codes.iter().find_map(|r| r.error.clone()) {
                     return Err(Error::BadCode(format!("{text}: {e}")));
                 }

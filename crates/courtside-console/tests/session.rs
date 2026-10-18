@@ -267,6 +267,36 @@ fn shorthand_is_expanded_with_the_rally_as_context() {
     );
 }
 
+/// Northgate's setter is 14 (`aP14`). An attack straight after the
+/// team's reception gets the setter's set; a typed set stands instead.
+#[test]
+fn the_setters_set_is_added_unless_typed() {
+    let (mut session, _dir) = opened();
+    let p = session.preview("a16# a8#").expect("preview");
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes, ["a16RH#", "a14EH+", "a08AH#"]);
+    assert_eq!(p.codes[1].typed, "a8#");
+    assert_eq!(p.codes[1].filled, ["set by the team's setter"]);
+    let snap = session.commit("a16# a8#", None).expect("commit");
+    let t = texts(&snap);
+    assert_eq!(
+        t[t.len() - 5..t.len() - 1],
+        ["a16RH#", "a14EH+", "a08AH#", "ap01:02"]
+    );
+
+    // Someone else set: the typed set (default evaluation) and no other.
+    let p = session.preview("*1RQ- 3e 8Q#").expect("preview");
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes, ["*01RQ-", "*03EH+", "*08AQ#"]);
+    // The set takes the attack's type; the setter's own attack gets none.
+    let p = session.preview("*3R- 8Q#").expect("preview");
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes, ["*03RH-", "*01EQ+", "*08AQ#"]);
+    let p = session.preview("*3R+ 1#").expect("preview");
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes, ["*03RH+", "*01AH#"], "a setter dump");
+}
+
 #[test]
 fn dot_codes_write_both_halves() {
     let (mut session, _dir) = opened();

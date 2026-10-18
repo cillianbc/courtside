@@ -3,7 +3,7 @@
 
 use serde::Serialize;
 use vb_engine::Match;
-use vb_engine::model::Outcome;
+use vb_engine::model::{Outcome, Sides};
 use vb_grammar::code::Digits;
 use vb_grammar::expand::{Defaults, expand};
 use vb_grammar::{Code, Player, Skill, Team, Touch};
@@ -39,13 +39,17 @@ pub struct Preview {
 
 /// Reads back the command line: each token expanded (shorthand, dot
 /// codes) with the rally so far as context, then each code explained.
-/// `before` is the last touch of the open rally.
+/// `before` is the last touch of the open rally. With `setters` (each
+/// team's setter's shirt number), an attack straight after its team's
+/// reception, dig or free ball gets the setter's set in front of it: the
+/// scout leaves the set out unless someone else set (`3E 8#`).
 pub fn preview(
     text: &str,
     game: &Match,
     names: (&str, &str),
     before: Option<&Touch>,
     defaults: &Defaults,
+    setters: Option<Sides<Option<u8>>>,
 ) -> Preview {
     let mut codes = Vec::new();
     let mut last = before.cloned();
@@ -61,6 +65,17 @@ pub fn preview(
             }),
             Ok(x) => {
                 for (i, code) in x.codes.iter().enumerate() {
+                    if let Code::Touch(t) = code
+                        && let Some(set) =
+                            setters.and_then(|s| inferred_set(t, last.as_ref(), s, defaults))
+                    {
+                        let mut r = read(&set.to_string(), game, names);
+                        r.typed = token.to_owned();
+                        r.token = n;
+                        r.filled = vec!["set by the team's setter".into()];
+                        codes.push(r);
+                        last = Some(set);
+                    }
                     let mut r = read(&code.to_string(), game, names);
                     r.typed = token.to_owned();
                     r.token = n;
@@ -79,6 +94,44 @@ pub fn preview(
     }
     let ok = !codes.is_empty() && codes.iter().all(|c| c.error.is_none());
     Preview { codes, ok }
+}
+
+/// The set the scout left out before `attack`: its team's setter's, when
+/// the touch before is the same team's reception, dig or free ball and
+/// neither it nor the attack is the setter's own (a second-ball attack, or
+/// the setter took the first ball and someone else set).
+fn inferred_set(
+    attack: &Touch,
+    before: Option<&Touch>,
+    setters: Sides<Option<u8>>,
+    d: &Defaults,
+) -> Option<Touch> {
+    let b = before?;
+    if attack.skill != Skill::Attack
+        || b.team != attack.team
+        || !matches!(b.skill, Skill::Reception | Skill::Dig | Skill::Freeball)
+    {
+        return None;
+    }
+    let setter = (*setters.get(attack.team))?;
+    let shirt = |p: &Player| match p {
+        Player::Number(d) => d.value().and_then(|v| u8::try_from(v).ok()),
+        Player::Unknown => None,
+    };
+    if shirt(&attack.player) == Some(setter) || shirt(&b.player) == Some(setter) {
+        return None;
+    }
+    // A set takes the type of the attack after it (DataVolley's rule).
+    let code = format!(
+        "{}{setter:02}E{}{}",
+        attack.team.as_char(),
+        attack.skill_type().unwrap_or(d.types[2]),
+        d.evaluations[2]
+    );
+    match Code::parse(&code) {
+        Code::Touch(t) => Some(t),
+        _ => None,
+    }
 }
 
 /// Reads one code. An error means Enter would reject it.

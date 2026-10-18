@@ -5,8 +5,10 @@
 //! - a missing skill is predicted from the touch before it in the rally
 //!   (serve → the other team's reception → attack → the other team's dig
 //!   …), else [`Defaults::skill`]. The set is never predicted: scouts code
-//!   the attack straight after their reception or dig (`8` is `*08AH+`)
-//!   and type `E` when they code a set;
+//!   the attack straight after their reception or dig (`8` is `*08AH+`;
+//!   the console adds the setter's set in front) and type `E` when
+//!   someone else set or they want the set's details (`4EK1`: a setter
+//!   call fills type and evaluation like a combination does);
 //! - a missing type is copied from the touch it answers (reception from the
 //!   serve, block and dig from the attack), else the per-skill default;
 //! - a missing evaluation is the per-skill default;
@@ -312,9 +314,13 @@ fn complete(
         .then(|| t.rest.get(..2))
         .flatten()
         .and_then(|code| d.combination(code));
+    // A set typed with its setter call (`4EK1`): calls start with `K`, a
+    // letter no type uses, so type and evaluation take their defaults.
+    let call = skill == Skill::Set && t.rest.starts_with('K') && t.rest.len() >= 2;
     if t.skill_type.is_none()
         && t.evaluation.is_none()
         && combination.is_none()
+        && !call
         && let Some(c) = t.rest.chars().next().filter(char::is_ascii_alphabetic)
     {
         return Err(format!("Unknown type letter {c}."));
@@ -717,6 +723,26 @@ mod tests {
         assert_eq!(exp("8=", Some("*05DH+")), ["*08AH="]);
         assert_eq!(exp("8F", Some("*05RH+")), ["*08FH+"], "a typed skill stays");
         assert_eq!(exp("a15E", Some("a10RM+")), ["a15EH+"], "a set is typed");
+        assert_eq!(
+            exp("4EK1", Some("*05RH+")),
+            ["*04EH+K1"],
+            "a set with its call"
+        );
+        assert_eq!(
+            exp("4E#K1F", Some("*05RH+")),
+            ["*04EH#K1F"],
+            "call and target"
+        );
+        assert_eq!(
+            exp("4EQ#K7C~~~1", Some("*05RH+")),
+            ["*04EQ#K7C~~~1"],
+            "everything after the evaluation is kept, by column"
+        );
+        assert_eq!(
+            exp("8A#~~~48~T2", Some("*04EH+")),
+            ["*08AH#~~~48~T2"],
+            "zones, tip, two blockers"
+        );
         assert_eq!(
             exp("a8#", Some("*07SH+")),
             ["a08RH#"],
