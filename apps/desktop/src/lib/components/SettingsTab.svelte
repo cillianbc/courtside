@@ -23,7 +23,11 @@
   onMount(() => {
     backend.settings().then(
       // Seasons saved before the rules existed get them filled in by the backend.
-      (s) => (settings = s),
+      (s) => {
+        // A backend from before remapped keys sends none.
+        if (s) s.keyText ??= [];
+        settings = s;
+      },
       (e) => (error = String(e)),
     );
   });

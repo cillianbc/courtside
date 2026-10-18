@@ -40,6 +40,14 @@
   const label = (id: string) => ACTIONS.find((a) => a.id === id)?.label ?? id;
 </script>
 
+<!-- WebKit doesn't focus a clicked button, so the key is caught on the
+     window while a row is recording. -->
+<svelte:window
+  onkeydowncapture={(e) => {
+    if (recording !== null) record(e, recording);
+  }}
+/>
+
 <table class="list">
   <thead><tr><th>Action</th><th>Keys</th><th></th></tr></thead>
   <tbody>
@@ -53,10 +61,6 @@
             class:recording={recording === r.action}
             class:bad={clash.has(r.keys)}
             onclick={() => (recording = r.action)}
-            onkeydown={(e) => record(e, r.action)}
-            onblur={() => {
-              if (recording === r.action) recording = null;
-            }}
           >
             {recording === r.action ? "Press keys… (Esc cancels)" : r.keys || "–"}
           </button>

@@ -36,6 +36,14 @@
   }
 </script>
 
+<!-- WebKit doesn't focus a clicked button, so the key is caught on the
+     window while a row is recording. -->
+<svelte:window
+  onkeydowncapture={(e) => {
+    if (recording !== null) record(e, recording);
+  }}
+/>
+
 <table class="list">
   <thead><tr><th>Key</th><th>Types</th><th></th><th></th></tr></thead>
   <tbody>
@@ -48,10 +56,6 @@
             class:recording={recording === i}
             class:bad={!!clash(i)}
             onclick={() => (recording = i)}
-            onkeydown={(e) => record(e, i)}
-            onblur={() => {
-              if (recording === i) recording = null;
-            }}
           >
             {recording === i ? "Press a key… (Esc cancels)" : row.keys || "–"}
           </button>
