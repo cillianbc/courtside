@@ -27,10 +27,17 @@ tauri-plugin-dialog = "2"
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 libmpv2 = "6"
 
+# macOS: mpv no longer embeds in a view (`wid`) since 0.37, so it renders
+# through its render API into our own CAOpenGLLayer.
 [target.'cfg(target_os = "macos")'.dependencies]
+libmpv2-sys = "4"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSView", "NSResponder", "NSWindow", "NSGraphics"] }
+objc2-app-kit = { version = "0.3", features = ["NSView", "NSResponder", "NSWindow", "NSGraphics", "objc2-quartz-core"] }
+objc2-core-foundation = { version = "0.3", features = ["CFDate"] }
+objc2-core-video = { version = "0.3", features = ["CVBase"] }
 objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+objc2-open-gl = { version = "0.3", features = ["CGLTypes", "CGLCurrent"] }
+objc2-quartz-core = { version = "0.3", features = ["CALayer", "CAOpenGLLayer", "CAMediaTiming", "objc2-open-gl", "objc2-core-video", "objc2-core-foundation"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

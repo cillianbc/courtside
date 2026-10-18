@@ -468,6 +468,40 @@ fn video_smoke(app: &AppHandle) {
                 eprintln!("video smoke: {:?}", p.state());
             }
         });
+        // Closing frees mpv's render context before mpv; opening again
+        // makes both anew.
+        step("close", |app, _| {
+            if let Some(state) = app.try_state::<Video>()
+                && let Ok(mut p) = state.lock()
+            {
+                eprintln!("video smoke: closed {:?}", p.close());
+            }
+        });
+        step("reopen", |app, path| {
+            let (Some(window), Some(state)) =
+                (app.get_webview_window("main"), app.try_state::<Video>())
+            else {
+                return;
+            };
+            let bounds = video::Bounds {
+                x: 24.0,
+                y: 90.0,
+                width: 640.0,
+                height: 360.0,
+            };
+            let opened = state.lock().map_err(|e| e.to_string()).and_then(|mut p| {
+                p.open(&window, path, bounds)?;
+                p.set_paused(false)
+            });
+            eprintln!("video smoke: reopened {opened:?}");
+        });
+        step("state", |app, _| {
+            if let Some(state) = app.try_state::<Video>()
+                && let Ok(p) = state.lock()
+            {
+                eprintln!("video smoke: {:?}", p.state());
+            }
+        });
     });
 }
 

@@ -70,14 +70,22 @@ mod player {
                 self.surface = Some(Surface::new(window, bounds)?);
             }
             if self.mpv.is_none() {
-                let wid = self.surface.as_ref().ok_or("no view")?.wid();
+                let surface = self.surface.as_ref().ok_or("no view")?;
+                let wid = surface.wid();
                 let mpv = Mpv::with_initializer(|init| {
-                    init.set_option("wid", wid)?;
-                    init.set_option("vo", "gpu-next")?;
+                    if let Some(wid) = wid {
+                        init.set_option("wid", wid)?;
+                        init.set_option("vo", "gpu-next")?;
+                        init.set_option("force-window", "yes")?;
+                    } else {
+                        // Drawn through the render API (macOS, see `surface`);
+                        // the layer draws each frame when it's due.
+                        init.set_option("vo", "libmpv")?;
+                        init.set_option("video-timing-offset", "0")?;
+                    }
                     init.set_option("hwdec", "auto-safe")?;
                     init.set_option("keep-open", "yes")?;
                     init.set_option("idle", "yes")?;
-                    init.set_option("force-window", "yes")?;
                     // Exact seeks: the PRD asks for frame-accurate review.
                     init.set_option("hr-seek", "yes")?;
                     init.set_option("osc", "no")?;
@@ -91,6 +99,7 @@ mod player {
                     Ok(())
                 })
                 .map_err(|e| format!("mpv: {e}"))?;
+                surface.attach(&mpv)?;
                 self.mpv = Some(mpv);
             }
             let mpv = self.mpv.as_ref().ok_or("no player")?;
@@ -151,6 +160,9 @@ mod player {
         /// Stops playback and takes the view off the window.
         pub fn close(&mut self) -> Result<(), String> {
             // mpv lets go of the view before it goes.
+            if let Some(s) = &self.surface {
+                s.detach();
+            }
             self.mpv = None;
             self.path = None;
             match self.surface.take() {
@@ -162,21 +174,324 @@ mod player {
 }
 
 // AppKit has no safe binding for embedding a native view in a Tauri
-// window: the `unsafe` here is the NSWindow pointer Tauri hands over and
-// two AppKit calls objc2 marks unsafe.
+// window, and mpv's render API and OpenGL are C: the `unsafe` here is the
+// NSWindow pointer Tauri hands over, the CGL and GL calls on the context
+// Core Animation hands the layer, and mpv's render context.
+//
+// mpv ignores `wid` on macOS since 0.37 (its Vulkan output opens a window
+// of its own), so mpv renders through its render API (`vo=libmpv`) into
+// a CAOpenGLLayer of ours, as IINA does.
 #[cfg(target_os = "macos")]
-#[allow(unsafe_code)]
+#[allow(unsafe_code, deprecated)]
 mod surface {
     use super::Bounds;
+    use libmpv2::Mpv;
+    use libmpv2_sys as mpv;
     use objc2::rc::Retained;
-    use objc2::{MainThreadMarker, MainThreadOnly};
+    use objc2::runtime::NSObject;
+    use objc2::{
+        AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
+    };
     use objc2_app_kit::{NSView, NSWindow};
+    use objc2_core_foundation::CFTimeInterval;
+    use objc2_core_video::CVTimeStamp;
     use objc2_foundation::{NSPoint, NSRect, NSSize};
+    use objc2_open_gl::{
+        CGLChoosePixelFormat, CGLContextObj, CGLCreateContext, CGLLockContext, CGLOpenGLProfile,
+        CGLPixelFormatAttribute, CGLPixelFormatObj, CGLReleaseContext, CGLReleasePixelFormat,
+        CGLRetainContext, CGLRetainPixelFormat, CGLSetCurrentContext, CGLUnlockContext,
+    };
+    use objc2_quartz_core::{CALayer, CAOpenGLLayer};
+    use std::ffi::{c_char, c_void};
+    use std::ptr::{NonNull, null_mut};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
 
-    /// An NSView added over the webview. AppKit works in points, as CSS
-    /// pixels do, so bounds need no scaling.
+    unsafe extern "C" {
+        fn glGetIntegerv(pname: u32, data: *mut i32);
+        fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    }
+    const GL_VIEWPORT: u32 = 0x0BA2;
+    const GL_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
+    /// `RTLD_DEFAULT` on macOS: search every image loaded.
+    const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
+
+    /// What the layer (drawn by Core Animation) shares with the player:
+    /// our GL context, which the layer is handed back to draw in, and
+    /// mpv's render context made in it.
+    struct Render {
+        pf: CGLPixelFormatObj,
+        cgl: CGLContextObj,
+        /// mpv has a new frame, or the layer changed size.
+        dirty: AtomicBool,
+        /// mpv's render context, while a player is attached.
+        mpv: Mutex<Option<NonNull<mpv::mpv_render_context>>>,
+    }
+
+    // SAFETY: the CGL objects are thread-safe behind CGLLockContext; the
+    // render context is only used with the mutex held.
+    unsafe impl Send for Render {}
+    unsafe impl Sync for Render {}
+
+    /// mpv's update callback: no mpv calls allowed, so only a flag the
+    /// layer reads on its next display refresh.
+    unsafe extern "C" fn on_update(ctx: *mut c_void) {
+        // SAFETY: `ctx` is the `Render` the callback was set with; the
+        // render context (and so the callback) is freed before it goes.
+        let render = unsafe { &*ctx.cast::<Render>() };
+        render.dirty.store(true, Ordering::Release);
+    }
+
+    unsafe extern "C" fn proc_address(_: *mut c_void, name: *const c_char) -> *mut c_void {
+        // SAFETY: the OpenGL framework is linked; `name` is mpv's C string.
+        unsafe { dlsym(RTLD_DEFAULT, name) }
+    }
+
+    /// Runs `f` with our GL context locked and current.
+    fn with_gl<T>(cgl: CGLContextObj, f: impl FnOnce() -> T) -> T {
+        // SAFETY: our own live context; lock and current are undone after.
+        unsafe {
+            CGLLockContext(cgl);
+            CGLSetCurrentContext(cgl);
+        }
+        let out = f();
+        // SAFETY: as above.
+        unsafe {
+            CGLSetCurrentContext(null_mut());
+            CGLUnlockContext(cgl);
+        }
+        out
+    }
+
+    impl Render {
+        /// OpenGL 3.2 core (mpv needs more than the layer's default 2.1).
+        fn new() -> Result<Self, String> {
+            let attrs = [
+                CGLPixelFormatAttribute(99), // kCGLPFAOpenGLProfile
+                CGLPixelFormatAttribute(CGLOpenGLProfile::CGLOGLPVersion_3_2_Core.0),
+                CGLPixelFormatAttribute::CGLPFADoubleBuffer,
+                CGLPixelFormatAttribute(73), // kCGLPFAAccelerated
+                CGLPixelFormatAttribute::CGLPFAColorSize,
+                CGLPixelFormatAttribute(24),
+                CGLPixelFormatAttribute::CGLPFAAlphaSize,
+                CGLPixelFormatAttribute(8),
+                CGLPixelFormatAttribute(0),
+            ];
+            let (mut pf, mut n, mut cgl) = (null_mut(), 0, null_mut());
+            // SAFETY: a zero-ended attribute list and out pointers.
+            unsafe {
+                CGLChoosePixelFormat(
+                    NonNull::from(&attrs[0]),
+                    NonNull::from(&mut pf),
+                    NonNull::from(&mut n),
+                );
+            }
+            if pf.is_null() {
+                return Err("no OpenGL 3.2 pixel format for the video".into());
+            }
+            // SAFETY: a pixel format just chosen; no share context.
+            unsafe { CGLCreateContext(pf, null_mut(), NonNull::from(&mut cgl)) };
+            if cgl.is_null() {
+                // SAFETY: ours, unused.
+                unsafe { CGLReleasePixelFormat(pf) };
+                return Err("no OpenGL context for the video".into());
+            }
+            Ok(Render {
+                pf,
+                cgl,
+                dirty: AtomicBool::new(true),
+                mpv: Mutex::new(None),
+            })
+        }
+
+        /// Makes mpv's render context in our GL context.
+        fn attach(&self, handle: *mut mpv::mpv_handle) -> Result<(), String> {
+            let mut slot = self.mpv.lock().map_err(|_| "video render lock poisoned")?;
+            if slot.is_some() {
+                return Ok(());
+            }
+            let mut init = mpv::mpv_opengl_init_params {
+                get_proc_address: Some(proc_address),
+                get_proc_address_ctx: null_mut(),
+            };
+            let mut params = [
+                mpv::mpv_render_param {
+                    type_: mpv::mpv_render_param_type_MPV_RENDER_PARAM_API_TYPE,
+                    data: c"opengl".as_ptr().cast_mut().cast(),
+                },
+                mpv::mpv_render_param {
+                    type_: mpv::mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,
+                    data: (&raw mut init).cast(),
+                },
+                mpv::mpv_render_param {
+                    type_: mpv::mpv_render_param_type_MPV_RENDER_PARAM_INVALID,
+                    data: null_mut(),
+                },
+            ];
+            let mut render = null_mut();
+            // SAFETY: a live mpv handle, params ending in INVALID, our GL
+            // context current.
+            let err = with_gl(self.cgl, || unsafe {
+                mpv::mpv_render_context_create(&raw mut render, handle, params.as_mut_ptr())
+            });
+            let render = NonNull::new(render)
+                .filter(|_| err >= 0)
+                .ok_or_else(|| format!("mpv can't draw in the video panel ({err})"))?;
+            // SAFETY: `self` outlives the render context (see `on_update`).
+            unsafe {
+                mpv::mpv_render_context_set_update_callback(
+                    render.as_ptr(),
+                    Some(on_update),
+                    std::ptr::from_ref(self).cast_mut().cast(),
+                );
+            }
+            *slot = Some(render);
+            self.dirty.store(true, Ordering::Release);
+            Ok(())
+        }
+
+        /// Draws mpv's current frame into the framebuffer Core Animation
+        /// bound in our context (locked and current during its draw).
+        fn draw(&self) {
+            self.dirty.store(false, Ordering::Release);
+            let Ok(slot) = self.mpv.lock() else {
+                return;
+            };
+            let Some(render) = *slot else {
+                return;
+            };
+            let (mut fbo, mut viewport) = (0i32, [0i32; 4]);
+            // SAFETY: plain GL queries on the current context.
+            unsafe {
+                glGetIntegerv(GL_FRAMEBUFFER_BINDING, &raw mut fbo);
+                glGetIntegerv(GL_VIEWPORT, viewport.as_mut_ptr());
+            }
+            let mut target = mpv::mpv_opengl_fbo {
+                fbo,
+                w: viewport[2],
+                h: viewport[3],
+                internal_format: 0,
+            };
+            let mut flip: i32 = 1;
+            let mut params = [
+                mpv::mpv_render_param {
+                    type_: mpv::mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_FBO,
+                    data: (&raw mut target).cast(),
+                },
+                mpv::mpv_render_param {
+                    type_: mpv::mpv_render_param_type_MPV_RENDER_PARAM_FLIP_Y,
+                    data: (&raw mut flip).cast(),
+                },
+                mpv::mpv_render_param {
+                    type_: mpv::mpv_render_param_type_MPV_RENDER_PARAM_INVALID,
+                    data: null_mut(),
+                },
+            ];
+            // SAFETY: the render context lives while the mutex is held; its
+            // GL context is current.
+            unsafe { mpv::mpv_render_context_render(render.as_ptr(), params.as_mut_ptr()) };
+        }
+
+        /// Frees mpv's render context (before mpv itself goes).
+        fn detach(&self) {
+            let Ok(mut slot) = self.mpv.lock() else {
+                return;
+            };
+            if let Some(render) = slot.take() {
+                // SAFETY: made in our context, which is current while it goes.
+                with_gl(self.cgl, || unsafe {
+                    mpv::mpv_render_context_free(render.as_ptr());
+                });
+            }
+        }
+    }
+
+    impl Drop for Render {
+        fn drop(&mut self) {
+            self.detach();
+            // SAFETY: ours; Core Animation holds its own retains.
+            unsafe {
+                CGLReleaseContext(self.cgl);
+                CGLReleasePixelFormat(self.pf);
+            }
+        }
+    }
+
+    struct Ivars {
+        render: Arc<Render>,
+    }
+
+    define_class!(
+        // SAFETY: CAOpenGLLayer may be subclassed; the overrides below keep
+        // its signatures, and nothing here implements Drop.
+        #[unsafe(super(CAOpenGLLayer, CALayer, NSObject))]
+        #[name = "CourtsideVideoLayer"]
+        #[ivars = Ivars]
+        struct VideoLayer;
+
+        impl VideoLayer {
+            /// Our pixel format and context, so mpv's render context (made
+            /// in it) is the one Core Animation draws with.
+            #[unsafe(method(copyCGLPixelFormatForDisplayMask:))]
+            fn copy_pixel_format(&self, _mask: u32) -> CGLPixelFormatObj {
+                // SAFETY: ours, live while the layer is; the caller releases.
+                unsafe { CGLRetainPixelFormat(self.ivars().render.pf) }
+            }
+
+            #[unsafe(method(copyCGLContextForPixelFormat:))]
+            fn copy_context(&self, _pf: CGLPixelFormatObj) -> CGLContextObj {
+                // SAFETY: as above.
+                unsafe { CGLRetainContext(self.ivars().render.cgl) }
+            }
+
+            #[unsafe(method(canDrawInCGLContext:pixelFormat:forLayerTime:displayTime:))]
+            fn can_draw(
+                &self,
+                _ctx: CGLContextObj,
+                _pf: CGLPixelFormatObj,
+                _t: CFTimeInterval,
+                _ts: *const CVTimeStamp,
+            ) -> bool {
+                self.ivars().render.dirty.load(Ordering::Acquire)
+            }
+
+            #[unsafe(method(drawInCGLContext:pixelFormat:forLayerTime:displayTime:))]
+            fn draw(
+                &self,
+                ctx: CGLContextObj,
+                pf: CGLPixelFormatObj,
+                t: CFTimeInterval,
+                ts: *const CVTimeStamp,
+            ) {
+                self.ivars().render.draw();
+                // SAFETY: the superclass's draw flushes what was drawn.
+                unsafe {
+                    let _: () = msg_send![
+                        super(self),
+                        drawInCGLContext: ctx,
+                        pixelFormat: pf,
+                        forLayerTime: t,
+                        displayTime: ts
+                    ];
+                }
+            }
+        }
+    );
+
+    impl VideoLayer {
+        fn new(render: Arc<Render>) -> Retained<Self> {
+            let this = Self::alloc().set_ivars(Ivars { render });
+            // SAFETY: CALayer's designated initialiser.
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// A layer-hosting NSView over the webview, its layer drawn by mpv.
+    /// AppKit works in points, as CSS pixels do, so bounds need no scaling.
     pub struct Surface {
         view: Retained<NSView>,
+        layer: Retained<VideoLayer>,
+        render: Arc<Render>,
     }
 
     fn main_thread() -> Result<MainThreadMarker, String> {
@@ -205,15 +520,37 @@ mod surface {
             let content = ns_window
                 .contentView()
                 .ok_or("the window has no content view")?;
+            let render = Arc::new(Render::new()?);
+            let layer = VideoLayer::new(render.clone());
+            layer.setContentsScale(ns_window.backingScaleFactor());
+            // Core Animation asks every display refresh whether to draw.
+            layer.setAsynchronous(true);
             let view = NSView::initWithFrame(NSView::alloc(mtm), frame(&content, bounds));
+            // Layer-hosting: the layer first, then wantsLayer.
+            view.setLayer(Some(&layer));
+            view.setWantsLayer(true);
             // Added after the webview, so it's drawn on top of it.
             content.addSubview(&view);
-            Ok(Surface { view })
+            Ok(Surface {
+                view,
+                layer,
+                render,
+            })
         }
 
-        /// What mpv's `wid` option takes: the NSView pointer.
-        pub fn wid(&self) -> i64 {
-            Retained::as_ptr(&self.view) as i64
+        /// What mpv's `wid` option takes: nothing here (see the module note).
+        pub fn wid(&self) -> Option<i64> {
+            None
+        }
+
+        /// mpv draws into the layer from now on.
+        pub fn attach(&self, player: &Mpv) -> Result<(), String> {
+            self.render.attach(player.ctx.as_ptr())
+        }
+
+        /// Lets go of mpv (before it goes).
+        pub fn detach(&self) {
+            self.render.detach();
         }
 
         pub fn place(&self, bounds: Bounds, visible: bool) -> Result<(), String> {
@@ -224,11 +561,16 @@ mod surface {
             };
             self.view.setFrame(frame(&content, bounds));
             self.view.setHidden(!visible);
+            if let Some(scale) = self.view.window().map(|w| w.backingScaleFactor()) {
+                self.layer.setContentsScale(scale);
+            }
+            self.render.dirty.store(true, Ordering::Release);
             Ok(())
         }
 
         pub fn close(self) -> Result<(), String> {
             main_thread()?;
+            self.detach();
             self.view.removeFromSuperview();
             Ok(())
         }
@@ -286,9 +628,16 @@ mod surface {
         }
 
         /// What mpv's `wid` option takes: the HWND.
-        pub fn wid(&self) -> i64 {
-            self.hwnd.0 as i64
+        pub fn wid(&self) -> Option<i64> {
+            Some(self.hwnd.0 as i64)
         }
+
+        /// mpv draws into the window by `wid`: nothing to hand over.
+        pub fn attach(&self, _: &libmpv2::Mpv) -> Result<(), String> {
+            Ok(())
+        }
+
+        pub fn detach(&self) {}
 
         pub fn place(&self, b: Bounds, visible: bool) -> Result<(), String> {
             let s = self.scale;
@@ -387,9 +736,16 @@ mod surface {
         }
 
         /// What mpv's `wid` option takes: the X window id.
-        pub fn wid(&self) -> i64 {
-            self.window as i64
+        pub fn wid(&self) -> Option<i64> {
+            Some(self.window as i64)
         }
+
+        /// mpv draws into the window by `wid`: nothing to hand over.
+        pub fn attach(&self, _: &libmpv2::Mpv) -> Result<(), String> {
+            Ok(())
+        }
+
+        pub fn detach(&self) {}
 
         pub fn place(&self, b: Bounds, visible: bool) -> Result<(), String> {
             let (x, s) = (&self.xlib, self.scale);
