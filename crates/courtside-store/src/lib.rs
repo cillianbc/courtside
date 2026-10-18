@@ -14,7 +14,8 @@ mod teams;
 mod template;
 
 pub use settings::{
-    Combination, KeyBinding, Rules, SKILLS, SetterCall, Settings, Tables, Typing, Video, WinningRow,
+    Combination, KeyBinding, KeyText, Rules, SKILLS, SetterCall, Settings, Tables, Typing, Video,
+    WinningRow,
 };
 pub use teams::{
     Player, PlayerInput, SeasonPlayer, Team, TeamImport, TeamInput, suggest_player_code,

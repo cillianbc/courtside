@@ -18,6 +18,8 @@ pub struct Settings {
     pub typing: Typing,
     pub tables: Tables,
     pub keymap: Vec<KeyBinding>,
+    /// Keys that type text on the command line (`]` types `#`).
+    pub key_text: Vec<KeyText>,
     pub rules: Rules,
     pub video: Video,
 }
@@ -150,6 +152,16 @@ pub struct SetterCall {
 pub struct KeyBinding {
     pub action: String,
     pub keys: String,
+}
+
+/// A key the command line types `text` for instead of its own character,
+/// as scouts remap keys (`]` → `#`, `[` → `+`). `keys` is written like a
+/// [`KeyBinding`]'s.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyText {
+    pub keys: String,
+    pub text: String,
 }
 
 impl Default for Tables {

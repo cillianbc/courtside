@@ -3,9 +3,18 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import * as backend from "../backend";
-  import { EVALUATIONS, SKILLS, SKILL_NAMES, TYPES, conflicts, type Settings } from "../settings";
+  import {
+    EVALUATIONS,
+    SKILLS,
+    SKILL_NAMES,
+    TYPES,
+    conflicts,
+    effectiveKeymap,
+    type Settings,
+  } from "../settings";
   import { ui } from "../ui.svelte";
   import KeymapEditor from "./KeymapEditor.svelte";
+  import KeyTextEditor from "./KeyTextEditor.svelte";
 
   let settings = $state<Settings | null>(null);
   let error = $state("");
@@ -28,6 +37,19 @@
       error = `${clash.join(", ")} is set for more than one action.`;
       return;
     }
+    const actionKeys = new Set(effectiveKeymap(settings.keymap).map((k) => k.keys));
+    const typed = settings.keyText.filter((k) => k.keys || k.text);
+    for (const [i, k] of typed.entries()) {
+      if (!k.keys || !k.text) {
+        error = "Each remapped key needs a key and the text it types.";
+        return;
+      }
+      if (typed.findIndex((o) => o.keys === k.keys) !== i || actionKeys.has(k.keys)) {
+        error = `${k.keys} is set more than once.`;
+        return;
+      }
+    }
+    settings.keyText = typed;
     try {
       await backend.saveSettings($state.snapshot(settings));
       await ui.loadKeymap();
@@ -264,6 +286,13 @@
     <h2>Keys</h2>
     <p class="sub-note">Click a key, then press the new one. Mod is Ctrl, or Cmd on a Mac.</p>
     <KeymapEditor bind:keymap={settings.keymap} />
+
+    <h2>Keys that type</h2>
+    <p class="sub-note">
+      Remap a key on the command line: it types the text instead of its own character (for example ]
+      types # and [ types +).
+    </p>
+    <KeyTextEditor bind:keyText={settings.keyText} keymap={effectiveKeymap(settings.keymap)} />
 
     {#if error}<p class="error">{error}</p>{/if}
     {#if note}<p class="sub-note">{note}</p>{/if}

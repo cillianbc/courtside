@@ -992,6 +992,37 @@ fn set_ends_wait_for_the_scout_when_the_season_asks() {
     assert!(session.save_settings(&settings).is_err());
 }
 
+/// Keys remapped to type text (`]` → `#`) are kept with the season.
+#[test]
+fn keys_that_type_text_are_saved_and_checked() {
+    use courtside_store::{KeyBinding, KeyText};
+    let (mut session, _dir) = opened();
+    let mut settings = session.settings().expect("settings");
+    let kt = |keys: &str, text: &str| KeyText {
+        keys: keys.into(),
+        text: text.into(),
+    };
+    settings.key_text = vec![kt("]", "#"), kt("[", "+")];
+    session.save_settings(&settings).expect("save");
+    assert_eq!(session.settings().expect("settings").key_text.len(), 2);
+
+    let mut bad = settings.clone();
+    bad.key_text.push(kt("]", "="));
+    assert!(session.save_settings(&bad).is_err(), "a key twice");
+    let mut bad = settings.clone();
+    bad.key_text.push(kt("F2", ""));
+    assert!(session.save_settings(&bad).is_err(), "no text");
+    let mut bad = settings.clone();
+    bad.key_text.push(kt("F3", "a b"));
+    assert!(session.save_settings(&bad).is_err(), "a space");
+    let mut bad = settings;
+    bad.keymap.push(KeyBinding {
+        action: "undo".into(),
+        keys: "]".into(),
+    });
+    assert!(session.save_settings(&bad).is_err(), "an action's key");
+}
+
 /// The id of the row reading `text`.
 fn row_id(snap: &courtside_console::Snapshot, text: &str) -> String {
     snap.groups

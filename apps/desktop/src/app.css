@@ -1245,6 +1245,9 @@ body {
 .pick label input {
   width: 100%;
 }
+.pick label input[type="checkbox"] {
+  width: auto;
+}
 .pick label input.short {
   width: 8ch;
 }
@@ -1403,6 +1406,25 @@ td.mono {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
+}
+.settings .pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  align-items: end;
+}
+.settings .pick select {
+  font: inherit;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--sunk);
+  color: var(--fg);
+  min-width: 14ch;
+}
+.settings .pick label.inline {
+  padding-bottom: 6px;
 }
 table.compact td {
   padding: 3px 6px;

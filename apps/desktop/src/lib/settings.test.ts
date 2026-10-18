@@ -5,6 +5,8 @@ import {
   conflicts,
   effectiveKeymap,
   keyString,
+  textFor,
+  typeText,
   usableWhileTyping,
 } from "./settings";
 
@@ -50,5 +52,25 @@ describe("keymap", () => {
     expect(usableWhileTyping("F5")).toBe(true);
     expect(usableWhileTyping("Shift+T")).toBe(false);
     expect(usableWhileTyping("T")).toBe(false);
+  });
+});
+
+describe("keys that type", () => {
+  const remap = [
+    { keys: "]", text: "#" },
+    { keys: "[", text: "+" },
+  ];
+
+  it("finds the text for the physical key", () => {
+    expect(textFor(remap, press({ key: "]", code: "BracketRight" }))).toBe("#");
+    expect(textFor(remap, press({ key: "[", code: "BracketLeft" }))).toBe("+");
+    expect(textFor(remap, press({ key: "}", code: "BracketRight", shiftKey: true }))).toBeNull();
+    expect(textFor(remap, press({ key: "8", code: "Digit8" }))).toBeNull();
+  });
+
+  it("types over the selection", () => {
+    expect(typeText("8A", 2, 2, "#")).toEqual({ value: "8A#", caret: 3 });
+    expect(typeText("8A+", 2, 3, "#")).toEqual({ value: "8A#", caret: 3 });
+    expect(typeText("8 9", 1, 1, "K1")).toEqual({ value: "8K1 9", caret: 3 });
   });
 });

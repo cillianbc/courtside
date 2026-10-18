@@ -5,7 +5,7 @@ import * as backend from "./backend";
 import { pointCode } from "./codes";
 import { setNews } from "./news";
 import type { Hint } from "./hint";
-import { effectiveKeymap, type KeyBinding } from "./settings";
+import { effectiveKeymap, type KeyBinding, type KeyText } from "./settings";
 import { stampTokens, video } from "./video.svelte";
 import type { Side, Snapshot } from "./snapshot";
 
@@ -49,6 +49,7 @@ class Ui {
   lineupSet = $state(1);
   /** The season's keys, defaults filled in. */
   keymap = $state<KeyBinding[]>(effectiveKeymap([]));
+  keyText = $state<KeyText[]>([]);
 
   get order(): Side[] {
     return this.swapped ? ["visiting", "home"] : ["home", "visiting"];
@@ -208,8 +209,10 @@ class Ui {
     try {
       const s = await backend.settings();
       this.keymap = effectiveKeymap(s?.keymap ?? []);
+      this.keyText = s?.keyText ?? [];
     } catch {
       this.keymap = effectiveKeymap([]);
+      this.keyText = [];
     }
   }
 

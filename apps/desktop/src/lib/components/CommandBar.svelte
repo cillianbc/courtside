@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as backend from "../backend";
   import { hintFor } from "../hint";
+  import { keyString, textFor, typeText } from "../settings";
   import type { Preview, Side } from "../snapshot";
   import { ui } from "../ui.svelte";
 
@@ -62,6 +63,22 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
+    // A remapped key types its text (Settings → Keys that type).
+    const text = textFor(ui.keyText, keyString(e));
+    if (text && input) {
+      e.preventDefault();
+      const t = typeText(
+        ui.code,
+        input.selectionStart ?? ui.code.length,
+        input.selectionEnd ?? ui.code.length,
+        text,
+      );
+      ui.code = t.value;
+      input.value = t.value;
+      input.setSelectionRange(t.caret, t.caret);
+      ui.keyed();
+      return;
+    }
     if (e.key === "Escape") {
       if (ui.editing) ui.cancelEdit();
       ui.code = "";

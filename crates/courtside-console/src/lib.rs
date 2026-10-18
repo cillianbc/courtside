@@ -280,6 +280,18 @@ fn check_settings(s: &Settings) -> Result<()> {
     if s.video.pre_roll_ms > 30_000 || s.video.post_roll_ms > 30_000 {
         return bad("A clip's time before and after its code is 0 to 30 seconds.".into());
     }
+    let mut typed = std::collections::HashSet::new();
+    for k in &s.key_text {
+        if k.keys.is_empty() || k.text.is_empty() || k.text.chars().count() > 20 {
+            return bad("A key that types text needs a key and 1 to 20 characters.".into());
+        }
+        if k.text.chars().any(char::is_whitespace) {
+            return bad(format!("{}: the text can't have spaces.", k.keys));
+        }
+        if !typed.insert(&k.keys) || s.keymap.iter().any(|b| b.keys == k.keys) {
+            return bad(format!("{} is set more than once.", k.keys));
+        }
+    }
     if !(1..=20).contains(&s.rules.substitutions) {
         return bad("Substitutions per set: 1 to 20.".into());
     }

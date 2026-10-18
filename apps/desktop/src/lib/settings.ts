@@ -20,6 +20,8 @@ export interface Settings {
     setterCalls: { code: string; description: string }[];
   };
   keymap: KeyBinding[];
+  /** Keys the command line types other text for (`]` → `#`). */
+  keyText: KeyText[];
   rules: {
     /** Substitutions per team and set. */
     substitutions: number;
@@ -43,6 +45,12 @@ export interface Settings {
 export interface KeyBinding {
   action: string;
   keys: string;
+}
+
+/** A key that types `text` on the command line instead of its own character. */
+export interface KeyText {
+  keys: string;
+  text: string;
 }
 
 export const SKILLS = ["S", "R", "E", "A", "B", "D", "F"] as const;
@@ -145,6 +153,25 @@ export function keyString(e: {
 export function actionFor(keymap: KeyBinding[], keys: string | null): string | null {
   if (!keys) return null;
   return keymap.find((k) => k.keys === keys)?.action ?? null;
+}
+
+/** The text a remapped key types, if it is one. */
+export function textFor(keyText: KeyText[], keys: string | null): string | null {
+  if (!keys) return null;
+  return keyText.find((k) => k.keys === keys && k.text)?.text ?? null;
+}
+
+/**
+ * `value` with `text` typed over the selection `start`–`end`, and where
+ * the caret goes after it.
+ */
+export function typeText(
+  value: string,
+  start: number,
+  end: number,
+  text: string,
+): { value: string; caret: number } {
+  return { value: value.slice(0, start) + text + value.slice(end), caret: start + text.length };
 }
 
 /** Keys bound to more than one action. */
