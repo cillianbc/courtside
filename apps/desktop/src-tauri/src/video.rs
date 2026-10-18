@@ -500,8 +500,7 @@ mod surface {
         MainThreadMarker::new().ok_or_else(|| "video must be driven from the main thread".into())
     }
 
-    /// The window's WKWebView: the page's coordinates are its own, which
-    /// start below the title bar, not at the content view's top.
+    /// The window's WKWebView, whose safe area the page is laid out in.
     fn find_webview(view: &NSView) -> Option<Retained<NSView>> {
         let class = AnyClass::get(c"WKWebView")?;
         for sub in view.subviews() {
@@ -516,14 +515,20 @@ mod surface {
     }
 
     /// `bounds` (CSS pixels from the page's top left) in `target`'s
-    /// coordinates, by way of the webview's.
+    /// coordinates, by way of the webview's. Tauri's window has a full-size
+    /// content view: the webview runs under the title bar and lays the
+    /// page out in its safe area, below it.
     fn frame(webview: &NSView, target: &NSView, b: Bounds) -> NSRect {
+        let page = webview.safeAreaRect();
         let y = if webview.isFlipped() {
-            b.y
+            page.origin.y + b.y
         } else {
-            webview.bounds().size.height - b.y - b.height
+            page.origin.y + page.size.height - b.y - b.height
         };
-        let rect = NSRect::new(NSPoint::new(b.x, y), NSSize::new(b.width, b.height));
+        let rect = NSRect::new(
+            NSPoint::new(page.origin.x + b.x, y),
+            NSSize::new(b.width, b.height),
+        );
         webview.convertRect_toView(rect, Some(target))
     }
 
