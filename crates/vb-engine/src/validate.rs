@@ -69,6 +69,8 @@ pub enum IssueKind {
     PointAfterSetWon,
     WrongScore,
     SetEndNotWon,
+    /// Much more video than usual between a point and the next serve.
+    LongGapBeforeServe,
     // Rule::Rotation
     /// The team that served out of turn.
     WrongServer(Team),
@@ -335,6 +337,59 @@ impl Validator<'_> {
             }
             for (severity, kind, message) in found {
                 self.push(i, severity, Rule::Code, kind, message);
+            }
+        }
+    }
+
+    /// A rally the scout missed leaves no code when the serving team won
+    /// it: no rotation, no change of server, only the score one short.
+    /// With video times on the codes it shows as a long stretch of video
+    /// between a point and the next serve. Timeouts, substitutions,
+    /// comments and set ends explain a long stretch, so they clear it.
+    fn gaps(&mut self) {
+        // Fewer gaps than this and the usual one isn't known.
+        const MIN_GAPS: usize = 8;
+        const MIN_FLAG_MS: u64 = 30_000;
+        let mut gaps = Vec::new();
+        let mut since_point: Option<u64> = None;
+        for (i, e) in self.events.iter().enumerate() {
+            match e.kind() {
+                EventKind::Point => since_point = e.video_ms,
+                EventKind::Touch => {
+                    let serve = matches!(e.code(), Some(Code::Touch(t)) if t.skill == Skill::Serve);
+                    if serve {
+                        if let (Some(p), Some(v)) = (since_point, e.video_ms)
+                            && v > p
+                        {
+                            gaps.push((i, v - p));
+                        }
+                        since_point = None;
+                    }
+                }
+                EventKind::SetterPosition | EventKind::SetterChange => {}
+                _ => since_point = None,
+            }
+        }
+        if gaps.len() < MIN_GAPS {
+            return;
+        }
+        let mut sorted: Vec<u64> = gaps.iter().map(|g| g.1).collect();
+        sorted.sort_unstable();
+        let usual = sorted[sorted.len() / 2];
+        let flag = (usual * 8 / 5).max(MIN_FLAG_MS);
+        for (i, gap) in gaps {
+            if gap >= flag {
+                self.push(
+                    i,
+                    Severity::Info,
+                    Rule::Score,
+                    IssueKind::LongGapBeforeServe,
+                    format!(
+                        "{} s of video since the last point, usually {} s; a missed rally?",
+                        gap / 1000,
+                        usual / 1000
+                    ),
+                );
             }
         }
     }
@@ -1094,6 +1149,7 @@ pub fn validate_folded(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Ve
     };
     v.codes();
     v.score();
+    v.gaps();
     v.rotation();
     v.back_row();
     v.substitutions();
@@ -1422,6 +1478,68 @@ mod tests {
                 "7 \"home player 5 is not on court; missing substitution?\"",
                 "8 \"player 9 is not on the home team sheet\"",
             ]
+        );
+    }
+
+    /// The scout's report (2026-10-19): a set one point short with no
+    /// issue to find the missed rally by.
+    #[test]
+    fn a_long_gap_before_a_serve_hints_at_a_missed_rally() {
+        let mut m = Match {
+            teams: Sides {
+                home: sheet([8, 12, 13, 11, 3, 14], &[5], None),
+                visiting: sheet([16, 11, 18, 6, 10, 13], &[], None),
+            },
+            ..Match::default()
+        };
+        let mut ids = IdGen::new(0);
+        let mut add = |code: &str, video_s: u64| {
+            m.log.append(
+                &mut ids,
+                NewEvent {
+                    video_ms: Some(video_s * 1000),
+                    ..NewEvent::code(Code::parse(code), Producer::Keyboard)
+                },
+            );
+        };
+        for c in LINEUP {
+            add(c, 0);
+        }
+        // Home serves and wins ten rallies, 20 s from each point to the
+        // next serve; 50 s before the 6th serve, and before the 9th with
+        // a timeout in between.
+        let mut t = 10;
+        for n in 1..=10u8 {
+            t += match n {
+                6 => 50,
+                9 => 25,
+                _ => 20,
+            };
+            if n == 9 {
+                add("aT", t);
+                t += 25;
+            }
+            add("*08SH#", t);
+            add(&format!("*p{n:02}:00"), t + 5);
+            t += 5;
+        }
+        let got: Vec<String> = validate(&m)
+            .iter()
+            .filter(|i| i.kind == IssueKind::LongGapBeforeServe)
+            .map(|i| {
+                format!(
+                    "{} {}",
+                    m.log.visible()[i.index]
+                        .code()
+                        .map(|c| c.to_string())
+                        .unwrap_or_default(),
+                    i.message
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            ["*08SH# 50 s of video since the last point, usually 20 s; a missed rally?"]
         );
     }
 
