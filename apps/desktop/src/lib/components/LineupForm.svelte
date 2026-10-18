@@ -58,6 +58,12 @@
     else if (ok) {
       six = "";
       setter = "";
+    } else {
+      // Said here, not only in the command bar far below.
+      const why = ui.result?.text ?? "The lineup wasn't entered.";
+      note = why.includes("not on the team sheet")
+        ? `${why}: add the player to this match's roster first: "edit" by the team's name in the rosters.`
+        : why;
     }
   }
 </script>
