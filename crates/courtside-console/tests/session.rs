@@ -297,6 +297,26 @@ fn the_setters_set_is_added_unless_typed() {
     assert_eq!(codes, ["*03RH+", "*01AH#"], "a setter dump");
 }
 
+/// VolleyStation's shorthand (docs/research/VOLLEYSTATION.md §12): a call
+/// with no player is the setter's set, the set's target comes from the
+/// attack's combination (the made-up table: X5 → C, X6 → B), and the
+/// extended part goes after the evaluation without `~`.
+#[test]
+fn volleystation_shorthand_fills_the_set() {
+    let (mut session, _dir) = opened();
+    let p = session.preview("a16# a8X5#T2").expect("preview");
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes, ["a16RH#", "a14EQ+~~C", "a08AQ#X5~3~~T2"]);
+    session.commit("a16# a8X5#T2", None).expect("commit");
+    // Northgate serves; home's setter is 1.
+    let p = session.preview("*3R+ K7 9X6#").expect("preview");
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes, ["*03RH+", "*01EH+K7B", "*09AT#X6~2"]);
+    let p = session.preview("*3R+ 6K1F# 9X6#").expect("preview");
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes[1], "*06EH#K1F", "a typed target stays");
+}
+
 #[test]
 fn dot_codes_write_both_halves() {
     let (mut session, _dir) = opened();

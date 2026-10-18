@@ -54,7 +54,8 @@ pub fn preview(
     let mut codes = Vec::new();
     let mut last = before.cloned();
     for (n, token) in text.split_whitespace().enumerate() {
-        match expand(token, last.as_ref(), defaults) {
+        let named = setters.and_then(|s| setters_call(token, s));
+        match expand(named.as_deref().unwrap_or(token), last.as_ref(), defaults) {
             Err(e) => codes.push(Readback {
                 typed: token.to_owned(),
                 text: token.to_owned(),
@@ -76,6 +77,27 @@ pub fn preview(
                         codes.push(r);
                         last = Some(set);
                     }
+                    // The set before an attack takes its target from the
+                    // attack's combination, unless one was typed.
+                    if let Code::Touch(t) = code
+                        && t.skill == Skill::Attack
+                        && let Some(target) = t
+                            .combination()
+                            .and_then(|c| defaults.combination(&c)?.target)
+                        && let Some(prev) = codes.last_mut()
+                        && let Code::Touch(set) = Code::parse(&prev.text)
+                        && set.skill == Skill::Set
+                        && set.team == t.team
+                        && set.target().is_none()
+                    {
+                        let set = set.with_target(target);
+                        let mut r = read(&set.to_string(), game, names);
+                        r.typed = std::mem::take(&mut prev.typed);
+                        r.token = prev.token;
+                        r.filled = std::mem::take(&mut prev.filled);
+                        r.filled.push("target from the combination".into());
+                        *prev = r;
+                    }
                     let mut r = read(&code.to_string(), game, names);
                     r.typed = token.to_owned();
                     r.token = n;
@@ -94,6 +116,21 @@ pub fn preview(
     }
     let ok = !codes.is_empty() && codes.iter().all(|c| c.error.is_none());
     Preview { codes, ok }
+}
+
+/// `K7#`, `aK1`: a setter call typed without a player is the team's
+/// setter's set (VolleyStation's shorthand); the token with the setter's
+/// number put in, or `None` when it isn't one or no setter is known.
+fn setters_call(token: &str, setters: Sides<Option<u8>>) -> Option<String> {
+    let (team, rest) = match token.strip_prefix('a') {
+        Some(r) => (Team::Visiting, r),
+        None => (Team::Home, token.strip_prefix('*').unwrap_or(token)),
+    };
+    if !rest.starts_with(['K', 'k']) || rest.len() < 2 || rest.contains('.') {
+        return None;
+    }
+    let n = (*setters.get(team))?;
+    Some(format!("{}{n:02}{rest}", team.as_char()))
 }
 
 /// The set the scout left out before `attack`: its team's setter's, when

@@ -9,6 +9,11 @@
 //!   the console adds the setter's set in front) and type `E` when
 //!   someone else set or they want the set's details (`4EK1`: a setter
 //!   call fills type and evaluation like a combination does);
+//! - VolleyStation's order (docs/research/VOLLEYSTATION.md §12): a call or
+//!   combination may stand in for the skill (`4K1`, `8X5#`), zones go
+//!   before the evaluation (`9AQ35#`) and the extended part after it, no
+//!   `~` (`8X5#T2`: a tip against two blockers); `~` or a combination or
+//!   call right after the evaluation means DataVolley's columns;
 //! - a missing type is copied from the touch it answers (reception from the
 //!   serve, block and dig from the attack), else the per-skill default;
 //! - a missing evaluation is the per-skill default;
@@ -58,7 +63,7 @@ pub struct Combination {
 }
 
 impl Defaults {
-    fn combination(&self, code: &str) -> Option<&Combination> {
+    pub fn combination(&self, code: &str) -> Option<&Combination> {
         self.combinations.iter().find(|c| c.code == code)
     }
 }
@@ -183,8 +188,12 @@ struct Typed {
     skill: Option<Skill>,
     skill_type: Option<char>,
     evaluation: Option<char>,
-    /// Positions 7 on, as typed.
-    rest: String,
+    /// Between the type and the evaluation, VolleyStation's order: call or
+    /// combination, target, zones, subzone (`X55`, `K13C`, `35`).
+    pre: String,
+    /// After the evaluation: the extended part (`T2`, `H1O`), or positions
+    /// 7 on by column (`~~~48`, `X5~4`).
+    post: String,
 }
 
 /// `implied`: the skill may be left out though more follows (a dot
@@ -220,6 +229,9 @@ fn typed_touch(token: &str, implied: bool) -> Result<Typed, String> {
     // Skill and type letters don't overlap, so the skill may be left out.
     let skill = match chars.peek() {
         Some(&c) if TYPES.contains(c) => None,
+        // A setter call or a combination stands in for the skill (`4K1`,
+        // `8X5#`); `complete` tells which.
+        Some(&c) if c.is_ascii_alphabetic() && Skill::from_char(c).is_none() => None,
         Some(&c) if c.is_ascii_alphabetic() || c == '&' => {
             chars.next();
             Some(Skill::from_char(c).ok_or(format!("Unknown skill letter {c}."))?)
@@ -233,15 +245,26 @@ fn typed_touch(token: &str, implied: bool) -> Result<Typed, String> {
         }
         _ => None,
     };
-    let evaluation = match chars.peek() {
-        Some(&c) if EVALUATIONS.contains(c) => {
-            chars.next();
-            Some(c)
-        }
-        _ => None,
-    };
     let rest: String = chars.collect();
-    if skill.is_none() && !implied && !rest.is_empty() {
+    // By column when `~` holds the gaps (DataVolley's layout); else the
+    // evaluation may come after the zones (VolleyStation's).
+    let at = rest.find(|c| EVALUATIONS.contains(c));
+    let (pre, evaluation, post) = match at {
+        // `~` before any evaluation: by column with the evaluation left out.
+        _ if rest.find('~').is_some_and(|g| at.is_none_or(|i| g < i)) => {
+            (String::new(), None, rest)
+        }
+        Some(i) => (
+            rest[..i].to_owned(),
+            rest[i..].chars().next(),
+            rest[i + 1..].to_owned(),
+        ),
+        None => (rest, None, String::new()),
+    };
+    if skill.is_none()
+        && !implied
+        && (post.contains('~') || pre.starts_with(|c: char| c.is_ascii_digit()))
+    {
         return Err("Put the skill letter (S R E A B D F) before the zones and the rest.".into());
     }
     Ok(Typed {
@@ -250,7 +273,8 @@ fn typed_touch(token: &str, implied: bool) -> Result<Typed, String> {
         skill,
         skill_type,
         evaluation,
-        rest,
+        pre,
+        post,
     })
 }
 
@@ -289,6 +313,18 @@ fn complete(
     let team = t.team.unwrap_or(Team::Home);
     let skill = match t.skill {
         Some(s) => s,
+        None if t.pre.starts_with('K') && t.pre.len() >= 2 => {
+            filled.push("set from the call".into());
+            Skill::Set
+        }
+        None if t.pre.get(..2).is_some_and(|c| d.combination(c).is_some()) => {
+            filled.push("attack from the combination".into());
+            Skill::Attack
+        }
+        None if t.pre.starts_with(|c: char| c.is_ascii_alphabetic()) => {
+            let c = t.pre.chars().next().unwrap_or('?');
+            return Err(format!("Unknown skill letter {c}."));
+        }
         None => match predicted(before, team).filter(|_| d.predict) {
             Some(s) => {
                 filled.push("skill predicted".into());
@@ -308,20 +344,21 @@ fn complete(
             _ => return Err("Shirt numbers go from 0 to 99.".into()),
         }
     };
+    let rest = layout(skill, t, d)?;
     // An attack typed with a combination straight after the skill
     // (`5AX5`): the combination stands in for type and evaluation.
     let combination = (skill == Skill::Attack)
-        .then(|| t.rest.get(..2))
+        .then(|| rest.get(..2))
         .flatten()
         .and_then(|code| d.combination(code));
     // A set typed with its setter call (`4EK1`): calls start with `K`, a
     // letter no type uses, so type and evaluation take their defaults.
-    let call = skill == Skill::Set && t.rest.starts_with('K') && t.rest.len() >= 2;
+    let call = skill == Skill::Set && rest.starts_with('K') && rest.len() >= 2;
     if t.skill_type.is_none()
         && t.evaluation.is_none()
         && combination.is_none()
         && !call
-        && let Some(c) = t.rest.chars().next().filter(char::is_ascii_alphabetic)
+        && let Some(c) = rest.chars().next().filter(char::is_ascii_alphabetic)
     {
         return Err(format!("Unknown type letter {c}."));
     }
@@ -351,7 +388,7 @@ fn complete(
             d.evaluations[slot(skill)]
         }
     };
-    let mut touch = build(team, player, skill, skill_type, evaluation, &t.rest);
+    let mut touch = build(team, player, skill, skill_type, evaluation, &rest);
     // The combination's start zone when none is typed.
     if skill == Skill::Attack
         && touch.start_zone().is_none()
@@ -362,6 +399,91 @@ fn complete(
         touch = touch.with_start_zone(c.start_zone);
     }
     Ok(touch)
+}
+
+/// Positions 7 on, from what was typed around the evaluation
+/// (docs/research/VOLLEYSTATION.md §12). Before it: a call or combination
+/// (two characters), a set's target, one or two zones and an end subzone.
+/// One zone is the start zone, except on a set (DataVolley keeps a set's
+/// zone as its end zone) or after a combination (which gives the start).
+/// After it: the extended part, the skill's subtype, number of players
+/// and special (`T2`: a tip against two blockers). What starts with a
+/// combination or call, or has `~` in it, is by column, as DataVolley
+/// writes it.
+fn layout(skill: Skill, t: &Typed, d: &Defaults) -> Result<String, String> {
+    let (pre, post) = (t.pre.as_str(), t.post.as_str());
+    let named = |s: &str| {
+        s.get(..2).is_some_and(|c| {
+            (skill == Skill::Set && c.starts_with('K')) || d.combination(c).is_some()
+        })
+    };
+    let ext = extended(skill, post);
+    if post.contains('~') || named(post) || (ext.is_none() && !post.is_empty()) {
+        if !pre.is_empty() {
+            return Err(format!(
+                "Zones go before the evaluation and {post} after it in its columns: type one or the other."
+            ));
+        }
+        return Ok(post.to_owned());
+    }
+    let mut cols = ['~'; 9];
+    let mut p = pre.chars().peekable();
+    if p.peek().is_some_and(char::is_ascii_alphabetic) {
+        cols[0] = p.next().unwrap_or('~');
+        cols[1] = p
+            .next()
+            .ok_or(format!("{pre}: a call or combination has two characters."))?;
+    }
+    if skill == Skill::Set
+        && cols[0] == 'K'
+        && let Some(c) = p.next_if(|c| "FBCPS".contains(*c))
+    {
+        cols[2] = c;
+    }
+    let mut zones = Vec::new();
+    while let Some(z) = p.next_if(char::is_ascii_digit) {
+        zones.push(z);
+    }
+    match zones[..] {
+        [] => {}
+        [z] if skill == Skill::Set || cols[0] != '~' => cols[4] = z,
+        [z] => cols[3] = z,
+        [a, b] => (cols[3], cols[4]) = (a, b),
+        _ => return Err(format!("{pre}: at most two zones, start and end.")),
+    }
+    if !zones.is_empty()
+        && let Some(c) = p.next_if(|c| ('A'..='D').contains(c))
+    {
+        cols[5] = c;
+    }
+    if let Some(c) = p.next() {
+        return Err(format!("{pre}: can't read {c} there."));
+    }
+    if let Some([a, b, c]) = ext {
+        cols[6..9].copy_from_slice(&[a, b, c]);
+    }
+    let out: String = cols.iter().collect();
+    Ok(out.trim_end_matches('~').to_owned())
+}
+
+/// The extended part typed after the evaluation, as subtype, number of
+/// players and special (`~` where left out), with the values each skill
+/// takes (docs/research/DATAVOLLEY4.md §3); `None` if it isn't one.
+fn extended(skill: Skill, text: &str) -> Option<[char; 3]> {
+    let (subtypes, players, specials) = match skill {
+        Skill::Attack => ("HPT", "01234", "SOFXNCIZA"),
+        Skill::Block => ("AT", "01234", "SOFXNIPZT"),
+        Skill::Reception => ("LRWOM", "123456789", "UXPZE"),
+        Skill::Dig => ("SCBE", "", "UXPZEFO"),
+        Skill::Set => ("12345", "", "UIZ"),
+        Skill::Serve => ("", "", "OLRNZ"),
+        Skill::Freeball => ("", "", "UXPZE"),
+        Skill::Green => ("", "", ""),
+    };
+    let mut p = text.chars().peekable();
+    let mut take = |set: &str| p.next_if(|c| set.contains(*c)).unwrap_or('~');
+    let out = [take(subtypes), take(players), take(specials)];
+    p.next().is_none().then_some(out)
 }
 
 fn build(
@@ -510,8 +632,22 @@ fn compound(
         Code::Touch(x) => x.player,
         _ => crate::code::Player::Unknown,
     };
-    let mut first = build(team_a, player(&a), skill_a, ty, ev_a, &a.rest);
-    let mut second = build(team_b, player(&b), skill_b, ty, ev_b, &b.rest);
+    let mut first = build(
+        team_a,
+        player(&a),
+        skill_a,
+        ty,
+        ev_a,
+        &layout(skill_a, &a, d)?,
+    );
+    let mut second = build(
+        team_b,
+        player(&b),
+        skill_b,
+        ty,
+        ev_b,
+        &layout(skill_b, &b, d)?,
+    );
     // Zones typed on one half go on the other.
     let zones = |t: &Touch| (t.start_zone(), t.end_zone(), t.end_subzone());
     let (za, zb) = (zones(&first), zones(&second));
@@ -789,6 +925,67 @@ mod tests {
             ["*07SM-"],
             "type and evaluation, skill predicted"
         );
+    }
+
+    /// VolleyStation's order (docs/research/VOLLEYSTATION.md §12): zones
+    /// before the evaluation, the extended part after it, no `~`.
+    #[test]
+    fn volleystation_order() {
+        let d = Defaults {
+            combinations: vec![combo("X5", 'T', '4', 'F'), combo("P2", 'O', '3', '-')],
+            ..Defaults::default()
+        };
+        let with = |s: &str, before: Option<&str>| {
+            let b = before.map(touch);
+            let e = expand(s, b.as_ref(), &d).unwrap_or_else(|e| panic!("{s}: {e}"));
+            e.codes[0].to_string()
+        };
+        let rec = Some("*05RH+");
+        assert_eq!(with("9AQ35#", rec), "*09AQ#~~~35", "start and end zone");
+        assert_eq!(with("9AQ36A#", rec), "*09AQ#~~~36A", "and subzone");
+        assert_eq!(with("8A4", rec), "*08AH+~~~4", "one zone is the start");
+        assert_eq!(
+            with("8X56#", rec),
+            "*08AT#X5~46",
+            "combination: start from it"
+        );
+        assert_eq!(with("8X5#T2", rec), "*08AT#X5~4~~T2", "tip, two blockers");
+        assert_eq!(with("8AH48#T3", rec), "*08AH#~~~48~T3");
+        assert_eq!(
+            with("8AT26=H1O", rec),
+            "*08AT=~~~26~H1O",
+            "hard, one blocker, out"
+        );
+        assert_eq!(with("8#T2", rec), "*08AH#~~~~~~T2", "skill predicted");
+        assert_eq!(with("8=O", rec), "*08AH=~~~~~~~~O", "out");
+        assert_eq!(
+            with("8A#P2", rec),
+            "*08AO#P2~3",
+            "a combination after # is by column"
+        );
+        assert_eq!(
+            with("4K1", rec),
+            "*04EH+K1",
+            "a call stands in for the skill"
+        );
+        assert_eq!(with("4K1F#", rec), "*04EH#K1F");
+        assert_eq!(
+            with("6K13C+", rec),
+            "*06EH+K1~~3C",
+            "a set's zone is its end zone"
+        );
+        assert_eq!(with("4E#2", rec), "*04EH#~~~~~~2", "two hands");
+        assert_eq!(with("a5S#", None), "a05SH#", "nothing extra");
+        assert_eq!(with("5S16-", None), "*05SH-~~~16");
+        assert_eq!(
+            with("a05AT45#.5=", Some("a04EH+")),
+            "a05AT#~~~45",
+            "dot code halves"
+        );
+        let err = |s: &str| expand(s, rec.map(touch).as_ref(), &d).unwrap_err();
+        assert_eq!(err("8Z5#"), "Unknown skill letter Z.");
+        assert_eq!(err("8A4567#"), "4567: at most two zones, start and end.");
+        assert!(err("8A45#~~~45").contains("one or the other"));
     }
 
     #[test]
