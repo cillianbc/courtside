@@ -14,6 +14,16 @@
     input?.focus();
   });
 
+  // Focus that comes back by anything but a click in the box (a button,
+  // Mod+K, the window) puts the caret at the end: the browser would put it
+  // back where it last was, inside the codes already typed.
+  let clicked = false;
+  function onfocus() {
+    if (clicked || !input) return;
+    const end = input.value.length;
+    input.setSelectionRange(end, end);
+  }
+
   // Read back as the scout types; ignore answers to older text.
   $effect(() => {
     const text = ui.code;
@@ -119,6 +129,11 @@
     bind:this={input}
     bind:value={ui.code}
     {onkeydown}
+    {onfocus}
+    onpointerdown={() => {
+      clicked = true;
+      requestAnimationFrame(() => (clicked = false));
+    }}
     oninput={() => ui.keyed()}
     autocomplete="off"
     spellcheck="false"
