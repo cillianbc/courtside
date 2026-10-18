@@ -3,8 +3,10 @@
 //! The command line takes shorthand and fills in the rest:
 //! - no team prefix means home (`7` is `*07`); one-digit numbers are padded;
 //! - a missing skill is predicted from the touch before it in the rally
-//!   (serve → the other team's reception → set → attack → the other team's
-//!   dig …), else [`Defaults::skill`];
+//!   (serve → the other team's reception → attack → the other team's dig
+//!   …), else [`Defaults::skill`]. The set is never predicted: scouts code
+//!   the attack straight after their reception or dig (`8` is `*08AH+`)
+//!   and type `E` when they code a set;
 //! - a missing type is copied from the touch it answers (reception from the
 //!   serve, block and dig from the attack), else the per-skill default;
 //! - a missing evaluation is the per-skill default;
@@ -258,8 +260,8 @@ fn predicted(before: Option<&Touch>, team: Team) -> Option<Skill> {
     let same = b.team == team;
     match (b.skill, same) {
         (Skill::Serve, false) => Some(Skill::Reception),
-        (Skill::Reception | Skill::Dig | Skill::Freeball, true) => Some(Skill::Set),
-        (Skill::Set, true) => Some(Skill::Attack),
+        // Not the set: most scouts leave it out (the user's call, 2026-10-18).
+        (Skill::Reception | Skill::Dig | Skill::Freeball | Skill::Set, true) => Some(Skill::Attack),
         (Skill::Set, false) | (Skill::Attack, false) | (Skill::Block, _) => Some(Skill::Dig),
         _ => None,
     }
@@ -706,7 +708,20 @@ mod tests {
             ["a10RM+"],
             "reception takes the serve's type"
         );
-        assert_eq!(exp("a15", Some("a10RM+")), ["a15EH+"]);
+        assert_eq!(
+            exp("8", Some("*05RH+")),
+            ["*08AH+"],
+            "the attack follows the reception: sets aren't predicted"
+        );
+        assert_eq!(exp("8#", Some("*05RH+")), ["*08AH#"], "a kill");
+        assert_eq!(exp("8=", Some("*05DH+")), ["*08AH="]);
+        assert_eq!(exp("8F", Some("*05RH+")), ["*08FH+"], "a typed skill stays");
+        assert_eq!(exp("a15E", Some("a10RM+")), ["a15EH+"], "a set is typed");
+        assert_eq!(
+            exp("a8#", Some("*07SH+")),
+            ["a08RH#"],
+            "a perfect pass stays"
+        );
         assert_eq!(exp("a2", Some("a15EQ+")), ["a02AH+"]);
         assert_eq!(
             exp("8", Some("a02AQ+")),

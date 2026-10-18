@@ -241,7 +241,7 @@ fn preview_reads_codes_back() {
 #[test]
 fn shorthand_is_expanded_with_the_rally_as_context() {
     let (mut session, _dir) = opened();
-    let p = session.preview("a16 a14 a13#").expect("preview");
+    let p = session.preview("a16 a14E a13#").expect("preview");
     assert!(p.ok);
     let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
     assert_eq!(codes, ["a16RH+", "a14EH+", "a13AH#"]);
@@ -259,7 +259,7 @@ fn shorthand_is_expanded_with_the_rally_as_context() {
         "Northgate #16 reception, high, positive"
     );
     // Enter writes the full codes, then the point and rotation as before.
-    let snap = session.commit("a16 a14 a13#", None).expect("commit");
+    let snap = session.commit("a16 a14E a13#", None).expect("commit");
     let t = texts(&snap);
     assert_eq!(
         t[t.len() - 5..],
@@ -270,9 +270,9 @@ fn shorthand_is_expanded_with_the_rally_as_context() {
 #[test]
 fn dot_codes_write_both_halves() {
     let (mut session, _dir) = opened();
-    session.commit("a16RH+ a14 a13", None).expect("rally");
+    session.commit("a16RH+ a14E a13", None).expect("rally");
     // Home digs it; then home attacks and Northgate's 15 blocks it.
-    let snap = session.commit("2 4 3A.a15#", None).expect("block");
+    let snap = session.commit("2 4E 3A.a15#", None).expect("block");
     let t = texts(&snap);
     assert_eq!(
         t[t.len() - 6..],
