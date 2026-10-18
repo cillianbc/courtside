@@ -79,6 +79,8 @@ export const ACTIONS: readonly { id: string; label: string; keys: string }[] = [
   { id: "videoPlay", label: "Video: play or pause", keys: "Alt+K" },
   { id: "videoBack", label: "Video: back 5 seconds", keys: "Alt+J" },
   { id: "videoForward", label: "Video: forward 5 seconds", keys: "Alt+L" },
+  { id: "videoBackLong", label: "Video: back 30 seconds", keys: "Alt+Shift+J" },
+  { id: "videoForwardLong", label: "Video: forward 30 seconds", keys: "Alt+Shift+L" },
   { id: "videoFrameBack", label: "Video: one frame back", keys: "Alt+," },
   { id: "videoFrameForward", label: "Video: one frame on", keys: "Alt+." },
   { id: "videoSlower", label: "Video: slower", keys: "Alt+Shift+," },

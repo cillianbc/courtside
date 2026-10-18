@@ -5,7 +5,7 @@ import * as backend from "./backend";
 import { rotationCode, timeoutCode } from "./codes";
 import type { Side } from "./snapshot";
 import { ui } from "./ui.svelte";
-import { JUMP, video } from "./video.svelte";
+import { JUMP, LONG_JUMP, video } from "./video.svelte";
 
 export async function exportDvw(): Promise<void> {
   const snap = ui.snapshot;
@@ -102,6 +102,12 @@ function runVideo(action: string): boolean {
       return true;
     case "videoForward":
       void video.seek(JUMP);
+      return true;
+    case "videoBackLong":
+      void video.seek(-LONG_JUMP);
+      return true;
+    case "videoForwardLong":
+      void video.seek(LONG_JUMP);
       return true;
     case "videoFrameBack":
       void video.step(true);

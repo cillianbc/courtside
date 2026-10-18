@@ -3,7 +3,7 @@
   import { onDestroy, onMount } from "svelte";
   import * as backend from "../backend";
   import { ui } from "../ui.svelte";
-  import { JUMP, video } from "../video.svelte";
+  import { JUMP, LONG_JUMP, video } from "../video.svelte";
   import Icon from "./Icon.svelte";
 
   // libmpv draws in a native view the backend keeps over `screen`; this
@@ -163,9 +163,9 @@
       class="icon-btn"
       type="button"
       disabled={!player?.path}
-      title="Back {JUMP} seconds"
+      title="Back {JUMP} seconds (Shift-click: {LONG_JUMP})"
       aria-label="Back {JUMP} seconds"
-      onclick={() => video.seek(-JUMP)}><Icon name="rewind" /></button
+      onclick={(e) => video.seek(e.shiftKey ? -LONG_JUMP : -JUMP)}><Icon name="rewind" /></button
     >
     <button
       class="icon-btn"
@@ -194,9 +194,9 @@
       class="icon-btn"
       type="button"
       disabled={!player?.path}
-      title="Forward {JUMP} seconds"
+      title="Forward {JUMP} seconds (Shift-click: {LONG_JUMP})"
       aria-label="Forward {JUMP} seconds"
-      onclick={() => video.seek(JUMP)}><Icon name="forward" /></button
+      onclick={(e) => video.seek(e.shiftKey ? LONG_JUMP : JUMP)}><Icon name="forward" /></button
     >
     <span class="timecode">{timecode(player?.time ?? null, player?.fps ?? null)}</span>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
