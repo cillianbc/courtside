@@ -1547,3 +1547,60 @@ fn clip_playlists_filter_touches_with_video() {
     settings.video.post_roll_ms = 31_000;
     assert!(session.save_settings(&settings).is_err());
 }
+
+/// The scout's report (2026-10-19): a rally missed mid-set goes in before
+/// the next one; the console writes its point and moves the later scores.
+#[test]
+fn a_missed_rally_goes_in_mid_set() {
+    let (mut session, _dir) = opened();
+    let snap = session.snapshot().expect("snapshot");
+    let serve = row_id(&snap, "a12SM=");
+    let snap = session
+        .insert_before(&serve, "a12S# ", None)
+        .expect("insert");
+    let t = texts(&snap);
+    assert_eq!(
+        t[9..],
+        [
+            "az3", "*T", "a12SH#", "ap00:02", "a12SM=", "*p01:02", "*z6", "*02SH+"
+        ]
+    );
+    assert!(
+        snap.issues.iter().all(|i| i.severity == "info"),
+        "{:?}",
+        snap.issues
+    );
+
+    // A side-out goes in with the winner's rotation; one undo at a time.
+    let serve = row_id(&snap, "a12SM=");
+    let snap = session
+        .insert_before(&serve, "a12S= ", None)
+        .expect("insert");
+    let t = texts(&snap);
+    assert_eq!(t[13..17], ["a12SH=", "*p01:02", "*z6", "a12SM="]);
+    assert_eq!(t[17], "*p02:02");
+
+    // A rally nobody won yet is refused; a typed point ends it and takes
+    // the score where it lands.
+    let serve = row_id(&snap, "a12SM=");
+    assert!(session.insert_before(&serve, "a12S+ 7-", None).is_err());
+    let snap = session
+        .insert_before(&serve, "a12S+ 7- ap00:00", None)
+        .expect("insert");
+    let t = texts(&snap);
+    assert_eq!(t[16..20], ["a12SH+", "*07RH-", "ap01:03", "a12SM="]);
+    assert_eq!(t[20], "*p02:03");
+}
+
+/// A line of codes goes in inside a rally too, read with the rally there.
+#[test]
+fn a_line_goes_in_inside_a_rally() {
+    let (session, _dir) = opened();
+    let snap = session.snapshot().expect("snapshot");
+    let attack = row_id(&snap, "a13AH#");
+    let p = session
+        .preview_before("a14E a10", &attack)
+        .expect("preview");
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes, ["a14EH+", "a10AH+"]);
+}

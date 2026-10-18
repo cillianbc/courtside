@@ -252,10 +252,14 @@ fn match_open(app: AppHandle, state: State<'_, Shared>, id: String) -> Reply<Sna
     Ok(snap)
 }
 
-/// Reads back the command line.
+/// Reads back the command line; with `before`, as codes going in just
+/// before that earlier code.
 #[tauri::command]
-fn preview(state: State<'_, Shared>, text: String) -> Reply<Preview> {
-    with(&state, |s| s.preview(&text))
+fn preview(state: State<'_, Shared>, text: String, before: Option<String>) -> Reply<Preview> {
+    with(&state, |s| match &before {
+        Some(id) => s.preview_before(&text, id),
+        None => s.preview(&text),
+    })
 }
 
 /// Adds the command line's codes; `clock` is the local time of day

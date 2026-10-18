@@ -11,8 +11,11 @@ import type { Side, Snapshot } from "./snapshot";
 
 /** The command bar is editing an earlier code rather than adding one. */
 export interface Editing {
-  /** `correct`: modify the code; `insert`: add one before it; `after`: add one after it. */
-  mode: "correct" | "insert" | "after";
+  /**
+   * `correct`: modify the code; `insert`: add codes before it; `after`: add
+   * codes after it; `rally`: add a missed rally before the rally it starts.
+   */
+  mode: "correct" | "insert" | "after" | "rally";
   id: string;
   /** The code being modified, or the one the new code goes before or after. */
   text: string;
@@ -141,6 +144,13 @@ class Ui {
     this.clearStamps();
   }
 
+  /** Where codes on the command bar go in: the code they go before, if not at the end. */
+  insertingBefore(): string | null {
+    const e = this.editing;
+    if (!e || e.mode === "correct") return null;
+    return e.mode === "after" ? this.codeAfter(e.id) : e.id;
+  }
+
   /** Enter on the command bar: add, correct or insert. */
   async submit(text: string): Promise<boolean> {
     const e = this.editing;
@@ -150,6 +160,12 @@ class Ui {
       ok = await this.apply(
         `Modified ${e.text} to ${text}`,
         () => backend.correct(e.id, text),
+        true,
+      );
+    else if (e.mode === "rally")
+      ok = await this.apply(
+        `Added a rally before ${e.text}`,
+        () => backend.insertBefore(e.id, text),
         true,
       );
     else if (e.mode === "insert")
@@ -188,6 +204,11 @@ class Ui {
    */
   point(side: Side): Promise<boolean> {
     const snap = this.snapshot;
+    // A missed rally going in: the point ends it (its score is written
+    // where the rally lands).
+    if (snap && this.editing?.mode === "rally") {
+      return this.submit(`${this.code.trim()} ${pointCode(side, { home: 0, visiting: 0 })}`);
+    }
     if (!snap || snap.matchOver || snap.needsLineup.home || snap.needsLineup.visiting)
       return Promise.resolve(false);
     const open = snap.groups.at(-1);

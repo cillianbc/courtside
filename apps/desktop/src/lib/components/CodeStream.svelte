@@ -33,6 +33,12 @@
     return toggled[key(g)] ? !byDefault : byDefault;
   }
 
+  // A missed rally goes in before this rally's first touch: after the
+  // rotation that led to it.
+  function firstTouch(g: Group): Row | undefined {
+    return g.rows.find((r) => r.kind === "touch");
+  }
+
   function toggle(g: Group) {
     const k = key(g);
     toggled[k] = !toggled[k];
@@ -107,33 +113,37 @@
   <div class="tab-panel" role="tabpanel" bind:this={pane}>
     {#each groups as g, i (key(g))}
       {@const closed = folded(g, i)}
+      {@const first = firstTouch(g)}
       <div class="rally" class:closed>
-        {#if g.closed}
-          <div
-            class="rally-head"
-            role="button"
-            tabindex="0"
-            aria-expanded={!closed}
-            onclick={() => toggle(g)}
-            onkeydown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                toggle(g);
-              }
-            }}
-          >
-            <span>Rally {g.rally} · {g.rows.length} codes</span>
-            <span
-              >{teamName(g.wonBy)}
-              {#if g.scoreAfter}<b>{g.scoreAfter.home}:{g.scoreAfter.visiting}</b>{/if}</span
+        <div class="rally-head">
+          {#if g.closed}
+            <button
+              class="rally-toggle"
+              type="button"
+              aria-expanded={!closed}
+              onclick={() => toggle(g)}
             >
-          </div>
-        {:else}
-          <div class="rally-head">
-            <span>Rally {g.rally ?? ""} · {g.rows.length ? "in progress" : "next"}</span>
-            <span>{g.serving ? `${teamName(g.serving)} serving` : ""}</span>
-          </div>
-        {/if}
+              <span>Rally {g.rally} · {g.rows.length} codes</span>
+              <span
+                >{teamName(g.wonBy)}
+                {#if g.scoreAfter}<b>{g.scoreAfter.home}:{g.scoreAfter.visiting}</b>{/if}</span
+              >
+            </button>
+          {:else}
+            <span class="rally-toggle">
+              <span>Rally {g.rally ?? ""} · {g.rows.length ? "in progress" : "next"}</span>
+              <span>{g.serving ? `${teamName(g.serving)} serving` : ""}</span>
+            </span>
+          {/if}
+          {#if first}
+            <button
+              class="rally-add"
+              type="button"
+              title="Add a missed rally before this one: type its codes, Enter. The point is written and later scores move on."
+              onclick={() => ui.startEdit("rally", first.id, first.text)}>+ Rally</button
+            >
+          {/if}
+        </div>
         {#each g.rows as r (r.id)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <div

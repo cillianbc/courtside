@@ -104,9 +104,10 @@ export async function openMatch(id: string): Promise<Snapshot> {
   return invoke<Snapshot>("match_open", { id });
 }
 
-export async function preview(text: string): Promise<Preview> {
+/** Reads back the command line; with `before`, as codes going in just before that code. */
+export async function preview(text: string, before: string | null = null): Promise<Preview> {
   if (!inTauri) return { codes: [], ok: false };
-  return invoke<Preview>("preview", { text });
+  return invoke<Preview>("preview", { text, before });
 }
 
 function clock(now = new Date()): number[] {

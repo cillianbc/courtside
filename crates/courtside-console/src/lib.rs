@@ -17,7 +17,7 @@ use courtside_store::Season;
 use vb_engine::log::{EventLog, LogError};
 use vb_engine::model::Outcome;
 use vb_engine::{
-    Body, EventId, EventKind, IdGen, Match, MatchEvent, NewEvent, Producer, TeamSheet, fold,
+    Body, EventId, EventKind, IdGen, Match, MatchEvent, NewEvent, Producer, Score, TeamSheet, fold,
 };
 use vb_grammar::expand::{Combination, Defaults, follow_combination, follow_pair, is_pair};
 use vb_grammar::{Code, Skill, Touch};
@@ -466,10 +466,70 @@ impl Current {
     /// correcting or inserting there.
     fn touch_before(&self, target: EventId) -> Option<Touch> {
         let visible = self.game.log.visible();
-        let root = visible.iter().position(|e| {
-            e.id == target || self.game.log.get(e.id).and_then(|x| x.supersedes) == Some(target)
-        })?;
+        let root = self.position_of(target)?;
         last_touch(visible[..root].iter().rev())
+    }
+
+    /// Where `target` (or the correction standing in its place) is among
+    /// the visible events.
+    fn position_of(&self, target: EventId) -> Option<usize> {
+        self.game.log.visible().iter().position(|e| {
+            e.id == target || self.game.log.get(e.id).and_then(|x| x.supersedes) == Some(target)
+        })
+    }
+
+    /// The command line read back as codes going in just before `target`:
+    /// the touches and setters there are the context. A line of more than
+    /// one code gets the setter's set like the command line; one code in
+    /// is one code out.
+    fn preview_before(&self, text: &str, target: EventId) -> Option<Preview> {
+        let pos = self.position_of(target)?;
+        let setters = (text.split_whitespace().count() > 1).then(|| {
+            pos.checked_sub(1)
+                .and_then(|p| fold(&self.game).states.get(p).map(|s| s.setter))
+                .unwrap_or_default()
+        });
+        let before = self.touch_before(target);
+        Some(readback::preview(
+            text,
+            &self.game,
+            self.names(),
+            before.as_ref(),
+            &self.defaults,
+            setters,
+        ))
+    }
+
+    /// Point codes carry the score. After a rally goes in mid-set, each
+    /// later point code of the set is rewritten (by the console) to the
+    /// score it now stands at, counting on from `score` at visible event
+    /// `from`.
+    fn rescore_from(&mut self, from: usize, mut score: Score) -> std::result::Result<(), LogError> {
+        let points: Vec<(EventId, Option<Code>)> = self.game.log.visible()[from..]
+            .iter()
+            .map(|e| (e.id, e.code().cloned()))
+            .collect();
+        for (id, code) in points {
+            match code {
+                Some(Code::Point { team, .. }) => {
+                    match team {
+                        Team::Home => score.home = score.home.saturating_add(1),
+                        Team::Visiting => score.visiting = score.visiting.saturating_add(1),
+                    }
+                    let now = format!("{}p{:02}:{:02}", team.as_char(), score.home, score.visiting);
+                    if code.is_some_and(|c| c.to_string() != now) {
+                        self.game.log.correct(
+                            &mut self.ids,
+                            id,
+                            NewEvent::code(Code::parse(&now), Producer::Repair),
+                        )?;
+                    }
+                }
+                Some(Code::SetEnd { .. }) => break,
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     /// Saves the log after a change that added the events from `before`
@@ -1322,23 +1382,117 @@ impl Session {
         })
     }
 
-    /// Adds `text` (one code) just before an earlier code.
+    /// Adds the codes on `text` just before an earlier code, read with the
+    /// rally there as context. Codes going in before a rally's first code
+    /// are a rally of their own: the console closes it as it would at the
+    /// end of the match (the point, a side-out's rotation) and moves every
+    /// later point code of the set on to its new score. A rotation after a
+    /// missed side-out isn't carried into the codes after it; the checks
+    /// show where they now disagree.
     pub fn insert_before(
         &mut self,
         id: &str,
         text: &str,
         clock: Option<ClockTime>,
     ) -> Result<Snapshot> {
-        self.edit(id, Some(text), clock, |log, ids, target, new| match new {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let target = ulid::Ulid::from_string(id)
+            .map(EventId)
+            .map_err(|_| Error::BadCode(format!("no event {id:?}")))?;
+        let pos = c
+            .position_of(target)
+            .ok_or_else(|| Error::BadCode(format!("no event {id:?}")))?;
+        let preview = c
+            .preview_before(text.trim(), target)
+            .ok_or_else(|| Error::BadCode(format!("no event {id:?}")))?;
+        if !preview.ok {
+            let why = preview
+                .codes
+                .iter()
+                .find_map(|r| r.error.as_ref().map(|e| format!("{}: {e}", r.text)))
+                .unwrap_or_else(|| "Type a code first.".into());
+            return Err(Error::BadCode(why));
+        }
+        let codes: Vec<Code> = preview.codes.iter().map(|r| Code::parse(&r.text)).collect();
+        let folded = fold(&c.game);
+        let at = pos.checked_sub(1).and_then(|p| folded.states.get(p));
+        let score_before = at.map(|s| s.score).unwrap_or_default();
+        let setter_zones = at.map(|s| s.setter_position).unwrap_or_default();
+        // A rally of its own: nothing of the rally at `target` comes first.
+        let own_rally =
+            c.touch_before(target).is_none() && codes.iter().any(|c| matches!(c, Code::Touch(_)));
+        let new = |code: Code, producer| NewEvent {
+            body: Body::Code(code),
             // Placed in the video where the code it goes before is.
-            Some(new) => {
-                let video_ms = new
-                    .video_ms
-                    .or_else(|| log.get(target).and_then(|e| e.video_ms));
-                log.insert_before(ids, target, NewEvent { video_ms, ..new })
+            video_ms: c.game.log.visible().get(pos).and_then(|e| e.video_ms),
+            clock,
+            producer,
+        };
+        let mut events: Vec<NewEvent> = codes
+            .iter()
+            .map(|code| new(code.clone(), Producer::Keyboard))
+            .collect();
+        let typed_point = codes.iter().rev().find_map(|code| match code {
+            Code::Point { team, .. } => Some(*team),
+            _ => None,
+        });
+        let winner = typed_point.or_else(|| decided_by(&c.game, codes.iter()));
+        if own_rally && winner.is_none() {
+            return Err(Error::BadCode(
+                "Who won this rally? End it with the winning code, or press Point for the winner."
+                    .into(),
+            ));
+        }
+        if own_rally && let Some(winner) = winner {
+            if typed_point.is_none() {
+                let (h, v) = match winner {
+                    Team::Home => (score_before.home.saturating_add(1), score_before.visiting),
+                    Team::Visiting => (score_before.home, score_before.visiting.saturating_add(1)),
+                };
+                let point = format!("{}p{h:02}:{v:02}", winner.as_char());
+                events.push(new(Code::parse(&point), Producer::Repair));
             }
-            None => Err(LogError::NotFound(target)),
-        })
+            let serving = codes.iter().find_map(|code| match code {
+                Code::Touch(t) if t.skill == Skill::Serve => Some(t.team),
+                _ => None,
+            });
+            if serving.is_some_and(|s| s != winner)
+                && let Some(z) = *setter_zones.get(winner)
+            {
+                let next = if z == 1 { 6 } else { z - 1 };
+                let rotation = format!("{}z{next}", winner.as_char());
+                events.push(new(Code::parse(&rotation), Producer::Repair));
+            }
+        }
+        let before = c.game.log.len();
+        let change = || -> std::result::Result<(), LogError> {
+            for e in events {
+                c.game.log.insert_before(&mut c.ids, target, e)?;
+            }
+            if own_rally {
+                c.rescore_from(pos, score_before)?;
+            }
+            c.reclose(clock)
+        };
+        if let Err(e) = change() {
+            while c.game.log.len() > before {
+                c.game.log.undo();
+            }
+            return Err(e.into());
+        }
+        c.persist(season, before)?;
+        self.snapshot()
+    }
+
+    /// [`Session::preview`] for codes going in just before an earlier code.
+    pub fn preview_before(&self, text: &str, id: &str) -> Result<Preview> {
+        let c = self.current.as_ref().ok_or(Error::NoMatch)?;
+        let target = ulid::Ulid::from_string(id)
+            .map(EventId)
+            .map_err(|_| Error::BadCode(format!("no event {id:?}")))?;
+        c.preview_before(text, target)
+            .ok_or_else(|| Error::BadCode(format!("no event {id:?}")))
     }
 
     /// Takes an earlier code out of the match.

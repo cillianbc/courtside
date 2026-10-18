@@ -876,8 +876,33 @@ body {
 .rally.closed .row {
   display: none;
 }
-.rally.closed .rally-head {
+.rally-toggle {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.rally-toggle {
   cursor: pointer;
+}
+.rally-add {
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.rally-add:hover {
+  color: var(--fg);
 }
 .row {
   display: grid;
@@ -974,7 +999,8 @@ body {
 .btn:focus-visible,
 .theme-btn:focus-visible,
 .issue:focus-visible,
-.rally-head:focus-visible,
+.rally-toggle:focus-visible,
+.rally-add:focus-visible,
 .icon-btn:focus-visible,
 .tool:focus-visible,
 .tab:focus-visible,

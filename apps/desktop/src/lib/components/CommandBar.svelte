@@ -32,7 +32,7 @@
       return;
     }
     ui.result = null;
-    backend.preview(text).then(
+    backend.preview(text, ui.insertingBefore()).then(
       (p) => {
         if (ui.code === text) preview = p;
       },
@@ -118,7 +118,9 @@
   {@render point(ui.order[0] ?? "home", true)}
   {#if ui.editing}
     <span class="edit-tag"
-      >{{ correct: "Modify", insert: "Before", after: "After" }[ui.editing.mode]}
+      >{{ correct: "Modify", insert: "Before", after: "After", rally: "New rally before" }[
+        ui.editing.mode
+      ]}
       <code>{ui.editing.text}</code></span
     >
   {:else}
