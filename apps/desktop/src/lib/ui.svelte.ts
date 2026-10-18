@@ -56,16 +56,26 @@ class Ui {
   }
 
   /**
-   * Runs a change in the backend and shows the new state, or the error in
-   * the command bar. Returns whether it worked.
+   * The next snapshot comes from editing an earlier code: the code log
+   * stays where it is instead of going to the latest rally. The log
+   * clears it.
    */
-  async apply(what: string, change: () => Promise<Snapshot>): Promise<boolean> {
+  keepPlace = false;
+
+  /**
+   * Runs a change in the backend and shows the new state, or the error in
+   * the command bar. Returns whether it worked. `inPlace`: an edit of an
+   * earlier code, so the log keeps the set and place shown.
+   */
+  async apply(what: string, change: () => Promise<Snapshot>, inPlace = false): Promise<boolean> {
     // Any change cancels a point waiting for its second click.
     this.pointPending = null;
     try {
       const before = this.snapshot;
-      this.snapshot = await change();
-      this.shownSet = null;
+      const next = await change();
+      if (inPlace) this.keepPlace = true;
+      else this.shownSet = null;
+      this.snapshot = next;
       this.result = { text: `${what}.${setNews(before, this.snapshot)}`, bad: false };
       return true;
     } catch (e) {
@@ -137,16 +147,26 @@ class Ui {
     let ok: boolean;
     if (!e) ok = await this.commit(text, true);
     else if (e.mode === "correct")
-      ok = await this.apply(`Modified ${e.text} to ${text}`, () => backend.correct(e.id, text));
+      ok = await this.apply(
+        `Modified ${e.text} to ${text}`,
+        () => backend.correct(e.id, text),
+        true,
+      );
     else if (e.mode === "insert")
-      ok = await this.apply(`Added ${text} before ${e.text}`, () =>
-        backend.insertBefore(e.id, text),
+      ok = await this.apply(
+        `Added ${text} before ${e.text}`,
+        () => backend.insertBefore(e.id, text),
+        true,
       );
     else {
       // After the last code there is nothing to go before: add it as typed.
       const next = this.codeAfter(e.id);
       ok = next
-        ? await this.apply(`Added ${text} after ${e.text}`, () => backend.insertBefore(next, text))
+        ? await this.apply(
+            `Added ${text} after ${e.text}`,
+            () => backend.insertBefore(next, text),
+            true,
+          )
         : await this.commit(text, true);
     }
     if (ok) {
@@ -201,7 +221,7 @@ class Ui {
 
   remove(id: string, text: string): Promise<boolean> {
     this.selected = null;
-    return this.apply(`Removed ${text}`, () => backend.remove(id));
+    return this.apply(`Removed ${text}`, () => backend.remove(id), true);
   }
 
   /** Loads this computer's keys (at start, after opening a season or saving them). */

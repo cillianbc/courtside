@@ -15,11 +15,17 @@
   let pane: HTMLDivElement | undefined = $state();
   $effect(() => {
     void groups;
+    // An edit of an earlier code keeps the log where the scout is working.
+    if (ui.keepPlace) {
+      ui.keepPlace = false;
+      return;
+    }
     if (pane && ui.shownSet === null) pane.scrollTop = pane.scrollHeight;
   });
 
+  // By set and rally, so modifying a rally's first code keeps it open.
   function key(g: Group): string {
-    return g.rows[0]?.id ?? `open-${g.set}`;
+    return g.rally === null ? (g.rows[0]?.id ?? `open-${g.set}`) : `${g.set}-${g.rally}`;
   }
 
   function folded(g: Group, i: number): boolean {
