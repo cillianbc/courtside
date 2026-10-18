@@ -21,6 +21,21 @@
   }
 
   const place = () => void backend.videoPlace(bounds(), ui.covering === 0).catch(() => {});
+
+  // The panel can move without changing size (the layout above it
+  // shifts, the page scrolls), which no resize event reports: while a
+  // video is open, check its place every frame and send it when it moves.
+  let frame = 0;
+  let last = "";
+  function follow() {
+    const b = bounds();
+    const key = `${b.x},${b.y},${b.width},${b.height}`;
+    if (player?.path && key !== last) {
+      last = key;
+      place();
+    }
+    frame = requestAnimationFrame(follow);
+  }
   // Hidden while a menu or dialog is open over the window.
   $effect(() => {
     void ui.covering;
@@ -72,6 +87,7 @@
   let poll: ReturnType<typeof setInterval> | undefined;
   let observer: ResizeObserver | undefined;
   onMount(() => {
+    frame = requestAnimationFrame(follow);
     observer = new ResizeObserver(place);
     if (screen) observer.observe(screen);
     window.addEventListener("resize", place);
@@ -94,6 +110,7 @@
     );
   });
   onDestroy(() => {
+    cancelAnimationFrame(frame);
     observer?.disconnect();
     window.removeEventListener("resize", place);
     clearInterval(poll);

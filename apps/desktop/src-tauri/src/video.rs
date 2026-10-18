@@ -188,7 +188,7 @@ mod surface {
     use libmpv2::Mpv;
     use libmpv2_sys as mpv;
     use objc2::rc::Retained;
-    use objc2::runtime::NSObject;
+    use objc2::runtime::{AnyClass, NSObject, NSObjectProtocol};
     use objc2::{
         AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
     };
@@ -490,6 +490,8 @@ mod surface {
     /// AppKit works in points, as CSS pixels do, so bounds need no scaling.
     pub struct Surface {
         view: Retained<NSView>,
+        /// Where the page is drawn (the content view if none is found).
+        webview: Retained<NSView>,
         layer: Retained<VideoLayer>,
         render: Arc<Render>,
     }
@@ -498,16 +500,31 @@ mod surface {
         MainThreadMarker::new().ok_or_else(|| "video must be driven from the main thread".into())
     }
 
-    /// `bounds` (top-left origin) in the content view's coordinates
-    /// (bottom-left origin unless the view is flipped).
-    fn frame(content: &NSView, b: Bounds) -> NSRect {
-        let height = content.frame().size.height;
-        let y = if content.isFlipped() {
+    /// The window's WKWebView: the page's coordinates are its own, which
+    /// start below the title bar, not at the content view's top.
+    fn find_webview(view: &NSView) -> Option<Retained<NSView>> {
+        let class = AnyClass::get(c"WKWebView")?;
+        for sub in view.subviews() {
+            if sub.isKindOfClass(class) {
+                return Some(sub);
+            }
+            if let Some(found) = find_webview(&sub) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    /// `bounds` (CSS pixels from the page's top left) in `target`'s
+    /// coordinates, by way of the webview's.
+    fn frame(webview: &NSView, target: &NSView, b: Bounds) -> NSRect {
+        let y = if webview.isFlipped() {
             b.y
         } else {
-            height - b.y - b.height
+            webview.bounds().size.height - b.y - b.height
         };
-        NSRect::new(NSPoint::new(b.x, y), NSSize::new(b.width, b.height))
+        let rect = NSRect::new(NSPoint::new(b.x, y), NSSize::new(b.width, b.height));
+        webview.convertRect_toView(rect, Some(target))
     }
 
     impl Surface {
@@ -525,7 +542,8 @@ mod surface {
             layer.setContentsScale(ns_window.backingScaleFactor());
             // Core Animation asks every display refresh whether to draw.
             layer.setAsynchronous(true);
-            let view = NSView::initWithFrame(NSView::alloc(mtm), frame(&content, bounds));
+            let webview = find_webview(&content).unwrap_or_else(|| content.clone());
+            let view = NSView::initWithFrame(NSView::alloc(mtm), frame(&webview, &content, bounds));
             // Layer-hosting: the layer first, then wantsLayer.
             view.setLayer(Some(&layer));
             view.setWantsLayer(true);
@@ -533,6 +551,7 @@ mod surface {
             content.addSubview(&view);
             Ok(Surface {
                 view,
+                webview,
                 layer,
                 render,
             })
@@ -559,7 +578,7 @@ mod surface {
             let Some(content) = (unsafe { self.view.superview() }) else {
                 return Ok(());
             };
-            self.view.setFrame(frame(&content, bounds));
+            self.view.setFrame(frame(&self.webview, &content, bounds));
             self.view.setHidden(!visible);
             if let Some(scale) = self.view.window().map(|w| w.backingScaleFactor()) {
                 self.layer.setContentsScale(scale);
