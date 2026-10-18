@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use courtside_console::{
-    ClipFilter, Clips, ClockTime, MatchId, MatchItem, PlayerDetail, PlayerListItem, Preview,
+    ClipFilter, Clips, ClockTime, Keys, MatchId, MatchItem, PlayerDetail, PlayerListItem, Preview,
     Resume, Session, Settings, Snapshot, Team, TeamDetail, TeamForm, TeamImportView,
 };
 use tauri::{AppHandle, Manager, State};
@@ -124,6 +124,37 @@ fn settings_get(state: State<'_, Shared>) -> Reply<Settings> {
 #[tauri::command]
 fn settings_save(state: State<'_, Shared>, settings: Settings) -> Reply<()> {
     with(&state, |s| s.save_settings(&settings))
+}
+
+/// Where this computer's keys live: the app's config directory.
+fn keys_file(app: &AppHandle) -> Reply<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .map(|d| d.join("keys.json"))
+        .map_err(|e| e.to_string())
+}
+
+/// This computer's keys. Without a keys file, the open season's keys
+/// (where they were kept before) become this computer's.
+#[tauri::command]
+fn keys_get(app: AppHandle, state: State<'_, Shared>) -> Reply<Keys> {
+    let file = keys_file(&app)?;
+    if let Some(keys) = Keys::load(&file) {
+        return Ok(keys);
+    }
+    let Ok(settings) = with(&state, |s| s.settings()) else {
+        return Ok(Keys::default());
+    };
+    let keys = Keys::from_season(&settings);
+    if let Err(e) = keys.save(&file) {
+        eprintln!("{e}");
+    }
+    Ok(keys)
+}
+
+#[tauri::command]
+fn keys_save(app: AppHandle, keys: Keys) -> Reply<()> {
+    keys.save(&keys_file(&app)?).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -523,6 +554,8 @@ fn main() {
             team_import,
             settings_get,
             settings_save,
+            keys_get,
+            keys_save,
             team_export,
             teams_merge,
             players,

@@ -47,7 +47,7 @@ class Ui {
   covering = $state(0);
   /** The set whose lineup is being modified. */
   lineupSet = $state(1);
-  /** The season's keys, defaults filled in. */
+  /** This computer's keys, defaults filled in. */
   keymap = $state<KeyBinding[]>(effectiveKeymap([]));
   keyText = $state<KeyText[]>([]);
 
@@ -204,10 +204,10 @@ class Ui {
     return this.apply(`Removed ${text}`, () => backend.remove(id));
   }
 
-  /** Loads the season's keymap (after opening a season or saving settings). */
+  /** Loads this computer's keys (at start, after opening a season or saving them). */
   async loadKeymap() {
     try {
-      const s = await backend.settings();
+      const s = await backend.keys();
       this.keymap = effectiveKeymap(s?.keymap ?? []);
       this.keyText = s?.keyText ?? [];
     } catch {

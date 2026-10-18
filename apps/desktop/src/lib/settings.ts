@@ -1,4 +1,12 @@
-// Season settings (mirrors courtside_store::Settings) and the keymap.
+// Season settings (mirrors courtside_store::Settings) and this computer's
+// keys (courtside_console::Keys).
+
+/** The keys of the computer the scout codes on, not of a season. */
+export interface Keys {
+  keymap: KeyBinding[];
+  /** Keys the command line types other text for (`]` → `#`). */
+  keyText: KeyText[];
+}
 
 export interface Settings {
   typing: {
@@ -19,9 +27,6 @@ export interface Settings {
     }[];
     setterCalls: { code: string; description: string }[];
   };
-  keymap: KeyBinding[];
-  /** Keys the command line types other text for (`]` → `#`). */
-  keyText: KeyText[];
   rules: {
     /** Substitutions per team and set. */
     substitutions: number;
@@ -148,6 +153,45 @@ export function keyString(e: {
   parts.push(key);
   return parts.join("+");
 }
+
+/** Whether this computer is a Mac, whose keyboards name keys differently. */
+export const isMac =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
+
+/** Mac modifier symbols, in the order a Mac's menus list them. */
+const MAC_MODIFIERS: [string, string][] = [
+  ["Alt", "⌥"],
+  ["Shift", "⇧"],
+  ["Mod", "⌘"],
+];
+
+/**
+ * A binding as this computer's keyboard names it: `Alt+Shift+J` is ⌥⇧J on
+ * a Mac and Alt+Shift+J elsewhere; `Mod` is ⌘ on a Mac and Ctrl elsewhere.
+ * Bindings stay saved as `Mod`/`Alt`, the same on every computer.
+ */
+export function keyLabel(keys: string, mac = isMac): string {
+  if (!keys) return "";
+  const mods = keys.split("+");
+  const key = mods.pop() ?? "";
+  if (mac) {
+    return (
+      MAC_MODIFIERS.filter(([m]) => mods.includes(m))
+        .map(([, sym]) => sym)
+        .join("") + key
+    );
+  }
+  return [...mods.map((m) => (m === "Mod" ? "Ctrl" : m)), key].join("+");
+}
+
+/** The key bound to `action`, as this computer names it; "" if none. */
+export function keyFor(keymap: KeyBinding[], action: string, mac = isMac): string {
+  return keyLabel(keymap.find((k) => k.action === action)?.keys ?? "", mac);
+}
+
+/** What this computer calls Mod and Alt, for help text. */
+export const MOD_NAME = isMac ? "⌘ Cmd" : "Ctrl";
+export const ALT_NAME = isMac ? "⌥ Option" : "Alt";
 
 /** The action bound to `keys`, if any. */
 export function actionFor(keymap: KeyBinding[], keys: string | null): string | null {

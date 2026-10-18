@@ -4,6 +4,8 @@ import {
   actionFor,
   conflicts,
   effectiveKeymap,
+  keyFor,
+  keyLabel,
   keyString,
   textFor,
   typeText,
@@ -72,5 +74,23 @@ describe("keys that type", () => {
     expect(typeText("8A", 2, 2, "#")).toEqual({ value: "8A#", caret: 3 });
     expect(typeText("8A+", 2, 3, "#")).toEqual({ value: "8A#", caret: 3 });
     expect(typeText("8 9", 1, 1, "K1")).toEqual({ value: "8K1 9", caret: 3 });
+  });
+});
+
+describe("keyLabel", () => {
+  it("names keys as a Mac does", () => {
+    expect(keyLabel("Alt+Shift+J", true)).toBe("⌥⇧J");
+    expect(keyLabel("Mod+K", true)).toBe("⌘K");
+    expect(keyLabel("Mod+Alt+Shift+.", true)).toBe("⌥⇧⌘.");
+    expect(keyLabel("F2", true)).toBe("F2");
+  });
+  it("names keys as Windows and Linux do", () => {
+    expect(keyLabel("Mod+K", false)).toBe("Ctrl+K");
+    expect(keyLabel("Alt+Shift+J", false)).toBe("Alt+Shift+J");
+    expect(keyLabel("", false)).toBe("");
+  });
+  it("finds an action's key", () => {
+    expect(keyFor(effectiveKeymap([]), "clipNext", true)).toBe("⌥]");
+    expect(keyFor([], "clipNext", false)).toBe("");
   });
 });

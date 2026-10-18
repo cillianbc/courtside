@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as backend from "../backend";
+  import { keyFor } from "../settings";
   import type { ClipFilter, Clips, Side, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
   import { video } from "../video.svelte";
@@ -147,14 +148,14 @@
         class="btn"
         type="button"
         disabled={!video.open || !result.clips.length}
-        title="Previous clip (Alt+[)"
+        title="Previous clip ({keyFor(ui.keymap, 'clipPrev')})"
         onclick={() => video.stepClip(-1)}>Prev</button
       >
       <button
         class="btn"
         type="button"
         disabled={!video.open || !result.clips.length}
-        title="Next clip (Alt+])"
+        title="Next clip ({keyFor(ui.keymap, 'clipNext')})"
         onclick={() => video.stepClip(1)}>Next</button
       >
       <button

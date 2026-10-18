@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { fixture } from "./fixture";
-import type { Settings } from "./settings";
+import type { Keys, Settings } from "./settings";
 import type { ClipFilter, Clips, MatchItem, Preview, Side, Snapshot } from "./snapshot";
 import type { PlayerDetail, PlayerListItem, TeamDetail, TeamForm, TeamImportView } from "./teams";
 
@@ -262,4 +262,14 @@ export async function settings(): Promise<Settings | null> {
 
 export async function saveSettings(settings: Settings): Promise<void> {
   await invoke("settings_save", { settings });
+}
+
+/** This computer's keys. */
+export async function keys(): Promise<Keys | null> {
+  if (!inTauri) return null;
+  return invoke<Keys>("keys_get");
+}
+
+export async function saveKeys(keys: Keys): Promise<void> {
+  await invoke("keys_save", { keys });
 }

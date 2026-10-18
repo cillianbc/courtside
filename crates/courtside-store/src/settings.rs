@@ -1,5 +1,5 @@
 //! Season settings (PRD F-03, F-17): typing defaults, winning symbols,
-//! attack combinations, setter calls and the keymap, kept as one JSON
+//! attack combinations, setter calls, rules and video, kept as one JSON
 //! document in the season file. A new match freezes a copy of the tables
 //! the `.dvw` carries (winning symbols, combinations, setter calls), so
 //! changing the settings later never rewrites a match already coded.
@@ -17,8 +17,10 @@ pub const SKILLS: [char; 7] = ['S', 'R', 'E', 'A', 'B', 'D', 'F'];
 pub struct Settings {
     pub typing: Typing,
     pub tables: Tables,
+    /// Keys moved to the computer (`courtside_console::Keys`); a season
+    /// saved before then still holds them, and they seed a computer's keys.
     pub keymap: Vec<KeyBinding>,
-    /// Keys that type text on the command line (`]` types `#`).
+    /// As `keymap`: keys that typed text on the command line.
     pub key_text: Vec<KeyText>,
     pub rules: Rules,
     pub video: Video,

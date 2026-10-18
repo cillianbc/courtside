@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as backend from "../backend";
   import { hintFor } from "../hint";
-  import { keyString, textFor, typeText } from "../settings";
+  import { keyFor, keyString, textFor, typeText } from "../settings";
   import type { Preview, Side } from "../snapshot";
   import { ui } from "../ui.svelte";
 
@@ -108,7 +108,7 @@
       class="point-btn"
       class:home={side === "home"}
       class:away={side === "visiting"}
-      title="{pointLabel(side)} ({left ? 'Alt+1' : 'Alt+2'})"
+      title="{pointLabel(side)} ({keyFor(ui.keymap, left ? 'pointLeft' : 'pointRight')})"
       disabled={!canPoint}
       onclick={() => void ui.point(side)}
       >{#if left}◀

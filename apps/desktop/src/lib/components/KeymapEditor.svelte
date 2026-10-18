@@ -3,7 +3,10 @@
     ACTIONS,
     conflicts,
     effectiveKeymap,
+    keyLabel,
     keyString,
+    ALT_NAME,
+    MOD_NAME,
     usableWhileTyping,
     type KeyBinding,
   } from "../settings";
@@ -62,14 +65,14 @@
             class:bad={clash.has(r.keys)}
             onclick={() => (recording = r.action)}
           >
-            {recording === r.action ? "Press keys… (Esc cancels)" : r.keys || "–"}
+            {recording === r.action ? "Press keys… (Esc cancels)" : keyLabel(r.keys) || "–"}
           </button>
         </td>
         <td class="sub-note" class:bad={clash.has(r.keys)}>
           {#if clash.has(r.keys)}
             Also used by another action.
           {:else if r.keys && !usableWhileTyping(r.keys)}
-            Not while typing a code: add Ctrl/Cmd or Alt.
+            Not while typing a code: add {MOD_NAME} or {ALT_NAME}.
           {/if}
         </td>
       </tr>

@@ -16,7 +16,7 @@
 
   let loaded = $state(false);
 
-  // The season's keys, from anywhere. On the command line only keys
+  // This computer's keys, from anywhere. On the command line only keys
   // with Mod or Alt (or function keys) count, so typing never triggers
   // one; Undo there with text typed stays the text box's own undo.
   function onkeydown(e: KeyboardEvent) {
@@ -33,11 +33,11 @@
   onMount(async () => {
     try {
       ui.snapshot = await backend.resume();
-      await ui.loadKeymap();
     } catch (e) {
       // The last season moved or broke: start from the start screen.
       console.error(e);
     }
+    await ui.loadKeymap();
     loaded = true;
   });
 </script>

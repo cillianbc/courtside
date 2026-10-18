@@ -994,9 +994,15 @@ fn set_ends_wait_for_the_scout_when_the_season_asks() {
 
 /// Keys remapped to type text (`]` → `#`) are kept with the season.
 #[test]
-fn keys_that_type_text_are_saved_and_checked() {
+fn keys_belong_to_the_computer_and_are_checked() {
+    use courtside_console::Keys;
     use courtside_store::{KeyBinding, KeyText};
-    let (mut session, _dir) = opened();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("config").join("keys.json");
+    assert_eq!(Keys::load(&file), None, "no file yet");
+
+    // A season saved before keys moved hands its keys over.
+    let (mut session, _season) = opened();
     let mut settings = session.settings().expect("settings");
     let kt = |keys: &str, text: &str| KeyText {
         keys: keys.into(),
@@ -1004,23 +1010,31 @@ fn keys_that_type_text_are_saved_and_checked() {
     };
     settings.key_text = vec![kt("]", "#"), kt("[", "+")];
     session.save_settings(&settings).expect("save");
-    assert_eq!(session.settings().expect("settings").key_text.len(), 2);
+    let keys = Keys::from_season(&session.settings().expect("settings"));
+    assert_eq!(keys.key_text.len(), 2);
+    keys.save(&file).expect("save keys");
+    assert_eq!(Keys::load(&file), Some(keys.clone()));
 
-    let mut bad = settings.clone();
+    let mut bad = keys.clone();
     bad.key_text.push(kt("]", "="));
-    assert!(session.save_settings(&bad).is_err(), "a key twice");
-    let mut bad = settings.clone();
+    assert!(bad.save(&file).is_err(), "a key twice");
+    let mut bad = keys.clone();
     bad.key_text.push(kt("F2", ""));
-    assert!(session.save_settings(&bad).is_err(), "no text");
-    let mut bad = settings.clone();
+    assert!(bad.check().is_err(), "no text");
+    let mut bad = keys.clone();
     bad.key_text.push(kt("F3", "a b"));
-    assert!(session.save_settings(&bad).is_err(), "a space");
-    let mut bad = settings;
+    assert!(bad.check().is_err(), "a space");
+    let mut bad = keys.clone();
     bad.keymap.push(KeyBinding {
         action: "undo".into(),
         keys: "]".into(),
     });
-    assert!(session.save_settings(&bad).is_err(), "an action's key");
+    assert!(bad.check().is_err(), "an action's key");
+    assert_eq!(
+        Keys::load(&file),
+        Some(keys),
+        "a refused save keeps the file"
+    );
 }
 
 /// The id of the row reading `text`.

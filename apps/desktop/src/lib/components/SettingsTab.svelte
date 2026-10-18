@@ -1,5 +1,5 @@
-<!-- Season settings: what the command line fills in, the tables a .dvw
-     carries, and the keys. -->
+<!-- Season settings (what the command line fills in, the tables a .dvw
+     carries) and this computer's keys. -->
 <script lang="ts">
   import { onMount } from "svelte";
   import * as backend from "../backend";
@@ -10,6 +10,9 @@
     TYPES,
     conflicts,
     effectiveKeymap,
+    isMac,
+    keyLabel,
+    type Keys,
     type Settings,
   } from "../settings";
   import { ui } from "../ui.svelte";
@@ -17,15 +20,16 @@
   import KeyTextEditor from "./KeyTextEditor.svelte";
 
   let settings = $state<Settings | null>(null);
+  let keys = $state<Keys>({ keymap: [], keyText: [] });
   let error = $state("");
   let note = $state("");
 
   onMount(() => {
-    backend.settings().then(
-      // Seasons saved before the rules existed get them filled in by the backend.
-      (s) => {
-        // A backend from before remapped keys sends none.
-        if (s) s.keyText ??= [];
+    // Keys first: the key editors copy theirs when the page shows.
+    // Seasons saved before the rules existed get them filled in by the backend.
+    Promise.all([backend.settings(), backend.keys()]).then(
+      ([s, k]) => {
+        if (k) keys = k;
         settings = s;
       },
       (e) => (error = String(e)),
@@ -36,28 +40,30 @@
     if (!settings) return;
     error = "";
     note = "";
-    const clash = [...conflicts(settings.keymap)];
+    const clash = [...conflicts(keys.keymap)];
     if (clash.length) {
-      error = `${clash.join(", ")} is set for more than one action.`;
+      error = `${clash.map((k) => keyLabel(k)).join(", ")} is set for more than one action.`;
       return;
     }
-    const actionKeys = new Set(effectiveKeymap(settings.keymap).map((k) => k.keys));
-    const typed = settings.keyText.filter((k) => k.keys || k.text);
+    const actionKeys = new Set(effectiveKeymap(keys.keymap).map((k) => k.keys));
+    const typed = keys.keyText.filter((k) => k.keys || k.text);
     for (const [i, k] of typed.entries()) {
       if (!k.keys || !k.text) {
         error = "Each remapped key needs a key and the text it types.";
         return;
       }
       if (typed.findIndex((o) => o.keys === k.keys) !== i || actionKeys.has(k.keys)) {
-        error = `${k.keys} is set more than once.`;
+        error = `${keyLabel(k.keys)} is set more than once.`;
         return;
       }
     }
-    settings.keyText = typed;
+    keys.keyText = typed;
     try {
       await backend.saveSettings($state.snapshot(settings));
+      await backend.saveKeys($state.snapshot(keys));
       await ui.loadKeymap();
-      note = "Saved. New matches take these tables; matches already created keep theirs.";
+      note =
+        "Saved. Keys and typing apply at once, in every match. Combination and setter-call tables reach new matches only.";
     } catch (e) {
       error = String(e);
     }
@@ -288,15 +294,19 @@
     </div>
 
     <h2>Keys</h2>
-    <p class="sub-note">Click a key, then press the new one. Mod is Ctrl, or Cmd on a Mac.</p>
-    <KeymapEditor bind:keymap={settings.keymap} />
+    <p class="sub-note">
+      Keys belong to this computer, not the season: every season and match on it uses them. Click a
+      key, then press the new one.{#if isMac}
+        ⌃ Control counts as ⌘ Cmd.{/if}
+    </p>
+    <KeymapEditor bind:keymap={keys.keymap} />
 
     <h2>Keys that type</h2>
     <p class="sub-note">
       Remap a key on the command line: it types the text instead of its own character (for example ]
       types # and [ types +).
     </p>
-    <KeyTextEditor bind:keyText={settings.keyText} keymap={effectiveKeymap(settings.keymap)} />
+    <KeyTextEditor bind:keyText={keys.keyText} keymap={effectiveKeymap(keys.keymap)} />
 
     {#if error}<p class="error">{error}</p>{/if}
     {#if note}<p class="sub-note">{note}</p>{/if}

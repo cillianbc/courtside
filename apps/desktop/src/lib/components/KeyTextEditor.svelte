@@ -1,6 +1,6 @@
 <!-- Keys that type other text on the command line (`]` types `#`). -->
 <script lang="ts">
-  import { keyString, type KeyBinding, type KeyText } from "../settings";
+  import { keyLabel, keyString, type KeyBinding, type KeyText } from "../settings";
 
   let { keyText = $bindable(), keymap }: { keyText: KeyText[]; keymap: KeyBinding[] } = $props();
 
@@ -57,7 +57,7 @@
             class:bad={!!clash(i)}
             onclick={() => (recording = i)}
           >
-            {recording === i ? "Press a key… (Esc cancels)" : row.keys || "–"}
+            {recording === i ? "Press a key… (Esc cancels)" : keyLabel(row.keys) || "–"}
           </button>
         </td>
         <td>
@@ -65,7 +65,7 @@
             class="short mono"
             maxlength="20"
             bind:value={row.text}
-            aria-label={`What ${row.keys || "the key"} types`}
+            aria-label={`What ${keyLabel(row.keys) || "the key"} types`}
           />
         </td>
         <td class="sub-note" class:bad={!!clash(i)}>{clash(i)}</td>
