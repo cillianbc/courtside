@@ -8,7 +8,8 @@
 //! - `z` without `>LUp` rotates the court so the current setter is in that
 //!   zone (or the setter named just after it, under some [`Conventions`](crate::model::Conventions)); if the setter isn't known or on court, by the change in setter
 //!   position.
-//! - `P` sets the setter; `c` swaps a player on court in place.
+//! - `P` sets the setter; `c` swaps a player on court in place, and the
+//!   player coming on for the setter is the setter.
 //! - Point codes carry the score; one that can't be read adds a point.
 //! - State is what holds *after* the event, as in the `.dvw` columns.
 //!
@@ -223,6 +224,11 @@ pub fn fold_events(m: &Match, events: &[&MatchEvent]) -> Folded {
                     let court = st.court.get_mut(*team);
                     if let Some(slot) = court.iter_mut().find(|p| **p == Some(out)) {
                         *slot = Some(r#in);
+                    }
+                    // The player coming on takes the setter's place.
+                    let setter = st.setter.get_mut(*team);
+                    if *setter == Some(out) {
+                        *setter = Some(r#in);
                     }
                 }
             }
@@ -484,6 +490,14 @@ mod tests {
         assert_eq!(s[6].phase, Some(Phase::Reception));
         assert!(s[6].winning_attack);
         assert_eq!(s[7].phase, None, "green code");
+    }
+
+    #[test]
+    fn a_substitute_for_the_setter_is_the_setter() {
+        let (_, f) = game(&["*P08>LUp", "*z1>LUp", "*c08:05", "*c12:07"]);
+        assert_eq!(f.states[2].setter.home, Some(5));
+        assert_eq!(f.states[3].setter.home, Some(5), "another player off");
+        assert_eq!(f.states[3].court.home[0], Some(5));
     }
 
     #[test]

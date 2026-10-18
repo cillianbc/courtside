@@ -508,14 +508,22 @@ impl Validator<'_> {
                 self.push(check_at, severity, Rule::Rotation, kind, message);
             }
         }
+        // Who has been on court so far in each set, by team: a live match's
+        // team sheet only gets its starting zones when it is exported.
+        let mut been_on = std::collections::HashSet::new();
         for i in 0..self.events.len() {
+            let st = &self.f.states[i];
+            for team in [Team::Home, Team::Visiting] {
+                for n in st.court.get(team).iter().flatten() {
+                    been_on.insert((team, st.set, *n));
+                }
+            }
             let Some(code) = self.events[i].code() else {
                 continue;
             };
             let Some((team, n)) = touch_player(code) else {
                 continue;
             };
-            let st = &self.f.states[i];
             let sheet = self.m.teams.get(team);
             // Liberos are never among the six on court (both products keep
             // them out). Players missing from the team sheet are a Code
@@ -533,14 +541,20 @@ impl Validator<'_> {
                     Severity::Warning,
                     Rule::Rotation,
                     IssueKind::NotOnCourt(team),
-                    if sheet.played_in(n, st.set) {
+                    if been_on.contains(&(team, st.set, n)) {
+                        format!(
+                            "{} player {n} went off earlier in set {}; missing substitution?",
+                            side(team),
+                            st.set
+                        )
+                    } else if sheet.played_in(n, st.set) {
                         format!(
                             "{} player {n} is not on court; missing substitution?",
                             side(team)
                         )
                     } else {
                         format!(
-                            "{} player {n} is not on court and the team sheet says they didn't play set {}; wrong shirt number?",
+                            "{} player {n} hasn't been on court in set {}; wrong shirt number?",
                             side(team),
                             st.set
                         )
@@ -1408,6 +1422,51 @@ mod tests {
                 "7 \"home player 5 is not on court; missing substitution?\"",
                 "8 \"player 9 is not on the home team sheet\"",
             ]
+        );
+    }
+
+    #[test]
+    fn a_player_subbed_off_went_off_this_set() {
+        // A live match: nobody's starting zones are on the sheet yet.
+        let mut m = Match {
+            teams: Sides {
+                home: sheet([8, 12, 13, 11, 3, 14], &[5], None),
+                visiting: sheet([16, 11, 18, 6, 10, 13], &[], None),
+            },
+            ..Match::default()
+        };
+        for p in m.teams.home.players.iter_mut() {
+            p.starting_zones = [StartingZone::None; 5];
+        }
+        let mut ids = IdGen::new(0);
+        // The console's lineup entry: a starting six for home.
+        m.log.append(
+            &mut ids,
+            NewEvent {
+                body: crate::event::Body::StartingSix {
+                    team: Team::Home,
+                    court: [8, 12, 13, 11, 3, 14],
+                },
+                video_ms: None,
+                clock: None,
+                producer: Producer::Keyboard,
+            },
+        );
+        for c in LINEUP
+            .iter()
+            .chain(&["*c08:05", "a16SH-", "*12RH+", "*08EH+", "*13AH#", "*p01:00"])
+        {
+            m.log
+                .append(&mut ids, NewEvent::code(Code::parse(c), Producer::Keyboard));
+        }
+        let got: Vec<String> = validate(&m)
+            .iter()
+            .filter(|i| i.rule == Rule::Rotation)
+            .map(|i| i.message.clone())
+            .collect();
+        assert_eq!(
+            got,
+            ["home player 8 went off earlier in set 1; missing substitution?"]
         );
     }
 

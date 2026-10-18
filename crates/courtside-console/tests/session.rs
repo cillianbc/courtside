@@ -297,6 +297,18 @@ fn the_setters_set_is_added_unless_typed() {
     assert_eq!(codes, ["*03RH+", "*01AH#"], "a setter dump");
 }
 
+/// The scout's report (2026-10-18): after the setter goes off, the set
+/// added in front of an attack names the player who came on for them.
+#[test]
+fn a_substitute_setter_sets() {
+    let (mut session, _dir) = opened();
+    let snap = session.commit("*c01:07", None).expect("substitution");
+    assert!(snap.issues.is_empty(), "{:?}", snap.issues);
+    let p = session.preview("*3R- 8Q#").expect("preview");
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes, ["*03RH-", "*07EQ+", "*08AQ#"]);
+}
+
 /// VolleyStation's shorthand (docs/research/VOLLEYSTATION.md §12): a call
 /// with no player is the setter's set, the set's target comes from the
 /// attack's combination (the made-up table: X5 → C, X6 → B), and the
