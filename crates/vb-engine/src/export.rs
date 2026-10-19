@@ -17,8 +17,12 @@
 //! VolleyStation).
 //!
 //! - Duration: whole minutes from the first serve to the last point code,
-//!   as DataVolley counts them (FORMAT-NOTES "[3SET]"). VolleyStation's
-//!   durations don't follow its clock, so they are kept as written.
+//!   as DataVolley counts them (FORMAT-NOTES "[3SET]"), for a set whose
+//!   scores change; a set left as it was keeps the file's duration, empty
+//!   or not (DataVolley doesn't always follow the scout clock).
+//!   VolleyStation's durations don't follow its clock either, so they are
+//!   kept as written.
+//! - Sets won: rewritten only when some set's scores change.
 //! - Starting zones: the team sheet's, plus `*` for a player a
 //!   substitution code brings on in a set they didn't start, and for a
 //!   libero who touches the ball in a set.
@@ -51,8 +55,11 @@ impl Match {
             .collect();
         let sets = set_scores(self, &events, &folded);
         let volleystation = template.header.get("GENERATOR-PRG") == Some("VolleyStation");
-        write_sets(&mut dvw.sets, &sets, !volleystation);
-        write_sets_won(&mut dvw, &sets);
+        // A file's own sets won stay as written while no set changes
+        // (some leave it empty, count a golden set or write `null`).
+        if write_sets(&mut dvw.sets, &sets, !volleystation) {
+            write_sets_won(&mut dvw, &sets);
+        }
         write_starting_zones(self, &mut dvw, &events, &folded);
         dvw
     }
@@ -151,7 +158,8 @@ fn set_scores(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Vec<SetScor
     sets
 }
 
-fn write_sets(rows: &mut Vec<SetResult>, sets: &[SetScores], durations: bool) {
+/// Writes the sets' scores and durations; whether any set changed.
+fn write_sets(rows: &mut Vec<SetResult>, sets: &[SetScores], durations: bool) -> bool {
     // VolleyStation pads both sides (` 7- 8`), DataVolley only the home
     // score (`7 -8`).
     let both_padded = rows
@@ -165,10 +173,12 @@ fn write_sets(rows: &mut Vec<SetResult>, sets: &[SetScores], durations: bool) {
             format!("{:<2}-{}", s.home, s.visiting)
         }
     };
+    let mut changed = rows.len() < sets.len();
     while rows.len() < sets.len() {
         rows.push(SetResult(Row::parse("True;;;;;;")));
     }
     for (i, row) in rows.iter_mut().enumerate() {
+        let mut row_changed = false;
         let set = sets.get(i);
         let wanted = set.map_or([None; 4], |s| {
             [s.checkpoints[0], s.checkpoints[1], s.checkpoints[2], s.last]
@@ -181,15 +191,19 @@ fn write_sets(rows: &mut Vec<SetResult>, sets: &[SetScores], durations: bool) {
             let have = parse_score(field);
             if have != want.map(|s| (s.home, s.visiting)) {
                 *field = want.map(format).unwrap_or_default();
+                row_changed = true;
             }
         }
+        changed |= row_changed;
         if durations
+            && row_changed
             && let Some(minutes) = set.and_then(SetScores::duration)
             && fields[5].trim().parse::<u32>().ok() != Some(minutes)
         {
             fields[5] = minutes.to_string();
         }
     }
+    changed
 }
 
 fn write_sets_won(dvw: &mut Dvw, sets: &[SetScores]) {
@@ -455,6 +469,26 @@ mod tests {
         assert_eq!(d.sets[0].0.to_line(), "True;;;;1 -0;20;");
         let d = with(&[("*p01:00", (15, 50, 12))]);
         assert_eq!(d.sets[0].0.to_line(), "True;;;;1 -0;21;");
+    }
+
+    /// A file's own duration and sets won stay while its sets don't change.
+    #[test]
+    fn unchanged_sets_keep_what_the_file_says() {
+        let file = SETS.replace(
+            "[3SET]\r\nTrue;;;;;;\r\n",
+            "[3TEAMS]\r\nT1;Home;;;;\r\nT2;Away;;;;\r\n[3SET]\r\nTrue;;;;1 -0;31;\r\n",
+        )
+        .replace(
+            "*08SH#;;;;;;;15.30.10;1;1;;;;;8;12;;;;;;;;;;;\r\n",
+            "*08SH#;;;;;;;15.30.10;1;1;;;;;8;12;;;;;;;;;;;\r\n*p01:00;;;;;;;15.50.11;1;1;;;;;8;12;;;;;;;;;;;\r\n",
+        );
+        let dvw = Dvw::parse(file.as_bytes()).expect("parse");
+        let m = Match::from_dvw(&dvw, &mut IdGen::new(0));
+        let out = m.to_dvw(&dvw);
+        // The clock says 20 minutes and home won the set; the file says 31
+        // and leaves sets won empty.
+        assert_eq!(out.sets[0].0.to_line(), "True;;;;1 -0;31;");
+        assert_eq!(out.teams[0].0.to_line(), "T1;Home;;;;");
     }
 
     #[test]
