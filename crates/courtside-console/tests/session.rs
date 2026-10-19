@@ -1667,7 +1667,11 @@ fn plays_are_marked_on_the_court() {
     };
     let s = row(&snap, "*02SH+");
     let r = row(&snap, "a12RH#");
-    assert_eq!((s.start, s.end), (r.start, r.end), "the reception has the serve's");
+    assert_eq!(
+        (s.start, s.end),
+        (r.start, r.end),
+        "the reception has the serve's"
+    );
     assert_eq!(s.start, Some(vb_engine::court::index(3.0, 0.2)));
 
     // An attack without a start zone needs a drag; with one, a click.
@@ -1684,9 +1688,14 @@ fn plays_are_marked_on_the_court() {
     assert_eq!(a.start, Some(vb_engine::court::index(1.0, 3.1)));
 
     // Kept by a modify, saved with the match, written to the .dvw.
-    let snap = session.correct(&attack, "a13AH+~~~4", None).expect("modify");
+    let snap = session
+        .correct(&attack, "a13AH+~~~4", None)
+        .expect("modify");
     assert_eq!(row(&snap, "a13AH+~~~4").end, a.end);
-    let id = session.matches().expect("matches")[0].id.parse().expect("id");
+    let id = session.matches().expect("matches")[0]
+        .id
+        .parse()
+        .expect("id");
     let snap = session.open_match(id, 3_000).expect("reopen");
     assert_eq!(row(&snap, "*02SH+").end, s.end);
     let out = dir.path().join("marked.dvw");
@@ -1698,7 +1707,10 @@ fn plays_are_marked_on_the_court() {
         .expect("serve line");
     let cols: Vec<&str> = line.split(';').collect();
     let cell = |c: Option<u16>| format!("{:04}", c.expect("cell"));
-    assert_eq!(cols[4..=6], [cell(s.start).as_str(), "-1-1", cell(s.end).as_str()]);
+    assert_eq!(
+        cols[4..=6],
+        [cell(s.start).as_str(), "-1-1", cell(s.end).as_str()]
+    );
 
     // Clearing.
     let snap = session.set_points(&serve, None, None).expect("clear");
