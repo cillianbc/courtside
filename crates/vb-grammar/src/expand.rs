@@ -123,7 +123,13 @@ pub fn expand(token: &str, before: Option<&Touch>, d: &Defaults) -> Result<Expan
             filled: Vec::new(),
         });
     }
-    match token.split_once('.') {
+    // A dot in a full code's custom text (column 15 on, `…14F.+`) is
+    // text, not the split of a dot code.
+    let pair = token
+        .find('.')
+        .filter(|i| *i < CUSTOM_TEXT_COLUMN)
+        .map(|i| (&token[..i], &token[i + 1..]));
+    match pair {
         Some((first, second)) => compound(first, second, before, d),
         None => {
             let typed = typed_touch(token, false)?;
@@ -136,6 +142,9 @@ pub fn expand(token: &str, before: Option<&Touch>, d: &Defaults) -> Result<Expan
         }
     }
 }
+
+/// Where a full code's custom text starts (0-based).
+const CUSTOM_TEXT_COLUMN: usize = 15;
 
 /// `T`, `c6.7`, `z3`, `P5`, `p25:23` with or without the team prefix.
 fn command(token: &str) -> Option<String> {
@@ -986,6 +995,16 @@ mod tests {
         assert_eq!(err("8Z5#"), "Unknown skill letter Z.");
         assert_eq!(err("8A4567#"), "4567: at most two zones, start and end.");
         assert!(err("8A45#~~~45").contains("one or the other"));
+    }
+
+    #[test]
+    fn a_dot_in_custom_text_is_text() {
+        let d = Defaults::default();
+        for code in ["*09EQ+K7C~4~2~~14F.+", "a11RQ=~~~11A~~~."] {
+            let x = expand(code, None, &d).expect(code);
+            assert_eq!(x.codes.len(), 1, "{code}");
+            assert_eq!(x.codes[0].to_string(), code);
+        }
     }
 
     #[test]
