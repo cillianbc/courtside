@@ -319,6 +319,9 @@ pub enum Code {
         set: Digits,
         note: String,
     },
+    /// `>CHALLENGE…`: a free-text line DataVolley writes among the codes
+    /// (challenges, referee notes), kept verbatim with its `>`.
+    Comment(String),
     Unrecognised(String),
 }
 
@@ -335,7 +338,7 @@ impl Code {
             | Code::SetterPlayer { team, .. }
             | Code::Substitution { team, .. }
             | Code::Timeout { team, .. } => Some(*team),
-            Code::SetEnd { .. } | Code::Unrecognised(_) => None,
+            Code::SetEnd { .. } | Code::Comment(_) | Code::Unrecognised(_) => None,
         }
     }
 }
@@ -347,6 +350,9 @@ fn note(rest: &str) -> Option<String> {
 }
 
 fn parse(s: &str) -> Option<Code> {
+    if s.starts_with('>') {
+        return Some(Code::Comment(s.to_owned()));
+    }
     if let Some(rest) = s.strip_prefix("**") {
         let (set, rest) = Digits::take(rest)?;
         let rest = rest.strip_prefix("set")?;
@@ -457,7 +463,7 @@ impl fmt::Display for Code {
             } => write!(f, "{}c{out}:{}{note}", team.as_char(), r#in),
             Code::Timeout { team, note } => write!(f, "{}T{note}", team.as_char()),
             Code::SetEnd { set, note } => write!(f, "**{set}set{note}"),
-            Code::Unrecognised(s) => f.write_str(s),
+            Code::Comment(s) | Code::Unrecognised(s) => f.write_str(s),
         }
     }
 }
@@ -465,6 +471,16 @@ impl fmt::Display for Code {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn free_text_lines_are_comments() {
+        for line in [">CHALLENGE_HOME", ">REFEREE ERROR", ">ROT<"] {
+            let code = Code::parse(line);
+            assert_eq!(code, Code::Comment(line.to_owned()));
+            assert_eq!(code.to_string(), line);
+            assert_eq!(code.team(), None);
+        }
+    }
     use proptest::prelude::*;
 
     fn touch(s: &str) -> Touch {
@@ -554,7 +570,7 @@ mod tests {
     #[test]
     fn unrecognised() {
         for s in [
-            "", "x10AH#", "*", "*10", "*10X", "*p25", "*p25:", "**set", "*Tx", ">ROT", "*z",
+            "", "x10AH#", "*", "*10", "*10X", "*p25", "*p25:", "**set", "*Tx", "*z",
         ] {
             assert_eq!(Code::parse(s), Code::Unrecognised(s.to_owned()), "{s:?}");
         }

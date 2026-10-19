@@ -31,6 +31,7 @@ fn kind(code: &Code) -> &'static str {
         Code::Substitution { .. } => "substitution",
         Code::Timeout { .. } => "timeout",
         Code::SetEnd { .. } => "set end",
+        Code::Comment(_) => "comment",
         Code::Unrecognised(_) => "unrecognised",
     }
 }

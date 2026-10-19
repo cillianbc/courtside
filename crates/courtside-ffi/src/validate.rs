@@ -281,7 +281,7 @@ T2;Away;0;;;;\n\
 1;2;1;;;;;;V2;Two;B;;;2;;\n\
 [3SCOUT]\n\
 *01SH#;;;;;;;;;;;;;;;;;;;;;;;;;;\n\
->ROT\n";
+*10X\n";
         let text: Vec<String> = validate(Path::new("m.DVW"), bad)
             .iter()
             .map(ToString::to_string)
@@ -291,7 +291,7 @@ T2;Away;0;;;;\n\
             [
                 "10: error: shirt number 1 listed twice",
                 "10: warning: last name differs from its Unicode copy (file edited by another program?)",
-                "15: warning: code: unrecognised code \">ROT\"",
+                "15: warning: code: unrecognised code \"*10X\"",
             ]
         );
     }

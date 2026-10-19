@@ -264,6 +264,7 @@ pub fn read(text: &str, game: &Match, names: (&str, &str)) -> Readback {
         ),
         Code::Timeout { team, .. } => (format!("Timeout {}", team_name(*team)), None),
         Code::SetEnd { set, .. } => (format!("End of set {}", number(set)), None),
+        Code::Comment(c) => (format!("Comment: {}", c.trim_start_matches('>')), None),
     };
     Readback {
         typed: text.to_owned(),

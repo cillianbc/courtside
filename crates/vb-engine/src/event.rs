@@ -188,6 +188,8 @@ impl MatchEvent {
             Code::Substitution { .. } => EventKind::Substitution,
             Code::Timeout { .. } => EventKind::Timeout,
             Code::SetEnd { .. } => EventKind::SetEnd,
+            // A free-text line among the codes: no part of play.
+            Code::Comment(_) => EventKind::Comment,
             Code::Unrecognised(_) => EventKind::Unrecognised,
         }
     }
