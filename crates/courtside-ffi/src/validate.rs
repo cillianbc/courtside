@@ -68,6 +68,24 @@ pub fn to_json(issues: &[Issue]) -> serde_json::Value {
         .collect()
 }
 
+/// Whether a name's plain column matches its Unicode copy. A letter the
+/// file's code page can't hold DataVolley writes as its base letter in
+/// the plain column (`C` for `Č`, `e` for `ě`), or as `?`, and the true
+/// letter only in the copy.
+fn same_name(plain: &str, copy: &str, encoding: dvw_codec::TextEncoding) -> bool {
+    use unicode_normalization::UnicodeNormalization;
+    if plain == copy {
+        return true;
+    }
+    let (p, c): (Vec<char>, Vec<char>) = (plain.chars().collect(), copy.chars().collect());
+    p.len() == c.len()
+        && p.iter().zip(&c).all(|(p, c)| {
+            p == c
+                || (encoding.encode(&c.to_string()).is_none()
+                    && (*p == '?' || c.nfd().next() == Some(*p)))
+        })
+}
+
 fn issue(severity: Severity, line: Option<usize>, message: impl Into<String>) -> Issue {
     Issue {
         severity,
@@ -213,7 +231,7 @@ fn validate_dvw(bytes: &[u8]) -> Vec<Issue> {
             ] {
                 if let Some(text) = decode_embedded(p.0.get(embedded))
                     && !text.is_empty()
-                    && text != p.0.get(plain)
+                    && !same_name(p.0.get(plain), &text, dvw.encoding)
                 {
                     issues.push(issue(
                         Severity::Warning,
@@ -296,6 +314,38 @@ T2;Away;0;;;;\n\
         );
     }
 
+    /// A letter the code page can't hold: DataVolley writes its base
+    /// letter in the plain column and the true one in the Unicode copy.
+    #[test]
+    fn a_best_fit_letter_matches_its_unicode_copy() {
+        let file = b"[3DATAVOLLEYSCOUT]\n\
+GENERATOR-PRG: Data Volley\n\
+[3MATCH]\n\
+04/23/2026;;;;;;;;1252;1;Z;\n\
+[3TEAMS]\n\
+T1;Home;0;;;;\n\
+T2;Away;0;;;;\n\
+[3PLAYERS-H]\n\
+0;1;1;;;;;;H1;Cech;A;;;2;;;;\x0f4010C006500630068;;\n\
+0;2;2;;;;;;H2;Novak;B;;;2;;;;\x0f4004E006F0076006B;;\n\
+[3PLAYERS-V]\n\
+1;2;1;;;;;;V2;Two;B;;;2;;\n\
+[3SCOUT]\n\
+*01SH#;;;;;;;;;;;;;;;;;;;;;;;;;;\n";
+        let text: Vec<String> = validate(Path::new("m.dvw"), file)
+            .iter()
+            .map(ToString::to_string)
+            .filter(|t| t.contains("Unicode copy"))
+            .collect();
+        // `Čech` for Cech is the code page's best fit; `Novk` for Novak isn't.
+        assert_eq!(
+            text,
+            [
+                "10: warning: last name differs from its Unicode copy (file edited by another program?)"
+            ]
+        );
+    }
+
     #[test]
     fn ambiguous_date_and_codepage_1() {
         let file = String::from_utf8(GOOD.to_vec())
@@ -346,6 +396,42 @@ T2;Away;0;;;;\n\
     /// are expected (real scouting slips; see FORMAT-NOTES "Validator"),
     /// so for those this only checks that the engine runs and every issue
     /// has a file line.
+    /// File-level findings in corpus files checked by hand and right
+    /// (FORMAT-NOTES "Encodings", CORPUS.md intake 2026-10-19): (path
+    /// under testdata, start of the message). Any other is a problem.
+    const KNOWN: &[(&str, &str)] = &[
+        // The day/month order really is ambiguous in these.
+        ("corpus-file", "match date"),
+        ("corpus-file", "match date"),
+        ("corpus-file", "match date"),
+        // Code page 1: the encoding is guessed, as the warning says.
+        ("corpus-file", "code page 1"),
+        ("corpus-file", "code page 1"),
+        (
+            "corpus-file",
+            "code page 1",
+        ),
+        ("corpus-file", "code page 1"),
+        (
+            "dvw/datavolley3/corpus-file",
+            "code page 1",
+        ),
+        ("corpus-file", "code page 1"),
+        (
+            "corpus-file",
+            "code page 1",
+        ),
+        ("corpus-file", "code page 1"),
+        ("corpus-file", "code page 1"),
+        ("corpus-file", "code page 1"),
+        // The file really lists home shirt 1 twice.
+        ("corpus-file", "shirt number 1 listed twice"),
+        // UTF-8 names in a file that says 1252: the plain columns are
+        // mojibake, the Unicode copies are right.
+        ("corpus-file", "first name differs"),
+        ("corpus-file", "last name differs"),
+    ];
+
     #[test]
     fn corpus_has_no_file_level_issues() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata");
@@ -356,7 +442,7 @@ T2;Away;0;;;;\n\
             );
             return;
         }
-        let mut stack = vec![root];
+        let mut stack = vec![root.clone()];
         let mut checked = 0;
         let mut problems = Vec::new();
         while let Some(dir) = stack.pop() {
@@ -373,8 +459,16 @@ T2;Away;0;;;;\n\
                     Some("dvw" | "vsm")
                 ) {
                     checked += 1;
+                    let rel = path
+                        .strip_prefix(&root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/");
                     for i in validate(&path, &std::fs::read(&path).unwrap()) {
-                        if i.rule.is_none() || i.line.is_none() {
+                        let known = KNOWN
+                            .iter()
+                            .any(|(p, m)| *p == rel && i.message.starts_with(m));
+                        if (i.rule.is_none() || i.line.is_none()) && !known {
                             problems.push(format!("{}:{i}", path.display()));
                         }
                     }
