@@ -49,12 +49,7 @@ impl Match {
                 )
             };
             let id = m.log.push(ids, new, None, None, Some(i));
-            let cell = |c: Option<u16>| c.filter(|c| crate::court::position(*c).is_some());
-            let points = Points {
-                start: cell(line.start_coordinate()),
-                mid: cell(line.mid_coordinate()),
-                end: cell(line.end_coordinate()),
-            };
+            let points = Points::of_line(line);
             if !points.is_empty() {
                 // The event was just pushed, so it is there.
                 let _ = m.log.set_points(id, points);

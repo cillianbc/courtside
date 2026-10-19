@@ -53,6 +53,11 @@ fn manifest(root: &Path) -> Manifest {
 fn corpus_files(dir: &Path, root: &Path, out: &mut BTreeSet<String>) {
     for entry in std::fs::read_dir(dir).expect("read corpus dir") {
         let path = entry.expect("dir entry").path();
+        // Doctored fixtures (openvolley's dud, truncated, …) have their own
+        // manifest and aren't matches: the corpus gates leave them out.
+        if path.is_dir() && path.file_name().is_some_and(|n| n == "malformed") {
+            continue;
+        }
         if path.is_dir() {
             corpus_files(&path, root, out);
         } else if matches!(

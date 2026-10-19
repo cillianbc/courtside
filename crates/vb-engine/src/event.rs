@@ -143,6 +143,16 @@ pub struct Points {
 }
 
 impl Points {
+    /// A `[3SCOUT]` line's columns 4–6, keeping only cells on the grid.
+    pub fn of_line(line: &dvw_codec::scout::ScoutLine) -> Self {
+        let cell = |c: Option<u16>| c.filter(|c| crate::court::position(*c).is_some());
+        Points {
+            start: cell(line.start_coordinate()),
+            mid: cell(line.mid_coordinate()),
+            end: cell(line.end_coordinate()),
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.start.is_none() && self.mid.is_none() && self.end.is_none()
     }

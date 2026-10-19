@@ -187,6 +187,42 @@ fn downgrade_to_v2(conn: &rusqlite::Connection) {
 /// A version 1 file (before starting sixes and player codes) opens as the
 /// current version, with codes made for its players and match rosters
 /// filled in.
+/// Version 7 adds where each play went; a version 6 file opens with none.
+#[test]
+fn version_6_files_get_play_positions() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("season.courtside");
+    let id = {
+        let mut season = Season::create(&path, "2026/27", 1).expect("create");
+        season
+            .import_dvw("m.dvw", FILE.as_bytes(), 1_000)
+            .expect("import")
+    };
+    {
+        let conn = rusqlite::Connection::open(&path).expect("sqlite");
+        conn.execute_batch(
+            "ALTER TABLE event DROP COLUMN start_xy;
+             ALTER TABLE event DROP COLUMN mid_xy;
+             ALTER TABLE event DROP COLUMN end_xy;
+             PRAGMA user_version = 6;",
+        )
+        .expect("downgrade to v6");
+    }
+    let mut season = Season::open(&path).expect("migrated");
+    let mut game = season.open_match(id).expect("load").game;
+    let first = game.log.all()[0].id;
+    assert!(game.log.all()[0].points.is_empty());
+    let points = vb_engine::Points {
+        start: Some(4868),
+        mid: None,
+        end: Some(101),
+    };
+    game.log.set_points(first, points).expect("set");
+    season.save_points(id, &game.log, &[first]).expect("save");
+    let game = season.open_match(id).expect("reload").game;
+    assert_eq!(game.log.all()[0].points, points);
+}
+
 #[test]
 fn version_1_files_are_migrated() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -216,7 +252,8 @@ fn version_1_files_are_migrated() {
                  text TEXT NOT NULL, video_ms INTEGER, clock TEXT, producer TEXT NOT NULL,
                  supersedes TEXT, before TEXT, source_line INTEGER,
                  PRIMARY KEY (match_id, seq));
-             INSERT INTO event SELECT * FROM event_v1;
+             INSERT INTO event SELECT match_id, seq, id, kind, text, video_ms, clock, producer,
+                 supersedes, before, source_line FROM event_v1;
              DROP TABLE event_v1;
              PRAGMA user_version = 1;",
         )

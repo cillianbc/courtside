@@ -326,11 +326,7 @@ fn line(e: &MatchEvent, st: &State, template: &Dvw) -> Option<ScoutLine> {
         }
     }
     // Court positions, where the event's differ from the source line's.
-    let from_source = source.map(|l| Points {
-        start: l.start_coordinate(),
-        mid: l.mid_coordinate(),
-        end: l.end_coordinate(),
-    });
+    let from_source = source.map(Points::of_line);
     if from_source.unwrap_or_default() != e.points {
         let cell = |c: Option<u16>| c.map_or_else(|| "-1-1".to_owned(), |c| format!("{c:04}"));
         if e.points.is_empty() {

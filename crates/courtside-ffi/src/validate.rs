@@ -359,6 +359,10 @@ T2;Away;0;;;;\n\
         while let Some(dir) = stack.pop() {
             for entry in std::fs::read_dir(&dir).unwrap() {
                 let path = entry.unwrap().path();
+                // Doctored fixtures aren't matches (CORPUS.md).
+                if path.is_dir() && path.file_name().is_some_and(|n| n == "malformed") {
+                    continue;
+                }
                 if path.is_dir() {
                     stack.push(path);
                 } else if matches!(

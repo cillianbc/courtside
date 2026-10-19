@@ -28,7 +28,8 @@ if [ "${1:-}" = validate ]; then
   mkdir -p "$out"
   docker run --rm -v "$root/target/bad:/bad:ro" -v "$out:/out" \
     courtside-parity validate /bad /out/bad
-  docker run --rm -v "$root/testdata:/corpus:ro" -v "$out:/out" \
+  # Only the matches: testdata/malformed holds doctored files openvolley can't read.
+  docker run --rm -v "$root/testdata/dvw:/corpus/dvw:ro" -v "$out:/out" \
     courtside-parity validate /corpus /out/corpus
   exit 0
 fi
