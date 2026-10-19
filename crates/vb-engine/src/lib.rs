@@ -2,6 +2,7 @@
 //! ([`log::EventLog`]); score, rotation, lineups and rally phases are a
 //! deterministic fold over it ([`fold::fold`]).
 
+pub mod court;
 pub mod event;
 pub mod export;
 pub mod fold;
@@ -11,6 +12,6 @@ pub mod model;
 pub mod stats;
 pub mod validate;
 
-pub use event::{Body, EventId, EventKind, IdGen, MatchEvent, NewEvent, Producer};
+pub use event::{Body, EventId, EventKind, IdGen, MatchEvent, NewEvent, Points, Producer};
 pub use fold::{Folded, Phase, Rally, Score, State, fold};
 pub use model::{Conventions, Match, Rules, Sides, TeamSheet};

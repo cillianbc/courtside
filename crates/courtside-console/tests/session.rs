@@ -1645,3 +1645,62 @@ fn the_serve_comes_from_the_rotation() {
     let p = session.preview("#").expect("preview");
     assert_eq!(p.codes[0].text, format!("a{server:02}SH#"));
 }
+
+/// GitHub #11: where a play went on the court. A serve's marks go on the
+/// reception too; a click alone starts the play in its start zone; marks
+/// are saved, kept by a modify, and exported to columns 4–6.
+#[test]
+fn plays_are_marked_on_the_court() {
+    let (mut session, dir) = opened();
+    let snap = session.commit("a12R# a13#", None).expect("rally");
+    let serve = row_id(&snap, "*02SH+");
+    let snap = session
+        .set_points(&serve, Some((3.0, 0.2)), Some((1.1, 5.9)))
+        .expect("mark");
+    let row = |snap: &courtside_console::Snapshot, text: &str| {
+        snap.groups
+            .iter()
+            .flat_map(|g| &g.rows)
+            .find(|r| r.text == text)
+            .cloned()
+            .expect(text)
+    };
+    let s = row(&snap, "*02SH+");
+    let r = row(&snap, "a12RH#");
+    assert_eq!((s.start, s.end), (r.start, r.end), "the reception has the serve's");
+    assert_eq!(s.start, Some(vb_engine::court::index(3.0, 0.2)));
+
+    // An attack without a start zone needs a drag; with one, a click.
+    let attack = row_id(&snap, "a13AH#");
+    assert!(session.set_points(&attack, None, Some((2.0, 5.0))).is_err());
+    let snap = session
+        .correct(&attack, "a13AH#~~~4", None)
+        .expect("start zone");
+    let attack = row_id(&snap, "a13AH#~~~4");
+    let snap = session
+        .set_points(&attack, None, Some((2.0, 5.0)))
+        .expect("click");
+    let a = row(&snap, "a13AH#~~~4");
+    assert_eq!(a.start, Some(vb_engine::court::index(1.0, 3.1)));
+
+    // Kept by a modify, saved with the match, written to the .dvw.
+    let snap = session.correct(&attack, "a13AH+~~~4", None).expect("modify");
+    assert_eq!(row(&snap, "a13AH+~~~4").end, a.end);
+    let id = session.matches().expect("matches")[0].id.parse().expect("id");
+    let snap = session.open_match(id, 3_000).expect("reopen");
+    assert_eq!(row(&snap, "*02SH+").end, s.end);
+    let out = dir.path().join("marked.dvw");
+    session.export_dvw(&out, false).expect("export");
+    let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
+    let line = text
+        .lines()
+        .find(|l| l.starts_with("*02SH+;"))
+        .expect("serve line");
+    let cols: Vec<&str> = line.split(';').collect();
+    let cell = |c: Option<u16>| format!("{:04}", c.expect("cell"));
+    assert_eq!(cols[4..=6], [cell(s.start).as_str(), "-1-1", cell(s.end).as_str()]);
+
+    // Clearing.
+    let snap = session.set_points(&serve, None, None).expect("clear");
+    assert_eq!(row(&snap, "a12RH#").end, None);
+}

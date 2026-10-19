@@ -128,6 +128,24 @@ pub struct MatchEvent {
     pub before: Option<EventId>,
     /// For imported events, the index of the source `[3SCOUT]` line.
     pub source_line: Option<usize>,
+    /// Where the play started and ended on the court, as `.dvw` grid
+    /// cells ([`crate::court`]). A stamp like the video time: set in place,
+    /// kept by a correction.
+    pub points: Points,
+}
+
+/// A play's court positions as `.dvw` grid cells ([`crate::court`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Points {
+    pub start: Option<u16>,
+    pub mid: Option<u16>,
+    pub end: Option<u16>,
+}
+
+impl Points {
+    pub fn is_empty(&self) -> bool {
+        self.start.is_none() && self.mid.is_none() && self.end.is_none()
+    }
 }
 
 impl MatchEvent {
@@ -215,6 +233,7 @@ mod tests {
                 supersedes: None,
                 before: None,
                 source_line: None,
+                points: Points::default(),
             }
             .kind()
         };

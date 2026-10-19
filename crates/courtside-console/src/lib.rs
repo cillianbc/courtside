@@ -17,7 +17,8 @@ use courtside_store::Season;
 use vb_engine::log::{EventLog, LogError};
 use vb_engine::model::Outcome;
 use vb_engine::{
-    Body, EventId, EventKind, IdGen, Match, MatchEvent, NewEvent, Producer, Score, TeamSheet, fold,
+    Body, EventId, EventKind, IdGen, Match, MatchEvent, NewEvent, Points, Producer, Score,
+    TeamSheet, fold,
 };
 use vb_grammar::expand::{Combination, Defaults, follow_combination, follow_pair, is_pair};
 use vb_grammar::{Code, Skill, Touch};
@@ -412,6 +413,37 @@ fn last_touch<'a>(events: impl Iterator<Item = &'a &'a MatchEvent>) -> Option<To
         }
     }
     None
+}
+
+/// Where a play started when only its end is marked: the middle of its
+/// start zone in the play's frame (`vb_engine::court`), from where the
+/// corpus's marked plays start (FORMAT-NOTES). A serve starts behind the
+/// baseline.
+fn zone_start(t: &Touch) -> Option<(f64, f64)> {
+    let z = t.start_zone()?.to_digit(10)?;
+    if t.skill == Skill::Serve {
+        let x = match z {
+            5 => 0.95,
+            7 => 1.25,
+            6 => 2.0,
+            9 => 2.7,
+            1 => 3.05,
+            _ => return None,
+        };
+        return Some((x, 0.2));
+    }
+    let x = match z {
+        4 | 7 | 5 => 1.0,
+        3 | 8 | 6 => 2.0,
+        2 | 9 | 1 => 3.0,
+        _ => return None,
+    };
+    let y = match z {
+        2..=4 => 3.1,
+        7..=9 => 2.5,
+        _ => 1.2,
+    };
+    Some((x, y))
 }
 
 /// Who serves the rally that starts after the first `upto` visible events:
@@ -1511,6 +1543,69 @@ impl Session {
             .map_err(|_| Error::BadCode(format!("no event {id:?}")))?;
         c.preview_before(text, target)
             .ok_or_else(|| Error::BadCode(format!("no event {id:?}")))
+    }
+
+    /// Marks where a play went on the court (GitHub #11), as positions in
+    /// the play's frame (`vb_engine::court`: its team's half at the bottom).
+    /// Without `start` the play starts in the middle of its start zone; with
+    /// neither, the marks are cleared. A serve's marks go on the reception
+    /// straight after it and an attack's on the dig, as `.dvw` keeps them
+    /// (and the other way round). A stamp like the video time: set in place,
+    /// not undone.
+    pub fn set_points(
+        &mut self,
+        id: &str,
+        start: Option<(f64, f64)>,
+        end: Option<(f64, f64)>,
+    ) -> Result<Snapshot> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let target = ulid::Ulid::from_string(id)
+            .map(EventId)
+            .map_err(|_| Error::BadCode(format!("no event {id:?}")))?;
+        let touch = c
+            .game
+            .log
+            .get(target)
+            .and_then(touch_of)
+            .ok_or_else(|| Error::BadCode("Only a touch has a direction.".into()))?;
+        let cell = |(x, y): (f64, f64)| Some(vb_engine::court::index(x, y));
+        let points = match (start, end) {
+            (None, None) => Points::default(),
+            (start, Some(end)) => {
+                let start = start.or_else(|| zone_start(&touch)).ok_or_else(|| {
+                    Error::BadCode(format!(
+                        "{touch} has no start zone: drag from where the play started."
+                    ))
+                })?;
+                Points {
+                    start: cell(start),
+                    mid: None,
+                    end: cell(end),
+                }
+            }
+            (Some(start), None) => Points {
+                start: cell(start),
+                ..Points::default()
+            },
+        };
+        let mut ids = vec![target];
+        c.game.log.set_points(target, points)?;
+        if let Some((partner, _)) = pair_partner(&c.game.log, target)
+            && let Some(other) = c.game.log.get(partner).and_then(touch_of)
+            && matches!(
+                (touch.skill, other.skill),
+                (Skill::Serve, Skill::Reception)
+                    | (Skill::Reception, Skill::Serve)
+                    | (Skill::Attack, Skill::Dig)
+                    | (Skill::Dig, Skill::Attack)
+            )
+        {
+            c.game.log.set_points(partner, points)?;
+            ids.push(partner);
+        }
+        season.save_points(c.id, &c.game.log, &ids)?;
+        self.snapshot()
     }
 
     /// Takes an earlier code out of the match.

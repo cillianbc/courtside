@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::event::{Body, EventId, IdGen, MatchEvent, NewEvent};
+use crate::event::{Body, EventId, IdGen, MatchEvent, NewEvent, Points};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum LogError {
@@ -112,6 +112,7 @@ impl EventLog {
             supersedes,
             before,
             source_line,
+            points: Points::default(),
         });
         id
     }
@@ -130,6 +131,7 @@ impl EventLog {
     ) -> Result<EventId, LogError> {
         let old = self.get(target).ok_or(LogError::NotFound(target))?;
         let source_line = old.source_line;
+        let points = old.points;
         let new = NewEvent {
             video_ms: new.video_ms.or(old.video_ms),
             clock: new.clock.or(old.clock),
@@ -138,7 +140,21 @@ impl EventLog {
         if let Some(by) = self.events.iter().find(|e| e.supersedes == Some(target)) {
             return Err(LogError::AlreadySuperseded(target, by.id));
         }
-        Ok(self.push(ids, new, Some(target), None, source_line))
+        let id = self.push(ids, new, Some(target), None, source_line);
+        self.set_points(id, points)?;
+        Ok(id)
+    }
+
+    /// Sets where an event's play went on the court, in place: a stamp
+    /// like the video time, not a correction.
+    pub fn set_points(&mut self, id: EventId, points: Points) -> Result<(), LogError> {
+        let e = self
+            .events
+            .iter_mut()
+            .find(|e| e.id == id)
+            .ok_or(LogError::NotFound(id))?;
+        e.points = points;
+        Ok(())
     }
 
     /// Sets an event's video time in place. Video times are a stamp on the

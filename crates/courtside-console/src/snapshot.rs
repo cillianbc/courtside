@@ -167,6 +167,10 @@ pub struct Row {
     pub severity: Option<&'static str>,
     /// Where the code is in the match video.
     pub video_ms: Option<u64>,
+    /// Where the play started and ended on the court: `.dvw` grid cells
+    /// in the play's frame (`vb_engine::court`).
+    pub start: Option<u16>,
+    pub end: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -379,6 +383,8 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             edited: e.supersedes.is_some() || e.before.is_some(),
             severity: worst.get(i).copied().flatten().map(severity_name),
             video_ms: e.video_ms,
+            start: e.points.start,
+            end: e.points.end,
         });
         let ended = rally_end.get(i).copied().flatten();
         if ended.is_some() || kind == EventKind::SetEnd {

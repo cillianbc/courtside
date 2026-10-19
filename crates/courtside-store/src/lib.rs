@@ -30,12 +30,12 @@ use rusqlite::{Connection, OptionalExtension, params};
 use ulid::Ulid;
 use vb_engine::event::{ClockTime, ImportFormat};
 use vb_engine::log::{EventLog, LogError};
-use vb_engine::{Body, EventId, IdGen, Match, MatchEvent, Producer};
+use vb_engine::{Body, EventId, IdGen, Match, MatchEvent, Points, Producer};
 use vb_grammar::Code;
 use vb_grammar::Team as Side;
 
 /// Schema version, kept in SQLite's `user_version`.
-const VERSION: u32 = 6;
+const VERSION: u32 = 7;
 
 const SCHEMA: &str = "
 CREATE TABLE season (
@@ -87,6 +87,10 @@ CREATE TABLE event (
     supersedes TEXT,
     before TEXT,
     source_line INTEGER,
+    -- Where the play went on the court: .dvw grid cells (vb_engine::court).
+    start_xy INTEGER,
+    mid_xy INTEGER,
+    end_xy INTEGER,
     PRIMARY KEY (match_id, seq)
 );
 ";
@@ -232,7 +236,7 @@ impl Season {
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         match version {
             VERSION => {}
-            1..=5 => {
+            1..=6 => {
                 if version < 2 {
                     migrate_1_to_2(&conn)?;
                 }
@@ -245,7 +249,10 @@ impl Season {
                 if version < 5 {
                     migrate_4_to_5(&conn)?;
                 }
-                migrate_5_to_6(&conn)?;
+                if version < 6 {
+                    migrate_5_to_6(&conn)?;
+                }
+                migrate_6_to_7(&conn)?;
             }
             _ => return Err(Error::Version(version)),
         }
@@ -489,6 +496,28 @@ impl Season {
             params![id.to_string(), i64::try_from(same).unwrap_or(i64::MAX)],
         )?;
         write_events(&tx, id, &events[same..], same)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Saves the court positions of the events `ids` as the log now has
+    /// them. The events themselves are already saved.
+    pub fn save_points(&mut self, id: MatchId, log: &EventLog, ids: &[EventId]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "UPDATE event SET start_xy = ?1, mid_xy = ?2, end_xy = ?3 WHERE match_id = ?4 AND id = ?5",
+            )?;
+            for e in log.all().iter().filter(|e| ids.contains(&e.id)) {
+                stmt.execute(params![
+                    e.points.start,
+                    e.points.mid,
+                    e.points.end,
+                    id.to_string(),
+                    e.id.to_string()
+                ])?;
+            }
+        }
         tx.commit()?;
         Ok(())
     }
@@ -740,6 +769,19 @@ fn migrate_5_to_6(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Version 7: where each play went on the court.
+fn migrate_6_to_7(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "BEGIN;
+         ALTER TABLE event ADD COLUMN start_xy INTEGER;
+         ALTER TABLE event ADD COLUMN mid_xy INTEGER;
+         ALTER TABLE event ADD COLUMN end_xy INTEGER;
+         PRAGMA user_version = 7;
+         COMMIT;",
+    )?;
+    Ok(())
+}
+
 /// Version 5 lets event rows mark a golden set (kind `golden`); the table
 /// is rebuilt for the new CHECK constraint, as in version 2.
 fn migrate_4_to_5(conn: &Connection) -> Result<()> {
@@ -796,8 +838,8 @@ fn ms(now_ms: u64) -> i64 {
 
 fn write_events(conn: &Connection, id: MatchId, events: &[MatchEvent], from: usize) -> Result<()> {
     let mut stmt = conn.prepare(
-        "INSERT INTO event (match_id, seq, id, kind, text, video_ms, clock, producer, supersedes, before, source_line)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO event (match_id, seq, id, kind, text, video_ms, clock, producer, supersedes, before, source_line, start_xy, mid_xy, end_xy)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
     )?;
     for (i, e) in events.iter().enumerate() {
         let (kind, text) = match &e.body {
@@ -821,6 +863,9 @@ fn write_events(conn: &Connection, id: MatchId, events: &[MatchEvent], from: usi
             e.supersedes.map(|s| s.to_string()),
             e.before.map(|s| s.to_string()),
             e.source_line.map(|l| i64::try_from(l).unwrap_or(i64::MAX)),
+            e.points.start,
+            e.points.mid,
+            e.points.end,
         ])?;
     }
     Ok(())
@@ -837,11 +882,12 @@ type EventRow = (
     Option<String>,
     Option<String>,
     Option<i64>,
+    Points,
 );
 
 fn read_events(conn: &Connection, id: MatchId) -> Result<Vec<MatchEvent>> {
     let mut stmt = conn.prepare(
-        "SELECT seq, id, kind, text, video_ms, clock, producer, supersedes, before, source_line
+        "SELECT seq, id, kind, text, video_ms, clock, producer, supersedes, before, source_line, start_xy, mid_xy, end_xy
          FROM event WHERE match_id = ?1 ORDER BY seq",
     )?;
     let rows = stmt.query_map([id.to_string()], |r| {
@@ -856,11 +902,27 @@ fn read_events(conn: &Connection, id: MatchId) -> Result<Vec<MatchEvent>> {
             r.get(7)?,
             r.get(8)?,
             r.get(9)?,
+            Points {
+                start: r.get(10)?,
+                mid: r.get(11)?,
+                end: r.get(12)?,
+            },
         ))
     })?;
     rows.map(|row| {
-        let (seq, eid, kind, text, video_ms, clock, producer, supersedes, before, source_line): EventRow =
-            row?;
+        let (
+            seq,
+            eid,
+            kind,
+            text,
+            video_ms,
+            clock,
+            producer,
+            supersedes,
+            before,
+            source_line,
+            points,
+        ): EventRow = row?;
         let body = match kind.as_str() {
             "code" => Body::Code(Code::parse(&text)),
             "comment" => Body::Comment(text),
@@ -879,6 +941,7 @@ fn read_events(conn: &Connection, id: MatchId) -> Result<Vec<MatchEvent>> {
             supersedes: supersedes.as_deref().map(event_id).transpose()?,
             before: before.as_deref().map(event_id).transpose()?,
             source_line: source_line.and_then(|l| usize::try_from(l).ok()),
+            points,
         })
     })
     .collect()

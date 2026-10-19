@@ -4,7 +4,7 @@ use dvw_codec::Dvw;
 use dvw_codec::dvw::{Player, Regulation as DvwRegulation, Role};
 use vb_grammar::{Code, Skill};
 
-use crate::event::{ClockTime, IdGen, ImportFormat, NewEvent, Producer};
+use crate::event::{ClockTime, IdGen, ImportFormat, NewEvent, Points, Producer};
 use crate::model::{
     Conventions, Match, Regulation, RosterPlayer, Sides, StartingZone, TeamSheet, WinningSymbols,
 };
@@ -48,7 +48,17 @@ impl Match {
                     Producer::Import(ImportFormat::Dvw),
                 )
             };
-            m.log.push(ids, new, None, None, Some(i));
+            let id = m.log.push(ids, new, None, None, Some(i));
+            let cell = |c: Option<u16>| c.filter(|c| crate::court::position(*c).is_some());
+            let points = Points {
+                start: cell(line.start_coordinate()),
+                mid: cell(line.mid_coordinate()),
+                end: cell(line.end_coordinate()),
+            };
+            if !points.is_empty() {
+                // The event was just pushed, so it is there.
+                let _ = m.log.set_points(id, points);
+            }
         }
         m
     }

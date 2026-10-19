@@ -30,7 +30,7 @@ use dvw_codec::text::Row;
 
 use vb_grammar::{Code, Skill, Team};
 
-use crate::event::{Body, ClockTime, EventKind, MatchEvent};
+use crate::event::{Body, ClockTime, EventKind, MatchEvent, Points};
 use crate::fold::{Folded, Score, State, fold_events};
 use crate::model::{Match, StartingZone};
 
@@ -323,6 +323,22 @@ fn line(e: &MatchEvent, st: &State, template: &Dvw) -> Option<ScoutLine> {
         let secs = ms / 1000;
         if source.and_then(ScoutLine::video_time) != Some(secs as f64) {
             row[12] = secs.to_string();
+        }
+    }
+    // Court positions, where the event's differ from the source line's.
+    let from_source = source.map(|l| Points {
+        start: l.start_coordinate(),
+        mid: l.mid_coordinate(),
+        end: l.end_coordinate(),
+    });
+    if from_source.unwrap_or_default() != e.points {
+        let cell = |c: Option<u16>| c.map_or_else(|| "-1-1".to_owned(), |c| format!("{c:04}"));
+        if e.points.is_empty() {
+            row[4..=6].iter_mut().for_each(String::clear);
+        } else {
+            row[4] = cell(e.points.start);
+            row[5] = cell(e.points.mid);
+            row[6] = cell(e.points.end);
         }
     }
     let num = |n: Option<u8>| n.map(|n| n.to_string()).unwrap_or_default();
