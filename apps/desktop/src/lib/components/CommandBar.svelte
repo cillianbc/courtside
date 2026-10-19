@@ -42,6 +42,17 @@
 
   const hint = $derived(ui.result ?? hintFor(ui.code, preview));
 
+  // At a rally's start the serve comes from the rotation (GitHub #12):
+  // the empty line says who serves.
+  const nextServe = $derived.by(() => {
+    const snap = ui.snapshot;
+    const open = snap?.groups.at(-1);
+    if (!snap?.serving || ui.editing || !open || open.closed) return null;
+    if (open.rows.some((r) => r.kind === "touch")) return null;
+    const n = snap.court[snap.serving][0];
+    return n == null ? null : `${snap.serving === "home" ? "*" : "a"}${String(n).padStart(2, "0")}`;
+  });
+
   // Point buttons sit on the side of the team they score for, as the
   // court is drawn (they follow a side swap).
   const snap = $derived(ui.snapshot);
@@ -141,7 +152,7 @@
     spellcheck="false"
     aria-label="Scout code"
     aria-describedby="hint"
-    placeholder="a08RM+"
+    placeholder={nextServe ? `${nextServe} serves: type + or the passer` : "a08RM+"}
   />
   <output class="hint" id="hint">{hint.text}</output>
   {#if snap?.setEndDue}

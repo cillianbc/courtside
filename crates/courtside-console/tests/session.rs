@@ -287,14 +287,14 @@ fn the_setters_set_is_added_unless_typed() {
     // Someone else set: the typed set (default evaluation) and no other.
     let p = session.preview("*1RQ- 3e 8Q#").expect("preview");
     let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
-    assert_eq!(codes, ["*01RQ-", "*03EH+", "*08AQ#"]);
+    assert_eq!(codes, ["a13SQ+", "*01RQ-", "*03EH+", "*08AQ#"]);
     // The set takes the attack's type; the setter's own attack gets none.
     let p = session.preview("*3R- 8Q#").expect("preview");
     let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
-    assert_eq!(codes, ["*03RH-", "*01EQ+", "*08AQ#"]);
+    assert_eq!(codes, ["a13SH+", "*03RH-", "*01EQ+", "*08AQ#"]);
     let p = session.preview("*3R+ 1#").expect("preview");
     let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
-    assert_eq!(codes, ["*03RH+", "*01AH#"], "a setter dump");
+    assert_eq!(codes, ["a13SH-", "*03RH+", "*01AH#"], "a setter dump");
 }
 
 /// The scout's report (2026-10-18): after the setter goes off, the set
@@ -323,10 +323,10 @@ fn volleystation_shorthand_fills_the_set() {
     // Northgate serves; home's setter is 1.
     let p = session.preview("*3R+ K7 9X6#").expect("preview");
     let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
-    assert_eq!(codes, ["*03RH+", "*01EH+K7B", "*09AT#X6~2"]);
+    assert_eq!(codes, ["a13SH-", "*03RH+", "*01EH+K7B", "*09AT#X6~2"]);
     let p = session.preview("*3R+ 6K1F# 9X6#").expect("preview");
     let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
-    assert_eq!(codes[1], "*06EH#K1F", "a typed target stays");
+    assert_eq!(codes[2], "*06EH#K1F", "a typed target stays");
 }
 
 #[test]
@@ -1603,4 +1603,45 @@ fn a_line_goes_in_inside_a_rally() {
         .expect("preview");
     let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
     assert_eq!(codes, ["a14EH+", "a10AH+"]);
+}
+
+/// GitHub #12: a rally's first code leaves the serve to the rotation. An
+/// evaluation alone is the server's serve; the receiving team's player is
+/// the reception of it; anything else is read as typed.
+#[test]
+fn the_serve_comes_from_the_rotation() {
+    let (mut session, _dir) = opened();
+    // Rally 3 is home's: #2 is in zone 1 after the side-out.
+    let snap = session.snapshot().expect("snapshot");
+    let serve = row_id(&snap, "*02SH+");
+    let read = |session: &Session, id: &str, text: &str| -> Vec<String> {
+        session
+            .preview_before(text, id)
+            .expect("preview")
+            .codes
+            .iter()
+            .map(|r| r.text.clone())
+            .collect()
+    };
+    assert_eq!(read(&session, &serve, "+"), ["*02SH+"]);
+    assert_eq!(read(&session, &serve, "Q#"), ["*02SQ#"]);
+    let p = session.preview_before("a7-", &serve).expect("preview");
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes, ["*02SH+", "a07RH-"]);
+    assert_eq!(p.codes[0].filled[0], "serve by the server in zone 1");
+    // The serving team's own player is a serve as typed: the checks judge
+    // the server.
+    assert_eq!(read(&session, &serve, "7-"), ["*07SH-"]);
+
+    // Live, after a side-out: the winner's new zone-1 player serves.
+    let snap = session.commit("a12R# a13#", None).expect("side-out");
+    let server = snap.court.visiting[0].expect("zone 1");
+    let p = session.preview("7=").expect("preview");
+    let codes: Vec<&str> = p.codes.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(codes[0], format!("a{server:02}SH#"));
+    assert_eq!(codes[1], "*07RH=");
+    // After a point won on serve, the same server again.
+    session.commit("+ 7= ", None).expect("ace-ish");
+    let p = session.preview("#").expect("preview");
+    assert_eq!(p.codes[0].text, format!("a{server:02}SH#"));
 }

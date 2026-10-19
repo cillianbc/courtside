@@ -414,6 +414,21 @@ fn last_touch<'a>(events: impl Iterator<Item = &'a &'a MatchEvent>) -> Option<To
     None
 }
 
+/// Who serves the rally that starts after the first `upto` visible events:
+/// the last rally's winner in the set, and its player in zone 1. Unknown
+/// before a set's first point or without the six.
+fn server_at(folded: &vb_engine::Folded, upto: usize) -> Option<(Team, u8)> {
+    let st = folded.states.get(upto.checked_sub(1)?)?;
+    let team = folded
+        .rallies
+        .iter()
+        .rev()
+        .filter(|r| r.last < upto && r.set == st.set)
+        .find_map(|r| r.won_by)?;
+    let server = st.court.get(team)[0]?;
+    Some((team, server))
+}
+
 fn other(t: Team) -> Team {
     match t {
         Team::Home => Team::Visiting,
@@ -428,7 +443,8 @@ impl Current {
 
     fn preview(&self, text: &str) -> Preview {
         let before = self.open_rally_touch();
-        let setters = fold(&self.game).states.last().map(|s| s.setter);
+        let folded = fold(&self.game);
+        let setters = folded.states.last().map(|s| s.setter);
         readback::preview(
             text,
             &self.game,
@@ -436,6 +452,7 @@ impl Current {
             before.as_ref(),
             &self.defaults,
             Some(setters.unwrap_or_default()),
+            server_at(&folded, folded.states.len()),
         )
     }
 
@@ -497,6 +514,7 @@ impl Current {
             before.as_ref(),
             &self.defaults,
             setters,
+            server_at(&fold(&self.game), pos),
         ))
     }
 
@@ -1528,8 +1546,15 @@ impl Session {
                 }
                 let before = c.touch_before(target);
                 // One code in, one code out: no set is added in front.
-                let preview =
-                    readback::preview(text, &c.game, c.names(), before.as_ref(), &c.defaults, None);
+                let preview = readback::preview(
+                    text,
+                    &c.game,
+                    c.names(),
+                    before.as_ref(),
+                    &c.defaults,
+                    None,
+                    None,
+                );
                 if let Some(e) = preview.codes.iter().find_map(|r| r.error.clone()) {
                     return Err(Error::BadCode(format!("{text}: {e}")));
                 }

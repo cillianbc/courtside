@@ -42,7 +42,9 @@ pub struct Preview {
 /// `before` is the last touch of the open rally. With `setters` (each
 /// team's setter's shirt number), an attack straight after its team's
 /// reception, dig or free ball gets the setter's set in front of it: the
-/// scout leaves the set out unless someone else set (`3E 8#`).
+/// scout leaves the set out unless someone else set (`3E 8#`). With
+/// `server` (the team due to serve and its player in zone 1), a rally's
+/// first token gets the serve filled in (`predicted_serve`).
 pub fn preview(
     text: &str,
     game: &Match,
@@ -50,12 +52,23 @@ pub fn preview(
     before: Option<&Touch>,
     defaults: &Defaults,
     setters: Option<Sides<Option<u8>>>,
+    server: Option<(Team, u8)>,
 ) -> Preview {
-    let mut codes = Vec::new();
+    let mut codes: Vec<Readback> = Vec::new();
     let mut last = before.cloned();
     for (n, token) in text.split_whitespace().enumerate() {
         let named = setters.and_then(|s| setters_call(token, s));
-        match expand(named.as_deref().unwrap_or(token), last.as_ref(), defaults) {
+        // A rally's first touch, before any of this line's.
+        let starts_rally = last.is_none()
+            && !codes
+                .iter()
+                .any(|c| matches!(Code::parse(&c.text), Code::Touch(_) | Code::Point { .. }));
+        let served = server
+            .filter(|_| starts_rally && named.is_none())
+            .and_then(|s| predicted_serve(token, s));
+        let first_code = codes.len();
+        let typed = served.as_deref().or(named.as_deref()).unwrap_or(token);
+        match expand(typed, last.as_ref(), defaults) {
             Err(e) => codes.push(Readback {
                 typed: token.to_owned(),
                 text: token.to_owned(),
@@ -111,11 +124,59 @@ pub fn preview(
                         last = None;
                     }
                 }
+                if served.is_some()
+                    && let Some(r) = codes.get_mut(first_code)
+                {
+                    r.filled.insert(0, "serve by the server in zone 1".into());
+                }
             }
         }
     }
     let ok = !codes.is_empty() && codes.iter().all(|c| c.error.is_none());
     Preview { codes, ok }
+}
+
+/// The serve a rally's first token stands for, as a token `expand` reads,
+/// when the scout leaves it to the rotation (GitHub #12): an evaluation
+/// alone, with or without the serve's type (`+`, `Q-`, `S`), is the server's
+/// serve; the receiving team's player with no skill or `R` (`7-`, `a3R#`)
+/// is the reception of it, the serve's evaluation derived from it. Anything
+/// else is read as typed, so a wrong server stays the validator's to flag.
+fn predicted_serve(token: &str, (team, server): (Team, u8)) -> Option<String> {
+    let t = team.as_char();
+    let (prefix, rest) = match token.chars().next()? {
+        'a' => (Some(Team::Visiting), &token[1..]),
+        '*' => (Some(Team::Home), &token[1..]),
+        _ => (None, token),
+    };
+    if rest.contains('.') {
+        return None;
+    }
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    let tail = rest[digits..].to_ascii_uppercase();
+    if digits == 0 {
+        // `+`, `S+`, `Q-`: the serve itself, by the server.
+        let body = tail.strip_prefix('S').unwrap_or(&tail);
+        let mut chars = body.chars();
+        let ty = chars.clone().next().filter(|c| "HMQTUNO".contains(*c));
+        if ty.is_some() {
+            chars.next();
+        }
+        let ev = chars.as_str();
+        // An evaluation, or `S` itself: `aT` is a timeout, not a serve type.
+        let ok = prefix.is_none_or(|p| p == team)
+            && if ev.is_empty() {
+                tail.starts_with('S')
+            } else {
+                ev.len() == 1 && "=/-!+#".contains(ev)
+            };
+        return ok.then(|| format!("{t}{server:02}S{body}"));
+    }
+    let receiving = prefix.unwrap_or(Team::Home) != team;
+    let skill = tail.chars().next().filter(char::is_ascii_alphabetic);
+    let reception =
+        matches!(skill, None | Some('R')) || tail.starts_with(|c: char| "HMQTUNO".contains(c));
+    (receiving && reception).then(|| format!("{t}{server:02}S.{token}"))
 }
 
 /// `K7#`, `aK1`: a setter call typed without a player is the team's
