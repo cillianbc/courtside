@@ -314,8 +314,14 @@ impl Season {
                 }
             };
             let mut rows = Vec::new();
+            let mut numbers = std::collections::HashSet::new();
             for p in players {
                 let Some(number) = p.number() else { continue };
+                // A shirt listed twice (a slip in the file, which the
+                // validator reports): the first player keeps it.
+                if !numbers.insert(number) {
+                    continue;
+                }
                 let special = p.special_role();
                 let row = PlayerInput {
                     id: None,

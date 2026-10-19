@@ -409,3 +409,22 @@ fn an_imported_match_roster_can_be_edited() {
     assert!(late.contains(";Late;Arrival;"), "{late}");
     assert_eq!(line("1;16;"), original("1;16;"));
 }
+
+/// A file listing one shirt twice in a team (a slip the validator reports)
+/// still imports: the first player keeps the number.
+#[test]
+fn a_shirt_listed_twice_imports() {
+    let twice = FILE.replace(
+        "0;12;2;2;;;;;h12;Placeholder;B;;;2;False;h12;;",
+        "0;12;2;2;;;;;h12;Placeholder;B;;;2;False;h12;;\r\n0;8;3;;;;;;h8b;Second;E;;;3;False;h8b;;",
+    );
+    let mut season = Season::in_memory("2026/27", 1).expect("season");
+    let id = season
+        .import_dvw("twice.dvw", twice.as_bytes(), 1_000)
+        .expect("import");
+    let (home, _) = season.match_roster(id).expect("roster");
+    let eights: Vec<_> = home.iter().filter(|p| p.number == 8).collect();
+    assert_eq!(eights.len(), 1);
+    assert_eq!(eights[0].last_name, "Placeholder");
+    assert_eq!(codes(&season, id).len(), 3);
+}
