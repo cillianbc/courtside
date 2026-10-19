@@ -31,7 +31,8 @@
     return (g?.rows ?? []).filter((r) => r.kind === "touch" && r.id !== target.id);
   });
 
-  const end = $derived(ui.endView);
+  // The video layout draws it end on, as a tall strip beside the video.
+  const end = $derived(ui.endView || ui.layout === "watch");
   const keys = $derived(
     [keyFor(ui.keymap, "codePrev"), keyFor(ui.keymap, "codeNext")].filter(Boolean).join(" / "),
   );
@@ -167,7 +168,7 @@
   {/if}
 {/snippet}
 
-<div class="play-court" class:end>
+<section class="panel plays play-court" class:end aria-label="Where plays went">
   <div class="play-head">
     {#if target}
       <span
@@ -210,8 +211,8 @@
       <line class="play drag" x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
     {/if}
   </svg>
-  <p class="sub-note">
+  <p class="sub-note plays-note">
     Drag from start to end, or click the end when the code has a start zone.
     {#if keys}{keys} pick the previous or next play.{/if}
   </p>
-</div>
+</section>

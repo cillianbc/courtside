@@ -45,8 +45,12 @@ class Ui {
   swapped = $state(false);
   /** Court drawn from the end line instead of the side. */
   endView = $state(false);
-  /** The court panel shows where plays went (GitHub #11); remembered per computer. */
-  playsShown = $state(remembered("courtside.playsShown"));
+  /**
+   * Coding: video on top, codes and team controls under it, the direction
+   * court and checks on the right. Watch: the video fills the window beside
+   * one narrow column. Remembered per computer.
+   */
+  layout = $state<"coding" | "watch">(remembered("courtside.watchLayout") ? "watch" : "coding");
   sideTab = $state<"checks" | "set">("checks");
   /** The clip playlist shows where the code stream does. */
   clipsOpen = $state(false);
@@ -61,15 +65,16 @@ class Ui {
   editing = $state<Editing | null>(null);
   /** The team whose substitution picker is open. */
   subFor = $state<Side | null>(null);
-  /** The team whose lineup is being modified. */
-  lineupFor = $state<Side | null>(null);
+  /**
+   * The set whose starting lineups are open on the lineup screen, to modify
+   * them. The screen also opens by itself while a team needs its six.
+   */
+  lineupScreen = $state<number | null>(null);
   /**
    * Menus and dialogs open over the window: the video's native view is
    * drawn above the page, so it hides while this is above 0.
    */
   covering = $state(0);
-  /** The set whose lineup is being modified. */
-  lineupSet = $state(1);
   /** This computer's keys, defaults filled in. */
   keymap = $state<KeyBinding[]>(effectiveKeymap([]));
   keyText = $state<KeyText[]>([]);
@@ -263,6 +268,12 @@ class Ui {
   remove(id: string, text: string): Promise<boolean> {
     this.selected = null;
     return this.apply(`Removed ${text}`, () => backend.remove(id), true);
+  }
+
+  /** Switches the console's layout and remembers it on this computer. */
+  setLayout(layout: "coding" | "watch") {
+    this.layout = layout;
+    remember("courtside.watchLayout", layout === "watch");
   }
 
   /** Loads this computer's keys (at start, after opening a season or saving them). */

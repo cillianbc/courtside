@@ -244,39 +244,301 @@ body {
   cursor: pointer;
 }
 
-/* Work area */
+/* Work area: one set of panels, placed by the layout (approved mockup,
+   docs/mockups/console.html). Coding: the video over the codes and the
+   team panel, the direction court and checks on the right. Watch: the
+   video fills the window beside one narrow column. */
 .work {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
   min-height: 0;
 }
-.stage {
-  display: grid;
-  gap: 10px;
-  grid-template-rows: minmax(200px, 47vh) minmax(0, 1fr) auto;
-  min-height: 0;
+.work > * {
   min-width: 0;
-}
-.mid {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(0, 1.25fr) minmax(230px, 1fr);
   min-height: 0;
 }
-.mid > .panel,
-.right > .panel {
-  min-height: 0;
+.work.coding {
+  /* The two columns under the video share about its 16:9 width. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(320px, 2fr);
+  grid-template-rows: minmax(200px, 44vh) minmax(0, 1fr) auto;
+  grid-template-areas:
+    "video video plays"
+    "codes team checks"
+    "cmd cmd checks";
+}
+.work.watch {
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-rows: minmax(220px, 1fr) auto auto auto;
+  grid-template-areas:
+    "codes video"
+    "team video"
+    "plays video"
+    "cmd video";
+}
+.work > .video {
+  grid-area: video;
+}
+.work > .codes,
+.work > .clips {
+  grid-area: codes;
+}
+.work > .team {
+  grid-area: team;
   overflow: auto;
 }
-.right {
+.work > .cmd {
+  grid-area: cmd;
+}
+.work > .plays {
+  grid-area: plays;
+  overflow: auto;
+}
+.work > .side {
+  grid-area: checks;
+}
+/* The video layout keeps only what coding needs beside the video. */
+.work.watch > .side,
+.work.watch .team .court-head,
+.work.watch .team .courts,
+.work.watch .team .court-legend,
+.work.watch .plays .plays-note {
+  display: none;
+}
+.work.watch .team {
+  padding: 6px 8px;
+}
+/* The narrow column's command bar: the Point buttons keep their colour
+   and side, the team name is in their tooltip. */
+.work.watch .cmd {
+  gap: 4px 6px;
+  padding-inline: 8px;
+  flex-wrap: wrap;
+}
+.work.watch .cmd .pt-name {
+  display: none;
+}
+/* The read-back gets its own line under the code. */
+.work.watch .cmd .hint {
+  order: 3;
+  flex-basis: 100%;
+  white-space: normal;
+}
+.work.watch .cmd .code-input {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+}
+.work.watch .plays svg {
+  flex: none;
+  height: min(32vh, 280px);
+}
+.layout-switch {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.layout-switch button {
+  font: inherit;
+  font-size: 12px;
+  border: 0;
+  background: var(--sunk);
+  color: var(--muted);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.layout-switch button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.lineup-btn {
+  flex: none;
+  margin: 6px 8px 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-weight: 600;
+}
+.lineup-btn svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+/* One row per team: tag, timeout, substitution, rotation. */
+.team .ctl-row {
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 4px 6px;
+}
+.team .rot-group {
+  margin-left: auto;
+}
+.team .zone {
+  height: clamp(30px, 5vh, 46px);
+  font-size: clamp(18px, 2.6vh, 26px);
+}
+
+/* Starting lineup screen */
+.lineup-screen {
+  display: grid;
+  gap: 12px;
+  grid-template-rows: auto auto auto;
+  align-content: start;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  overflow: auto;
+}
+.lineup-screen h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 28px;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  text-wrap: balance;
+}
+.lineup-screen h1 small {
+  font-family: var(--body);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.lineup-teams {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.lu-team {
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--home);
+  border-radius: 10px;
+  padding: 10px 12px;
   display: grid;
   gap: 10px;
-  /* The court panel takes what it needs and scrolls past that; checks
-     always keep room for a few issues. */
-  grid-template-rows: minmax(0, auto) minmax(180px, 1fr);
-  min-height: 0;
-  min-width: 0;
+}
+.lu-team.away {
+  border-top-color: var(--away);
+}
+.lu-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.lu-court {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  background: var(--court);
+  border-radius: 8px;
+  padding: 8px;
+}
+.lu-court .net-cap {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  border-bottom: 2px dashed var(--muted);
+  padding-bottom: 2px;
+}
+.lu-zone {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+}
+.lu-zone label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+.lu-zone input {
+  width: 100%;
+  max-width: 72px;
+  text-align: center;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 26px;
+  padding: 4px 0;
+  border-radius: 6px;
+  border: 1.5px solid var(--court-line);
+  background: var(--panel);
+}
+.lu-team.home .lu-zone input {
+  color: var(--home);
+}
+.lu-team.away .lu-zone input {
+  color: var(--away);
+}
+.lu-zone input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.lu-zone.setter input {
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+.lu-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.lu-row select {
+  font: inherit;
+  font-family: var(--mono);
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--sunk);
+  color: var(--fg);
+}
+.lu-sheet-note {
+  margin-bottom: 4px;
+}
+.lu-bench {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.lu-bench button {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--sunk);
+  color: var(--fg);
+  cursor: pointer;
+}
+.lu-bench button.used {
+  opacity: 0.4;
+}
+.lu-bench button.lib {
+  border-style: dashed;
+  cursor: not-allowed;
+}
+.lu-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.lu-actions .btn.primary {
+  font-size: 14px;
+  padding: 6px 16px;
 }
 .panel {
   background: var(--panel);
@@ -459,28 +721,16 @@ body {
   color: var(--on-accent);
   border-color: var(--accent);
 }
-.play-court {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
-}
 .play-court svg {
+  /* Fills the panel; the viewBox keeps the court to scale. */
+  flex: 1 1 auto;
+  min-height: 120px;
   width: 100%;
-  max-height: 190px;
-  aspect-ratio: 7.7 / 4;
   background: var(--court);
   border-radius: 8px;
   cursor: crosshair;
   touch-action: none;
   user-select: none;
-}
-.play-court.end svg {
-  width: auto;
-  height: 300px;
-  max-height: none;
-  aspect-ratio: 4 / 7.7;
-  align-self: center;
 }
 .play-head {
   display: flex;
@@ -783,93 +1033,6 @@ body {
 }
 
 /* Rosters */
-.rosters {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px 10px;
-}
-.roster {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-.roster h3 {
-  margin: 0 0 3px;
-  font-size: 11px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.roster h3.home {
-  color: var(--home);
-}
-.roster h3.away {
-  color: var(--away);
-}
-.pl {
-  font: inherit;
-  font-size: 12px;
-  display: grid;
-  grid-template-columns: 2.4ch minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: center;
-  text-align: left;
-  padding: 2px 4px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg);
-  cursor: pointer;
-}
-.pl:hover {
-  background: var(--sunk);
-}
-.pl .no {
-  font-family: var(--mono);
-  font-weight: 600;
-  text-align: right;
-}
-.pl.home .no {
-  color: var(--home);
-}
-.pl.away .no {
-  color: var(--away);
-}
-.pl .nm {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pl.bench {
-  color: var(--muted);
-}
-.pl .mk {
-  font-size: 10px;
-  font-weight: 700;
-  font-family: var(--mono);
-  color: var(--muted);
-}
-.pl.on .mk::before {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  margin-right: 3px;
-  vertical-align: middle;
-}
-.pl.home.on .mk {
-  color: var(--home);
-}
-.pl.away.on .mk {
-  color: var(--away);
-}
-
 /* Set tabs over the code stream */
 .codes {
   padding: 0;
@@ -1187,11 +1350,14 @@ button.rally-toggle {
   .app {
     height: auto;
   }
-  .work {
+  .work.coding,
+  .work.watch {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas: "video" "cmd" "codes" "team" "plays" "checks";
   }
-  .stage {
-    grid-template-rows: auto auto auto;
+  .lineup-teams {
+    grid-template-columns: minmax(0, 1fr);
   }
   .video {
     aspect-ratio: 16 / 9;
@@ -1200,14 +1366,8 @@ button.rally-toggle {
   .codes {
     height: min(60vh, 480px);
   }
-  .right {
-    grid-template-rows: auto auto;
-  }
 }
 @media (max-width: 700px) {
-  .mid {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .score {
     font-size: 28px;
   }
@@ -1280,12 +1440,6 @@ button.rally-toggle {
   border: 1px solid var(--line);
   background: var(--sunk);
   color: var(--fg);
-}
-.lineup-six {
-  width: 20ch;
-}
-.lineup-setter {
-  width: 5ch;
 }
 .sub-form input:focus-visible {
   outline: 2px solid var(--accent);
@@ -1467,11 +1621,6 @@ td.mono {
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
-}
-.edit-roster {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 400;
 }
 .sr-only {
   position: absolute;

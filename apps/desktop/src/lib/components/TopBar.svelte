@@ -48,6 +48,16 @@
     {/each}
   </div>
   <div class="saved">
+    <div class="layout-switch" role="group" aria-label="Layout">
+      {#each [["coding", "Coding", "Video on top, codes and the court beside it"], ["watch", "Video", "The video fills the window beside one column"]] as [id, label, title] (id)}
+        <button
+          type="button"
+          {title}
+          aria-pressed={ui.layout === id}
+          onclick={() => ui.setLayout(id === "watch" ? "watch" : "coding")}>{label}</button
+        >
+      {/each}
+    </div>
     <span>Saved</span><b>event {snap.events}</b>
     <button class="theme-btn" type="button" disabled={!backend.inTauri} onclick={exportDvw}
       >Export .dvw</button

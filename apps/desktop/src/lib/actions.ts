@@ -105,6 +105,9 @@ export function run(action: string): boolean {
     case "endView":
       ui.endView = !ui.endView;
       return true;
+    case "layout":
+      ui.setLayout(ui.layout === "watch" ? "coding" : "watch");
+      return true;
     case "exportDvw":
       void exportDvw();
       return true;

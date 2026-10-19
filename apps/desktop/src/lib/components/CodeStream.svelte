@@ -3,6 +3,7 @@
   import { ui } from "../ui.svelte";
   import { video } from "../video.svelte";
   import CodeMenu from "./CodeMenu.svelte";
+  import Icon from "./Icon.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
 
@@ -64,8 +65,7 @@
 
   function modify(r: Row, g: Group) {
     if (r.kind === "startingSix") {
-      ui.lineupFor = r.team;
-      ui.lineupSet = g.set;
+      ui.lineupScreen = g.set;
       ui.subFor = null;
       ui.selected = null;
     } else ui.startEdit("correct", r.id, r.text);
@@ -110,6 +110,15 @@
       >
     </span>
   </div>
+  <button
+    class="btn lineup-btn"
+    type="button"
+    title="Both teams' starting sixes for the set shown"
+    onclick={() => (ui.lineupScreen = shown)}
+    ><Icon name="lineup" />Starting lineup · {shown === snap.goldenSet
+      ? "golden set"
+      : `set ${shown}`}</button
+  >
   <div class="tab-panel" role="tabpanel" bind:this={pane}>
     {#each groups as g, i (key(g))}
       {@const closed = folded(g, i)}

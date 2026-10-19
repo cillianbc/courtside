@@ -1,19 +1,16 @@
+<!-- The team panel: timeouts, substitutions and rotation first, one row per
+     team, then who is on court. Lineups have their own screen. -->
 <script lang="ts">
   import * as backend from "../backend";
   import { LAYOUT, columns, type Net } from "../court";
   import { rotationCode, timeoutCode } from "../codes";
-  import { startOf, type Side, type Snapshot } from "../snapshot";
-  import { remember, ui } from "../ui.svelte";
+  import type { Side, Snapshot } from "../snapshot";
+  import { ui } from "../ui.svelte";
   import Icon from "./Icon.svelte";
-  import LineupForm from "./LineupForm.svelte";
-  import PlayCourt from "./PlayCourt.svelte";
   import SideTag from "./SideTag.svelte";
   import SubForm from "./SubForm.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
-
-  // The Lineup buttons work on the set whose codes are shown.
-  const shownSet = $derived(ui.shownSet ?? snap.set);
 
   const nets = $derived<[Net, Net]>(ui.endView ? ["bottom", "top"] : ["right", "left"]);
 
@@ -44,38 +41,7 @@
   </div>
 {/snippet}
 
-<section class="panel" aria-label="On court">
-  <div class="court-head">
-    <h2>On court · set {snap.set}</h2>
-    <div class="view-tools">
-      <button
-        class="icon-btn"
-        type="button"
-        title="Swap sides"
-        aria-label="Swap sides"
-        onclick={() => (ui.swapped = !ui.swapped)}><Icon name="swap" /></button
-      >
-      <button
-        class="icon-btn"
-        type="button"
-        title={ui.endView ? "Side view" : "End view"}
-        aria-label={ui.endView ? "Side view" : "End view"}
-        aria-pressed={ui.endView}
-        onclick={() => (ui.endView = !ui.endView)}><Icon name="turn" /></button
-      >
-      <button
-        class="icon-btn"
-        type="button"
-        title="Where plays went: mark and see each play's direction"
-        aria-label="Where plays went"
-        aria-pressed={ui.playsShown}
-        onclick={() => {
-          ui.playsShown = !ui.playsShown;
-          remember("courtside.playsShown", ui.playsShown);
-        }}><Icon name="arrow" /></button
-      >
-    </div>
-  </div>
+<section class="panel team" aria-label="Team controls and court">
   {#if snap.matchOver}
     <div class="match-over">
       <p class="empty-note">
@@ -94,31 +60,15 @@
   {:else if snap.goldenSet === snap.set}
     <p class="empty-note">Golden set: first to 15, two clear.</p>
   {/if}
-  <div class="courts" class:end={ui.endView}>
-    {@render half(ui.order[0] ?? "home", nets[0])}
-    <div class="net" aria-hidden="true"></div>
-    {@render half(ui.order[1] ?? "visiting", nets[1])}
-  </div>
-  <div class="court-legend">
-    <span><span class="sw"></span>Setter</span>
-    <span><span class="serve-dot"></span>Server</span>
-    <span>Small number: zone</span>
-    <span
-      >Libero <b class="team-name home" style="font-weight:500">{liberos("home") || "–"}</b> /
-      <b class="team-name away" style="font-weight:500">{liberos("visiting") || "–"}</b></span
-    >
-  </div>
   <div class="team-ctl">
     {#each ui.order as side (side)}
       {@const name = snap.teams[side].name}
-      <div class="ctl-row" class:away={side === "visiting"}>
-        <div class="name">
-          <span class="team-name"><SideTag {side} />{name}</span>
-          <span>setter zone {snap.setterZone[side] ?? "?"}</span>
-        </div>
+      <div class="ctl-row" class:away={side === "visiting"} title={name}>
+        <SideTag {side} />
         <button
           type="button"
           class="tool"
+          title="Timeout, {name}"
           disabled={snap.timeouts[side] >= 2}
           onclick={() => ui.commit(timeoutCode(side))}
           ><Icon name="timeout" />Timeout <b>{snap.timeouts[side]}/2</b></button
@@ -126,31 +76,16 @@
         <button
           type="button"
           class="tool"
-          title="Modify the six set {shownSet} started with"
-          aria-pressed={ui.lineupFor === side}
-          disabled={!startOf(snap, shownSet, side)}
-          onclick={() => {
-            ui.lineupFor = ui.lineupFor === side ? null : side;
-            ui.lineupSet = shownSet;
-            ui.subFor = null;
-          }}><Icon name="lineup" />Lineup</button
-        >
-        <button
-          type="button"
-          class="tool"
+          title="Substitution, {name}"
           aria-pressed={ui.subFor === side}
           disabled={snap.needsLineup[side]}
-          onclick={() => {
-            ui.subFor = ui.subFor === side ? null : side;
-            ui.lineupFor = null;
-          }}
+          onclick={() => (ui.subFor = ui.subFor === side ? null : side)}
           ><Icon name="sub" />Sub <b>{snap.substitutions[side]}/{snap.substitutionLimit}</b></button
         >
         <span class="rot-group">
-          <span>Rotation</span>
           {#each [false, true] as forward (forward)}
             {@const code = rotationCode(side, snap.setterZone[side], forward)}
-            {@const label = `Rotate ${name} ${forward ? "forward" : "back"} one place`}
+            {@const label = `Rotate ${name} ${forward ? "forward" : "back"} one place (setter in zone ${snap.setterZone[side] ?? "?"})`}
             <button
               type="button"
               class="icon-btn"
@@ -165,21 +100,41 @@
       </div>
     {/each}
   </div>
-  {#if ui.playsShown}<PlayCourt {snap} />{/if}
-  {#each ui.order as side (side)}
-    {#if snap.needsLineup[side]}<LineupForm {snap} {side} />{/if}
-  {/each}
-  {#if ui.lineupFor && startOf(snap, ui.lineupSet, ui.lineupFor)}
-    {#key `${ui.lineupFor}-${ui.lineupSet}`}
-      <LineupForm
-        {snap}
-        side={ui.lineupFor}
-        set={ui.lineupSet}
-        onclose={() => (ui.lineupFor = null)}
-      />
-    {/key}
-  {/if}
   {#if ui.subFor && !snap.needsLineup[ui.subFor]}
     <SubForm {snap} side={ui.subFor} onclose={() => (ui.subFor = null)} />
   {/if}
+  <div class="court-head">
+    <h2>On court · set {snap.set}</h2>
+    <div class="view-tools">
+      <button
+        class="icon-btn"
+        type="button"
+        title="Swap sides"
+        aria-label="Swap sides"
+        onclick={() => (ui.swapped = !ui.swapped)}><Icon name="swap" /></button
+      >
+      <button
+        class="icon-btn"
+        type="button"
+        title={ui.endView ? "Side view" : "End view"}
+        aria-label={ui.endView ? "Side view" : "End view"}
+        aria-pressed={ui.endView}
+        onclick={() => (ui.endView = !ui.endView)}><Icon name="turn" /></button
+      >
+    </div>
+  </div>
+  <div class="courts" class:end={ui.endView}>
+    {@render half(ui.order[0] ?? "home", nets[0])}
+    <div class="net" aria-hidden="true"></div>
+    {@render half(ui.order[1] ?? "visiting", nets[1])}
+  </div>
+  <div class="court-legend">
+    <span><span class="sw"></span>Setter</span>
+    <span><span class="serve-dot"></span>Server</span>
+    <span>Small number: zone</span>
+    <span
+      >Libero <b class="team-name home" style="font-weight:500">{liberos("home") || "–"}</b> /
+      <b class="team-name away" style="font-weight:500">{liberos("visiting") || "–"}</b></span
+    >
+  </div>
 </section>

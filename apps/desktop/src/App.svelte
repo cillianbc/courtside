@@ -6,7 +6,8 @@
   import CodeStream from "./lib/components/CodeStream.svelte";
   import CommandBar from "./lib/components/CommandBar.svelte";
   import Court from "./lib/components/Court.svelte";
-  import Rosters from "./lib/components/Rosters.svelte";
+  import LineupScreen from "./lib/components/LineupScreen.svelte";
+  import PlayCourt from "./lib/components/PlayCourt.svelte";
   import StartScreen from "./lib/components/StartScreen.svelte";
   import TopBar from "./lib/components/TopBar.svelte";
   import VideoPanel from "./lib/components/VideoPanel.svelte";
@@ -15,6 +16,13 @@
   import { ui } from "./lib/ui.svelte";
 
   let loaded = $state(false);
+
+  // A team without its six can't play: the lineup screen until both are in.
+  const needsLineup = $derived(
+    !!ui.snapshot &&
+      !ui.snapshot.matchOver &&
+      (ui.snapshot.needsLineup.home || ui.snapshot.needsLineup.visiting),
+  );
 
   // This computer's keys, from anywhere. On the command line only keys
   // with Mod or Alt (or function keys) count, so typing never triggers
@@ -48,24 +56,24 @@
   {@const snap = ui.snapshot}
   <div class="app">
     <TopBar {snap} />
-    <main class="work">
-      <div class="stage">
+    {#if needsLineup || ui.lineupScreen !== null}
+      <!-- Keyed by set: the screen fills its sixes when it opens. -->
+      {@const set = needsLineup ? snap.set : (ui.lineupScreen ?? snap.set)}
+      {#key set}<LineupScreen {snap} {set} />{/key}
+    {:else}
+      <main class="work {ui.layout}">
         <VideoPanel />
-        <div class="mid">
-          {#if ui.clipsOpen}
-            <ClipsPanel {snap} />
-          {:else}
-            <CodeStream {snap} />
-          {/if}
-          <Rosters {snap} />
-        </div>
-        <CommandBar />
-      </div>
-      <div class="right">
+        {#if ui.clipsOpen}
+          <ClipsPanel {snap} />
+        {:else}
+          <CodeStream {snap} />
+        {/if}
         <Court {snap} />
+        <CommandBar />
+        <PlayCourt {snap} />
         <ChecksPanel {snap} />
-      </div>
-    </main>
+      </main>
+    {/if}
   </div>
 {:else if loaded}
   <StartScreen />

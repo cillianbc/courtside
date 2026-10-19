@@ -123,7 +123,9 @@
       disabled={!canPoint}
       onclick={() => void ui.point(side)}
       >{#if left}◀
-      {/if}Point {snap?.teams[side].name ?? ""}{#if !left}&nbsp;▶{/if}</button
+      {/if}Point<span class="pt-name">
+        {snap?.teams[side].name ?? ""}</span
+      >{#if !left}&nbsp;▶{/if}</button
     >
   {/snippet}
   {@render point(ui.order[0] ?? "home", true)}
