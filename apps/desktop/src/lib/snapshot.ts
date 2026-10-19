@@ -59,6 +59,9 @@ export interface Row {
   severity: Severity | null;
   /** Where the code is in the match video, in ms. */
   videoMs: number | null;
+  /** Where the play started and ended: `.dvw` grid cells in the play's frame (`court.ts`). */
+  start: number | null;
+  end: number | null;
 }
 
 export interface Group {

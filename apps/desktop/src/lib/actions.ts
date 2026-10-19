@@ -38,6 +38,29 @@ function rotate(side: Side) {
   if (code) void ui.commit(code);
 }
 
+/**
+ * Picks the play `by` touches from the one picked (from the last, when
+ * none is), shows it in the log and the video: stepping through plays to
+ * mark where each went.
+ */
+function stepCode(by: number): boolean {
+  const snap = ui.snapshot;
+  if (!snap) return false;
+  const touches = snap.groups.flatMap((g) => g.rows).filter((r) => r.kind === "touch");
+  if (!touches.length) return false;
+  const at = touches.findIndex((r) => r.id === ui.selected);
+  const from = at < 0 ? touches.length : at;
+  const r = touches[Math.max(0, Math.min(touches.length - 1, from + by))];
+  if (!r) return false;
+  ui.selected = r.id;
+  const set = snap.groups.find((g) => g.rows.some((x) => x.id === r.id))?.set ?? snap.set;
+  ui.shownSet = set === snap.set ? null : set;
+  // After the log has drawn the set (and scrolled, if it changed).
+  setTimeout(() => document.getElementById(`ev-${r.id}`)?.scrollIntoView({ block: "nearest" }));
+  if (r.videoMs !== null && video.open) void video.seekTo(r.videoMs / 1000);
+  return true;
+}
+
 /** Runs a keymap action; false if it doesn't apply right now. */
 export function run(action: string): boolean {
   const snap = ui.snapshot;
@@ -85,6 +108,10 @@ export function run(action: string): boolean {
     case "exportDvw":
       void exportDvw();
       return true;
+    case "codePrev":
+      return stepCode(-1);
+    case "codeNext":
+      return stepCode(1);
     default:
       return runVideo(action);
   }

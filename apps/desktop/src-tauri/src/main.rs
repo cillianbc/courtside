@@ -252,6 +252,18 @@ fn match_open(app: AppHandle, state: State<'_, Shared>, id: String) -> Reply<Sna
     Ok(snap)
 }
 
+/// Marks where a play went on the court, in the play's own frame: `[x, y]`
+/// in court units; no start means its start zone, neither clears.
+#[tauri::command]
+fn points_set(
+    state: State<'_, Shared>,
+    id: String,
+    start: Option<(f64, f64)>,
+    end: Option<(f64, f64)>,
+) -> Reply<Snapshot> {
+    with(&state, |s| s.set_points(&id, start, end))
+}
+
 /// Reads back the command line; with `before`, as codes going in just
 /// before that earlier code.
 #[tauri::command]
@@ -573,6 +585,7 @@ fn main() {
             match_open,
             snapshot,
             preview,
+            points_set,
             commit,
             lineup_set,
             lineup_correct,

@@ -1,6 +1,7 @@
 // Made-up match for running the UI in a plain browser (`pnpm dev`) and for
 // unit tests. Teams, players and codes are invented.
 
+import { cellAt } from "./court";
 import type { Group, Row, Side, Snapshot } from "./snapshot";
 
 const NAMES: Record<Side, Record<number, string>> = {
@@ -52,7 +53,19 @@ function row(text: string, kind: Row["kind"] = "touch", severity: Row["severity"
     edited: false,
     severity,
     videoMs: null,
+    // Made-up marks on serves and attacks, so the play court has arrows.
+    ...marks(text),
   };
+}
+
+function marks(text: string): Pick<Row, "start" | "end"> {
+  const skill = text[3];
+  const n = seq % 3;
+  if (skill === "S" || skill === "R")
+    return { start: cellAt({ x: 3, y: 0.2 }), end: cellAt({ x: 1.2 + n * 0.8, y: 5.8 }) };
+  if (skill === "A" || skill === "D")
+    return { start: cellAt({ x: 1, y: 3.1 }), end: cellAt({ x: 2.9 - n * 0.6, y: 5.4 }) };
+  return { start: null, end: null };
 }
 
 function rally(

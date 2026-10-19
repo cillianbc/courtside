@@ -3,9 +3,10 @@
   import { LAYOUT, columns, type Net } from "../court";
   import { rotationCode, timeoutCode } from "../codes";
   import { startOf, type Side, type Snapshot } from "../snapshot";
-  import { ui } from "../ui.svelte";
+  import { remember, ui } from "../ui.svelte";
   import Icon from "./Icon.svelte";
   import LineupForm from "./LineupForm.svelte";
+  import PlayCourt from "./PlayCourt.svelte";
   import SideTag from "./SideTag.svelte";
   import SubForm from "./SubForm.svelte";
 
@@ -61,6 +62,17 @@
         aria-label={ui.endView ? "Side view" : "End view"}
         aria-pressed={ui.endView}
         onclick={() => (ui.endView = !ui.endView)}><Icon name="turn" /></button
+      >
+      <button
+        class="icon-btn"
+        type="button"
+        title="Where plays went: mark and see each play's direction"
+        aria-label="Where plays went"
+        aria-pressed={ui.playsShown}
+        onclick={() => {
+          ui.playsShown = !ui.playsShown;
+          remember("courtside.playsShown", ui.playsShown);
+        }}><Icon name="arrow" /></button
       >
     </div>
   </div>
@@ -153,6 +165,7 @@
       </div>
     {/each}
   </div>
+  {#if ui.playsShown}<PlayCourt {snap} />{/if}
   {#each ui.order as side (side)}
     {#if snap.needsLineup[side]}<LineupForm {snap} {side} />{/if}
   {/each}

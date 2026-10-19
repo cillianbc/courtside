@@ -88,6 +88,9 @@ export const ACTIONS: readonly { id: string; label: string; keys: string }[] = [
   { id: "swapSides", label: "Swap court sides", keys: "Alt+W" },
   { id: "endView", label: "Side or end view", keys: "Alt+V" },
   { id: "exportDvw", label: "Export .dvw", keys: "Mod+E" },
+  // Stepping through codes to mark where each play went.
+  { id: "codePrev", label: "Pick the previous play", keys: "Alt+Shift+[" },
+  { id: "codeNext", label: "Pick the next play", keys: "Alt+Shift+]" },
   // Video transport. Alt so they work while typing a code.
   { id: "videoPlay", label: "Video: play or pause", keys: "Alt+K" },
   { id: "videoBack", label: "Video: back 5 seconds", keys: "Alt+J" },

@@ -104,6 +104,15 @@ export async function openMatch(id: string): Promise<Snapshot> {
   return invoke<Snapshot>("match_open", { id });
 }
 
+/** Marks where a play went, in its own frame (court units); no start: its start zone; neither: clear. */
+export async function setPoints(
+  id: string,
+  start: [number, number] | null,
+  end: [number, number] | null,
+): Promise<Snapshot> {
+  return invoke<Snapshot>("points_set", { id, start, end });
+}
+
 /** Reads back the command line; with `before`, as codes going in just before that code. */
 export async function preview(text: string, before: string | null = null): Promise<Preview> {
   if (!inTauri) return { codes: [], ok: false };

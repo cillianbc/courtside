@@ -21,12 +21,32 @@ export interface Editing {
   text: string;
 }
 
+/** A per-computer on/off remembered in the browser's storage (false when it can't be read). */
+function remembered(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Remembers an on/off for [`remembered`]; a storage that can't be written is ignored. */
+export function remember(key: string, on: boolean) {
+  try {
+    localStorage.setItem(key, on ? "1" : "0");
+  } catch {
+    // Private window or blocked storage: the choice lasts this session.
+  }
+}
+
 class Ui {
   snapshot = $state<Snapshot | null>(null);
   /** Away team drawn first (left / bottom). */
   swapped = $state(false);
   /** Court drawn from the end line instead of the side. */
   endView = $state(false);
+  /** The court panel shows where plays went (GitHub #11); remembered per computer. */
+  playsShown = $state(remembered("courtside.playsShown"));
   sideTab = $state<"checks" | "set">("checks");
   /** The clip playlist shows where the code stream does. */
   clipsOpen = $state(false);

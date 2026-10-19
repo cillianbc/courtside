@@ -13,7 +13,8 @@
     | "lineup"
     | "pause"
     | "stepBack"
-    | "stepFwd";
+    | "stepFwd"
+    | "arrow";
   let { name }: { name: IconName } = $props();
 </script>
 
@@ -26,7 +27,9 @@
   stroke-linejoin="round"
   aria-hidden="true"
 >
-  {#if name === "lineup"}
+  {#if name === "arrow"}
+    <rect x="1.5" y="3" width="13" height="10" rx="1" /><path d="M4 11l7-5M8.5 6H11v2.5" />
+  {:else if name === "lineup"}
     <rect x="2" y="3" width="12" height="10" rx="1" /><path d="M2 8h12M6 3v10M10 3v10" />
   {:else if name === "timeout"}
     <circle cx="8" cy="8.5" r="5.5" /><path d="M8 5.5v3l2 1.5M6.5 1.5h3" />
