@@ -178,7 +178,10 @@ fn validate_dvw(bytes: &[u8]) -> Vec<Issue> {
         issues.push(issue(
             Severity::Warning,
             match_line,
-            "code page 1 (the PC's default, written by DataVolley 3.x) read as Windows-1252; check accented names",
+            format!(
+                "code page 1 (the PC's default, written by DataVolley 3.x) read as {}, guessed from the text; check accented names",
+                dvw.encoding.name()
+            ),
         ));
     }
 
@@ -306,7 +309,7 @@ T2;Away;0;;;;\n\
             text,
             [
                 "4: warning: match date \"03/04/2026\" is 2026-03-04 or 2026-04-03; nothing else in the file settles the day/month order",
-                "4: warning: code page 1 (the PC's default, written by DataVolley 3.x) read as Windows-1252; check accented names",
+                "4: warning: code page 1 (the PC's default, written by DataVolley 3.x) read as windows-1252, guessed from the text; check accented names",
             ]
         );
         let legacy = validate(Path::new("m.dvw"), b"[Match]\n");

@@ -34,15 +34,16 @@ pub struct Dvw {
 }
 
 impl Dvw {
-    /// Parses with the encoding named in `[3MATCH]` (Windows-1252 if none).
-    /// Code page `1` (Windows' "PC default", written by DataVolley 3.x) is
-    /// read as Windows-1252; `courtside validate` warns about it.
+    /// Parses with the encoding named in `[3MATCH]`. Without one, or with
+    /// code page `1` (Windows' "PC default", written by DataVolley 3.x),
+    /// the encoding is guessed from the bytes ([`TextEncoding::guess`]);
+    /// `courtside validate` says which.
     pub fn parse(input: &[u8]) -> Result<Self, Error> {
         let raw = RawFile::parse(input);
         check_format(&raw)?;
         let encoding = match declared_codepage(&raw) {
-            None => TextEncoding::WINDOWS_1252,
-            Some(cp) if cp == "1" => TextEncoding::WINDOWS_1252,
+            None => TextEncoding::guess(input),
+            Some(cp) if cp.trim().is_empty() || cp == "1" => TextEncoding::guess(input),
             Some(cp) => TextEncoding::from_codepage(&cp).ok_or(Error::UnknownCodepage(cp))?,
         };
         Self::from_raw(raw, encoding)

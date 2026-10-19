@@ -16,7 +16,69 @@ use vb_grammar::{Code, Player, Skill, Team};
 
 /// (corpus path, file line, column) differences checked by hand and recorded
 /// in FORMAT-NOTES.md, where openvolley is wrong.
-const ACCEPTED: &[(&str, usize, &str)] = &[];
+const ACCEPTED: &[(&str, usize, &str)] = &[
+    // `$$` codes: custom text starts at column 15 (`*$$FH=` + nine `~`),
+    // and `*$$BH!~~~~3~~2` ends at the blocker count; openvolley shifts or
+    // invents custom text for a `$$` player.
+    ("corpus-file", 996, "custom_code"),
+    ("corpus-file", 311, "custom_code"),
+    ("corpus-file", 340, "custom_code"),
+    ("corpus-file", 478, "custom_code"),
+    ("corpus-file", 730, "custom_code"),
+    ("corpus-file", 888, "custom_code"),
+    // Custom text `ROT` on a serve: openvolley turns the serve into a
+    // "Rotation error" skill and blanks its fields; the code is a serve.
+    (
+        "corpus-file",
+        186,
+        "skill",
+    ),
+    (
+        "corpus-file",
+        186,
+        "evaluation_code",
+    ),
+    (
+        "corpus-file",
+        186,
+        "player_number",
+    ),
+    (
+        "corpus-file",
+        186,
+        "start_zone",
+    ),
+    (
+        "corpus-file",
+        186,
+        "end_zone",
+    ),
+    (
+        "corpus-file",
+        669,
+        "skill",
+    ),
+    (
+        "corpus-file",
+        669,
+        "evaluation_code",
+    ),
+    (
+        "corpus-file",
+        669,
+        "player_number",
+    ),
+    (
+        "corpus-file",
+        669,
+        "start_zone",
+    ),
+    (
+        "corpus-file",
+        669,
+        "end_zone",
+    ),
+];
 
 fn oracle_dir() -> Option<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/parity/oracle");
@@ -140,6 +202,8 @@ fn parsed_codes_match_openvolley() {
         let dvw = Dvw::parse(&std::fs::read(corpus.join(&rel)).expect("read corpus file"))
             .expect("parse corpus file");
         let names = [0, 1].map(|i| dvw.teams.get(i).map(|t| t.name()).unwrap_or_default());
+        let compare_teams = openvolley_names(&rel, names.clone());
+        let names = compare_teams.clone().unwrap_or(names);
         let coding = dvw.match_info.court_coding();
         let first_line = dvw.raw().header_line("3SCOUT").expect("[3SCOUT]") + 1;
 
@@ -159,7 +223,10 @@ fn parsed_codes_match_openvolley() {
             let Some(theirs) = rows.get(&file_line) else {
                 continue;
             };
-            let mine = ours(&Code::parse(line.code()), &names, coding);
+            let mut mine = ours(&Code::parse(line.code()), &names, coding);
+            if compare_teams.is_none() {
+                mine.remove("team");
+            }
             for (col, value) in headers.iter().zip(theirs.iter()) {
                 let Some(my_value) = mine.get(col) else {
                     continue;
@@ -187,4 +254,20 @@ fn parsed_codes_match_openvolley() {
     eprintln!("compared {compared} values");
     assert!(compared > 0, "nothing compared");
     assert!(report.is_empty(), "parity diffs:\n{}", report.join("\n"));
+}
+
+/// Team names as openvolley reports them: trimmed, and told apart with
+/// " (home)" / " (visiting)" when both teams have the same name. `None`
+/// for a file whose names neither reader can decode (double-encoded:
+/// Windows-1250 read as 1252 and saved as UTF-8), so they aren't compared.
+fn openvolley_names(rel: &str, names: [String; 2]) -> Option<[String; 2]> {
+    if rel == "corpus-file" {
+        return None;
+    }
+    let [home, visiting] = names.map(|n| n.trim().to_owned());
+    Some(if home == visiting {
+        [format!("{home} (home)"), format!("{visiting} (visiting)")]
+    } else {
+        [home, visiting]
+    })
 }
