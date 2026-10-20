@@ -1,7 +1,8 @@
 <!-- Where plays went (GitHub #11): a court drawn to scale, turned like the
      zones above. The picked code's play is drawn; drag from where it
      started to where it ended, or click where it ended when its code has
-     a start zone. -->
+     a start zone (a set or block: where it was). The mark fills the
+     code's zones. -->
 <script lang="ts">
   import * as backend from "../backend";
   import { cellPosition, fromDrawing, toDrawing, type Pt } from "../court";
@@ -16,13 +17,29 @@
   const touches = $derived(rows.filter((r) => r.kind === "touch" && r.team !== null));
 
   // The code being marked: the one picked in the log, else the clip
-  // playing, else the last touch coded.
+  // playing, else the last serve, attack or free ball of the rally being
+  // coded (the touch after it is usually a dig or cover), else its last
+  // touch.
   const target = $derived.by((): Row | null => {
     const picked = touches.find((r) => r.id === ui.selected);
     if (picked) return picked;
     const clip = video.clip && touches.find((r) => r.id === video.clip?.id);
-    return clip ?? touches.at(-1) ?? null;
+    if (clip) return clip;
+    const last = [...snap.groups].reverse().find((g) => g.rows.some((r) => r.kind === "touch"));
+    const plays = (last?.rows ?? []).filter((r) => r.kind === "touch" && r.team !== null);
+    const play = [...plays].reverse().find((r) => "SAF".includes(r.text[3] ?? ""));
+    return play ?? plays.at(-1) ?? null;
   });
+
+  // A mark writes the code's zones, so the code comes back as a new
+  // version: keep it picked.
+  async function marking(t: Row, change: () => Promise<Snapshot>) {
+    const s = await change();
+    if (ui.selected === t.id) {
+      ui.selected = s.groups.flatMap((g) => g.rows).find((r) => r.index === t.index)?.id ?? null;
+    }
+    return s;
+  }
 
   // Plays of the same rally, drawn faintly behind the picked one.
   const rally = $derived.by((): Row[] => {
@@ -122,14 +139,19 @@
     const t = target;
     await ui.apply(
       `Marked ${t.text}`,
-      () => backend.setPoints(t.id, dragged ? play(start) : null, play(stop)),
+      () => marking(t, () => backend.setPoints(t.id, dragged ? play(start) : null, play(stop))),
       true,
     );
   }
 
   function clear() {
     const t = target;
-    if (t) void ui.apply(`Cleared ${t.text}`, () => backend.setPoints(t.id, null, null), true);
+    if (t)
+      void ui.apply(
+        `Cleared ${t.text}`,
+        () => marking(t, () => backend.setPoints(t.id, null, null)),
+        true,
+      );
   }
 </script>
 
@@ -212,7 +234,8 @@
     {/if}
   </svg>
   <p class="sub-note plays-note">
-    Drag from start to end, or click the end when the code has a start zone.
+    Drag from start to end, or click the end when the code has a start zone; a set or block is
+    clicked where it was. The mark writes the code's zones; Clear puts back the typed ones.
     {#if keys}{keys} pick the previous or next play.{/if}
   </p>
 </section>

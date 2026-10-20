@@ -1727,6 +1727,8 @@ fn plays_are_marked_on_the_court() {
     let (mut session, dir) = opened();
     let snap = session.commit("a12R# a13#", None).expect("rally");
     let serve = row_id(&snap, "*02SH+");
+    // From the right of the end line (serve zone 1) to the back left of
+    // the other half as its team sees it: zone 1, subzone C.
     let snap = session
         .set_points(&serve, Some((3.0, 0.2)), Some((1.1, 5.9)))
         .expect("mark");
@@ -1738,45 +1740,60 @@ fn plays_are_marked_on_the_court() {
             .cloned()
             .expect(text)
     };
-    let s = row(&snap, "*02SH+");
-    let r = row(&snap, "a12RH#");
+    let s = row(&snap, "*02SH+~~~11C");
+    let r = row(&snap, "a12RH#~~~11C");
     assert_eq!(
         (s.start, s.end),
         (r.start, r.end),
         "the reception has the serve's"
     );
     assert_eq!(s.start, Some(vb_engine::court::index(3.0, 0.2)));
+    // One change: one undo takes back the marks and both codes' zones.
+    let snap = session.undo().expect("undo");
+    assert_eq!(row(&snap, "*02SH+").end, None);
+    assert_eq!(row(&snap, "a12RH#").end, None);
+    let snap = session.redo().expect("redo");
+    let serve = row_id(&snap, "*02SH+~~~11C");
 
-    // An attack without a start zone needs a drag; with one, a click.
+    // An attack without a start zone needs a drag; with one, a click, and
+    // the mark's zones go over the typed ones.
     let attack = row_id(&snap, "a13AH#");
     assert!(session.set_points(&attack, None, Some((2.0, 5.0))).is_err());
     let snap = session
-        .correct(&attack, "a13AH#~~~4", None)
-        .expect("start zone");
-    let attack = row_id(&snap, "a13AH#~~~4");
+        .correct(&attack, "a13AH#~~~45", None)
+        .expect("zones");
+    let attack = row_id(&snap, "a13AH#~~~45");
     let snap = session
-        .set_points(&attack, None, Some((2.0, 5.0)))
+        .set_points(&attack, None, Some((1.8, 5.2)))
         .expect("click");
-    let a = row(&snap, "a13AH#~~~4");
+    let a = row(&snap, "a13AH#~~~48A");
     assert_eq!(a.start, Some(vb_engine::court::index(1.0, 3.1)));
+    // Clearing puts back what was typed.
+    let snap = session.set_points(&a.id, None, None).expect("clear");
+    assert_eq!(row(&snap, "a13AH#~~~45").end, None);
+    // A drag gives the start zone too; a ball out has no end zone.
+    let attack = row_id(&snap, "a13AH#~~~45");
+    let snap = session
+        .set_points(&attack, Some((3.0, 3.0)), Some((2.0, 6.9)))
+        .expect("out");
+    let a = row(&snap, "a13AH#~~~2");
+    assert!(a.end.is_some());
 
     // Kept by a modify, saved with the match, written to the .dvw.
-    let snap = session
-        .correct(&attack, "a13AH+~~~4", None)
-        .expect("modify");
-    assert_eq!(row(&snap, "a13AH+~~~4").end, a.end);
+    let snap = session.correct(&a.id, "a13AH+~~~2", None).expect("modify");
+    assert_eq!(row(&snap, "a13AH+~~~2").end, a.end);
     let id = session.matches().expect("matches")[0]
         .id
         .parse()
         .expect("id");
     let snap = session.open_match(id, 3_000).expect("reopen");
-    assert_eq!(row(&snap, "*02SH+").end, s.end);
+    assert_eq!(row(&snap, "*02SH+~~~11C").end, s.end);
     let out = dir.path().join("marked.dvw");
     session.export_dvw(&out, false).expect("export");
     let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
     let line = text
         .lines()
-        .find(|l| l.starts_with("*02SH+;"))
+        .find(|l| l.starts_with("*02SH+~~~11C;"))
         .expect("serve line");
     let cols: Vec<&str> = line.split(';').collect();
     let cell = |c: Option<u16>| format!("{:04}", c.expect("cell"));
@@ -1785,7 +1802,57 @@ fn plays_are_marked_on_the_court() {
         [cell(s.start).as_str(), "-1-1", cell(s.end).as_str()]
     );
 
-    // Clearing.
+    // Clearing the serve clears the reception's too.
     let snap = session.set_points(&serve, None, None).expect("clear");
     assert_eq!(row(&snap, "a12RH#").end, None);
+    assert_eq!(row(&snap, "*02SH+").end, None);
+}
+
+/// A mark that starts an attack somewhere its combination doesn't is
+/// noted: the mark's zone goes in, and one of the two is likely a slip.
+#[test]
+fn a_mark_against_the_combination_is_noted() {
+    let (mut session, _dir) = opened();
+    let snap = session.commit("a12R# a13X5#", None).expect("rally");
+    let attack = texts(&snap)
+        .into_iter()
+        .rfind(|t| t.starts_with("a13A"))
+        .expect("attack");
+    // The match's own table starts X5 in zone 3.
+    assert_eq!(attack, "a13AQ#X5~3");
+    let id = row_id(&snap, &attack);
+    let snap = session
+        .set_points(&id, Some((1.0, 3.1)), Some((1.8, 5.2)))
+        .expect("mark");
+    assert!(
+        texts(&snap).contains(&"a13AQ#X5~48A".to_string()),
+        "{:?}",
+        texts(&snap)
+    );
+    let note = snap
+        .issues
+        .iter()
+        .find(|i| {
+            i.message
+                .contains("X5 starts in zone 3, the code in zone 4")
+        })
+        .expect("note");
+    assert_eq!(note.severity, "info");
+}
+
+/// A set or block is marked where it was: its zone goes in the end-zone
+/// place, as DataVolley writes it.
+#[test]
+fn a_set_is_marked_where_it_was() {
+    let (mut session, _dir) = opened();
+    let snap = session.commit("a12R# a14E a13#", None).expect("rally");
+    let set = row_id(&snap, "a14EH+");
+    let snap = session
+        .set_points(&set, None, Some((2.9, 3.2)))
+        .expect("click");
+    assert!(
+        texts(&snap).contains(&"a14EH+~~~~2".to_string()),
+        "{:?}",
+        texts(&snap)
+    );
 }

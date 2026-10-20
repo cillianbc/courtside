@@ -828,7 +828,7 @@ mod tests {
         assert_eq!(follow(x5, x5, "a05EH+~~F"), None, "same combination");
         assert_eq!(
             follow(x5, "a02AT+", "a05EH+~~F").as_deref(),
-            Some("a05EH+~~~"),
+            Some("a05EH+"),
             "combination taken off"
         );
         assert_eq!(follow(x1, "a02AT+V9", "a05EH+"), None, "not in the table");

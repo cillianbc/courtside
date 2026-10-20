@@ -457,6 +457,105 @@ fn zone_start(t: &Touch) -> Option<(f64, f64)> {
     Some((x, y))
 }
 
+/// Notes an attack whose start zone isn't its combination's (a court mark
+/// or a typed zone over a combination that starts elsewhere): one of the
+/// two is likely a slip.
+fn combination_zones(snap: &mut Snapshot, game: &Match, table: &[Combination]) {
+    for (index, e) in game.log.visible().iter().enumerate() {
+        let Some(t) = touch_of(e).filter(|t| t.skill == Skill::Attack) else {
+            continue;
+        };
+        let (Some(code), Some(zone)) = (t.combination(), t.start_zone()) else {
+            continue;
+        };
+        let Some(c) = table
+            .iter()
+            .find(|c| c.code == code && c.start_zone != '~' && c.start_zone != zone)
+        else {
+            continue;
+        };
+        let id = e.id.0.to_string();
+        snap.issues.push(snapshot::IssueView {
+            severity: "info",
+            rule: "code",
+            message: format!(
+                "{t}: {code} starts in zone {}, the code in zone {zone}; check the combination",
+                c.start_zone
+            ),
+            event_id: id.clone(),
+            index,
+            knock_on: false,
+            cause_id: None,
+        });
+        if let Some(r) = snap
+            .groups
+            .iter_mut()
+            .flat_map(|g| &mut g.rows)
+            .find(|r| r.id == id)
+        {
+            r.severity.get_or_insert("info");
+        }
+    }
+    snap.issues.sort_by_key(|i| i.index);
+}
+
+/// `t` with the zones its court mark gives it (GitHub #11), over what was
+/// typed: a serve's (and its reception's) serve zone from where it
+/// started and the end zone and subzone where it landed; an attack's,
+/// dig's or free ball's start and end zones and end subzone; a set's or
+/// block's zone where it was, in the end-zone place as `.dvw` keeps it.
+/// The start zone only comes from a mark that has its own start
+/// (`started`). A play that ended off the court has no end zone.
+fn mark_zones(t: &Touch, points: Points, started: bool) -> Touch {
+    use vb_engine::court;
+    let digit = |z: u8| char::from(b'0' + z);
+    let at = |cell: Option<u16>| cell.and_then(court::position);
+    let (from, to) = (at(points.start).filter(|_| started), at(points.end));
+    let landed = |t: Touch| match to {
+        Some((x, y)) if court::on_court(x, y) => t
+            .with_end_zone(digit(court::zone(x, y)))
+            .with_end_subzone(court::subzone(x, y)),
+        Some(_) => t.with_end_zone('~').with_end_subzone('~'),
+        None => t,
+    };
+    let t = t.clone();
+    match t.skill {
+        Skill::Serve | Skill::Reception => landed(match from {
+            Some((x, y)) => t.with_start_zone(digit(court::serve_zone(x, y))),
+            None => t,
+        }),
+        Skill::Attack | Skill::Dig | Skill::Freeball => landed(match from {
+            Some((x, y)) => t.with_start_zone(digit(court::zone(x, y))),
+            None => t,
+        }),
+        Skill::Set | Skill::Block => match from {
+            Some((x, y)) => t.with_end_zone(digit(court::zone(x, y))),
+            None => t,
+        },
+        Skill::Green => t,
+    }
+}
+
+/// `t` (event `id`) with the zones it had before it was marked: those of
+/// the last version of it a mark didn't write.
+fn unmarked_zones(log: &EventLog, id: EventId, t: &Touch) -> Touch {
+    let mut cur = log.get(id);
+    while let Some(e) = cur
+        && matches!(e.producer, Producer::Tap | Producer::Repair)
+        && let Some(prev) = e.supersedes
+    {
+        cur = log.get(prev);
+    }
+    let Some(typed) = cur.and_then(touch_of) else {
+        return t.clone();
+    };
+    let z = |c: Option<char>| c.unwrap_or('~');
+    t.clone()
+        .with_start_zone(z(typed.start_zone()))
+        .with_end_zone(z(typed.end_zone()))
+        .with_end_subzone(z(typed.end_subzone()))
+}
+
 /// Who serves the rally that starts after the first `upto` visible events:
 /// the last rally's winner in the set, and its player in zone 1. Unknown
 /// before a set's first point or without the six.
@@ -1179,6 +1278,7 @@ impl Session {
         let c = self.current.as_ref().ok_or(Error::NoMatch)?;
         let mut snap = snapshot::build(&c.id.to_string(), &c.game, &c.teams);
         snap.video_path.clone_from(&c.video_path);
+        combination_zones(&mut snap, &c.game, &c.defaults.combinations);
         Ok(snap)
     }
 
@@ -1745,11 +1845,14 @@ impl Session {
 
     /// Marks where a play went on the court (GitHub #11), as positions in
     /// the play's frame (`vb_engine::court`: its team's half at the bottom).
-    /// Without `start` the play starts in the middle of its start zone; with
-    /// neither, the marks are cleared. A serve's marks go on the reception
-    /// straight after it and an attack's on the dig, as `.dvw` keeps them
-    /// (and the other way round). A stamp like the video time: set in place,
-    /// not undone.
+    /// Without `start` the play starts in the middle of its start zone (a
+    /// set or block is marked where it was); with neither, the marks are
+    /// cleared. The mark writes its zones into the code, over typed ones
+    /// ([`mark_zones`]); clearing it puts back the zones the code had
+    /// before it was marked. A serve's marks go on the reception straight
+    /// after it and an attack's on the dig, as `.dvw` keeps them (and the
+    /// other way round). One change: one undo takes back the marks and
+    /// the zones.
     pub fn set_points(
         &mut self,
         id: &str,
@@ -1768,8 +1871,15 @@ impl Session {
             .and_then(touch_of)
             .ok_or_else(|| Error::BadCode("Only a touch has a direction.".into()))?;
         let cell = |(x, y): (f64, f64)| Some(vb_engine::court::index(x, y));
+        let at_one_place = matches!(touch.skill, Skill::Set | Skill::Block);
         let points = match (start, end) {
             (None, None) => Points::default(),
+            // A set or block is where it was: a click marks that place.
+            (None, Some(end)) if at_one_place => Points {
+                start: cell(end),
+                mid: None,
+                end: cell(end),
+            },
             (start, Some(end)) => {
                 let start = start.or_else(|| zone_start(&touch)).ok_or_else(|| {
                     Error::BadCode(format!(
@@ -1787,22 +1897,59 @@ impl Session {
                 ..Points::default()
             },
         };
-        let mut ids = vec![target];
-        c.game.log.set_points(target, points)?;
-        if let Some((partner, _)) = pair_partner(&c.game.log, target)
-            && let Some(other) = c.game.log.get(partner).and_then(touch_of)
-            && matches!(
+        let cleared = points == Points::default();
+        let marked = |log: &EventLog, id: EventId, t: &Touch| {
+            if cleared {
+                unmarked_zones(log, id, t)
+            } else {
+                mark_zones(t, points, start.is_some() || at_one_place)
+            }
+        };
+        let partner = pair_partner(&c.game.log, target).and_then(|(partner, _)| {
+            let other = c.game.log.get(partner).and_then(touch_of)?;
+            matches!(
                 (touch.skill, other.skill),
                 (Skill::Serve, Skill::Reception)
                     | (Skill::Reception, Skill::Serve)
                     | (Skill::Attack, Skill::Dig)
                     | (Skill::Dig, Skill::Attack)
             )
-        {
-            c.game.log.set_points(partner, points)?;
-            ids.push(partner);
+            .then_some((partner, other))
+        });
+        let before = c.game.log.len();
+        let mut ids = Vec::new();
+        let mut change = || -> std::result::Result<(), LogError> {
+            let mut mark = |id: EventId, t: &Touch, producer| {
+                let now = marked(&c.game.log, id, t);
+                let same = c.game.log.get(id).is_some_and(|e| e.points == points);
+                if now == *t && same {
+                    return Ok(());
+                }
+                // A correction, so that undo takes the mark back.
+                let new = c.game.log.correct(
+                    &mut c.ids,
+                    id,
+                    NewEvent::code(Code::Touch(now), producer),
+                )?;
+                c.game.log.set_points(new, points)?;
+                ids.push(new);
+                Ok(())
+            };
+            mark(target, &touch, Producer::Tap)?;
+            if let Some((partner, other)) = &partner {
+                mark(*partner, other, Producer::Repair)?;
+            }
+            Ok(())
+        };
+        if let Err(e) = change() {
+            while c.game.log.len() > before {
+                c.game.log.undo();
+            }
+            return Err(e.into());
         }
-        season.save_points(c.id, &c.game.log, &ids)?;
+        if c.game.log.len() > before {
+            c.persist(season, before)?;
+        }
         self.snapshot()
     }
 

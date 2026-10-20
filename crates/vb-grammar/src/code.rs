@@ -241,9 +241,20 @@ impl Touch {
         self
     }
 
-    /// `~` means empty, so it cannot be stored as a value.
+    /// `~` means empty, so it cannot be stored as a value: it empties the
+    /// position, and empty positions left at the end aren't written
+    /// (unless custom text follows them).
     fn with(mut self, i: usize, c: char) -> Self {
-        self.slots[i] = (c != '~').then_some(c);
+        if c == '~' {
+            self.slots[i] = None;
+            if self.custom.is_empty() {
+                while self.written > 0 && self.slots[self.written - 1].is_none() {
+                    self.written -= 1;
+                }
+            }
+            return self;
+        }
+        self.slots[i] = Some(c);
         self.written = self.written.max(i + 1);
         self
     }
