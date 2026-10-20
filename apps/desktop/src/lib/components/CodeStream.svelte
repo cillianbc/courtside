@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Group, Row, Snapshot } from "../snapshot";
+  import { showCode } from "../jump";
   import { ui } from "../ui.svelte";
   import { video } from "../video.svelte";
   import CodeMenu from "./CodeMenu.svelte";
@@ -56,6 +57,22 @@
   }
 
   const FLAG = { error: "err", warning: "warn", info: "info" } as const;
+  // A code whose issues all follow from an earlier fault: that fault.
+  const causeOf = $derived.by(() => {
+    const own = new Set(snap.issues.filter((i) => !i.causeId).map((i) => i.eventId));
+    const cause: Record<string, string> = {};
+    for (const i of snap.issues) {
+      if (i.causeId && !own.has(i.eventId)) cause[i.eventId] ??= i.causeId;
+    }
+    return cause;
+  });
+  function faultNumber(id: string): number | null {
+    for (const g of snap.groups) {
+      const r = g.rows.find((x) => x.id === id);
+      if (r) return r.index + 1;
+    }
+    return null;
+  }
 
   // A lineup row is modified in the lineup form, for the row's set.
   function canModify(r: Row): boolean {
@@ -215,6 +232,19 @@
                   }}>Remove</button
                 >
               </span>
+            {:else if causeOf[r.id]}
+              {@const cause = causeOf[r.id] ?? ""}
+              {@const n = faultNumber(cause)}
+              <button
+                type="button"
+                class="follows"
+                title="This follows from the fault at code {n ??
+                  '?'}: fix that one first. Click to go there."
+                onclick={(e) => {
+                  e.stopPropagation();
+                  showCode(snap, cause);
+                }}>↳ {n ?? "fault"}</button
+              >
             {:else if r.severity}
               <span class="flag {FLAG[r.severity]}">{r.severity}</span>
             {:else}

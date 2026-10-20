@@ -265,6 +265,12 @@ export async function remove(id: string): Promise<Snapshot> {
   return invoke<Snapshot>("code_remove", { id });
 }
 
+/** Writes the console's rotations again from the rally at `id` to the set's end. */
+export async function fixRotations(id: string): Promise<Snapshot> {
+  needsApp();
+  return invoke<Snapshot>("rotations_fix", { id });
+}
+
 export async function settings(): Promise<Settings | null> {
   if (!inTauri) return null;
   return invoke<Settings>("settings_get");

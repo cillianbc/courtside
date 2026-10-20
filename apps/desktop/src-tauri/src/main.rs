@@ -398,6 +398,11 @@ fn code_remove(state: State<'_, Shared>, id: String) -> Reply<Snapshot> {
 }
 
 #[tauri::command]
+fn rotations_fix(state: State<'_, Shared>, id: String) -> Reply<Snapshot> {
+    with(&state, |s| s.fix_rotations(&id))
+}
+
+#[tauri::command]
 fn export_dvw(state: State<'_, Shared>, path: PathBuf, with_video: Option<bool>) -> Reply<()> {
     with(&state, |s| s.export_dvw(&path, with_video.unwrap_or(false)))
 }
@@ -596,6 +601,7 @@ fn main() {
             code_correct,
             code_insert,
             code_remove,
+            rotations_fix,
             export_dvw,
             video_open,
             video_sync,

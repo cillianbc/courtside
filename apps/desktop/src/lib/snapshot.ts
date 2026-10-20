@@ -81,6 +81,8 @@ export interface IssueView {
   eventId: string;
   index: number;
   knockOn: boolean;
+  /** For a knock-on: the code whose issue this one follows from. */
+  causeId: string | null;
 }
 
 export interface SetStart {

@@ -5,7 +5,7 @@
 use courtside_ffi::validate::{rule_name, severity_name};
 use courtside_store::{MatchSummary, Team as StoreTeam};
 use serde::{Deserialize, Serialize};
-use vb_engine::validate::{Severity, validate_folded};
+use vb_engine::validate::{Rule, Severity, validate_folded};
 use vb_engine::{EventKind, Match, MatchEvent, Producer, Sides, fold::fold_events};
 
 use crate::readback;
@@ -182,6 +182,8 @@ pub struct IssueView {
     pub event_id: String,
     pub index: usize,
     pub knock_on: bool,
+    /// For a knock-on: the code whose issue this one follows from.
+    pub cause_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -300,11 +302,38 @@ pub fn set_end_due(game: &Match, folded: &vb_engine::Folded) -> Option<u8> {
     crate::won(game, folded, st.set, st.score).then_some(st.set)
 }
 
+/// One rotation slip puts every later rotation in its set out (the wrong
+/// team rotated, a side-out without its rotation), so the console shows
+/// only the set's first rotation fault as a fault: the later ones become
+/// its knock-ons, to be looked at once it is fixed. Comes after the
+/// validator's own knock-ons; `issues` are in event order.
+fn first_faults(issues: &mut [vb_engine::validate::Issue], folded: &vb_engine::Folded) {
+    let set_of = |i: usize| folded.states.get(i).map(|s| s.set);
+    let mut root: Option<(Option<u8>, usize)> = None;
+    for issue in issues.iter_mut() {
+        if issue.rule != Rule::Rotation
+            || issue.severity < Severity::Warning
+            || issue.cause.is_some()
+        {
+            continue;
+        }
+        let set = set_of(issue.index);
+        match root {
+            Some((s, at)) if s == set => {
+                issue.severity = Severity::Info;
+                issue.cause = Some(at);
+            }
+            _ => root = Some((set, issue.index)),
+        }
+    }
+}
+
 pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Snapshot {
     let names = (teams.0.name.as_str(), teams.1.name.as_str());
     let events = game.log.visible();
     let folded = fold_events(game, &events);
-    let issues = validate_folded(game, &events, &folded);
+    let mut issues = validate_folded(game, &events, &folded);
+    first_faults(&mut issues, &folded);
 
     let mut worst: Vec<Option<Severity>> = vec![None; events.len()];
     for i in &issues {
@@ -559,6 +588,10 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
                 event_id: i.event.0.to_string(),
                 index: i.index,
                 knock_on: i.cause.is_some(),
+                cause_id: i
+                    .cause
+                    .and_then(|c| events.get(c))
+                    .map(|e| e.id.0.to_string()),
             })
             .collect(),
         events: game.log.len(),

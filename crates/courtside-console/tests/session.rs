@@ -1171,6 +1171,21 @@ fn rotations_follow_the_rally_winners() {
         .expect("correct");
     let t = texts(&snap);
     assert_eq!(t[t.len() - 3..], ["a13SM=", "*p02:02", "*z6"]);
+    // The set's first rotation fault is the one shown; the rest follow it.
+    let rotation: Vec<_> = snap
+        .issues
+        .iter()
+        .filter(|i| i.rule == "rotation")
+        .collect();
+    let faults: Vec<_> = rotation.iter().filter(|i| i.cause_id.is_none()).collect();
+    assert_eq!(faults.len(), 1, "{rotation:?}");
+    assert!(
+        rotation
+            .iter()
+            .filter(|i| i.cause_id.is_some())
+            .all(|i| i.severity == "info"),
+        "{rotation:?}"
+    );
 
     // Fixing from the second rally puts home's first rotation back and
     // moves the later one on again; one undo takes the fix back alone.

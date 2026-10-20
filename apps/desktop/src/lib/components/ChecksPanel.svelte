@@ -1,11 +1,27 @@
 <script lang="ts">
+  import * as backend from "../backend";
+  import { showCode } from "../jump";
   import type { IssueView, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
 
   const FLAG = { error: "err", warning: "warn", info: "info" } as const;
-  const issues = $derived([...snap.issues].sort((a, b) => b.index - a.index));
+  // Knock-ons sit under the fault they follow from, not in the list.
+  const roots = $derived(snap.issues.filter((i) => !i.causeId).map((i) => i.eventId));
+  const issues = $derived(
+    snap.issues
+      .filter((i) => !i.causeId || !roots.includes(i.causeId))
+      .sort((a, b) => b.index - a.index),
+  );
+  const following = $derived.by(() => {
+    const by: Record<string, IssueView[]> = {};
+    for (const i of snap.issues) {
+      if (i.causeId) (by[i.causeId] ??= []).push(i);
+    }
+    return by;
+  });
+  let open = $state<string | null>(null);
   const counts = $derived({
     error: snap.issues.filter((i) => i.severity === "error").length,
     warning: snap.issues.filter((i) => i.severity === "warning").length,
@@ -13,17 +29,11 @@
   });
 
   function show(issue: IssueView) {
-    const group = snap.groups.find((g) => g.rows.some((r) => r.id === issue.eventId));
-    if (group) ui.shownSet = group.set === snap.set ? null : group.set;
-    requestAnimationFrame(() => {
-      const el = document.getElementById(`ev-${issue.eventId}`);
-      if (!el) return;
-      el.closest(".rally")?.classList.remove("closed");
-      el.scrollIntoView({ block: "center" });
-      el.classList.remove("hl");
-      void el.offsetWidth;
-      el.classList.add("hl");
-    });
+    showCode(snap, issue.eventId);
+  }
+
+  function fixRotations(issue: IssueView) {
+    void ui.apply("Rotations written again from here", () => backend.fixRotations(issue.eventId));
   }
 
   function selectTab(tab: "checks" | "set") {
@@ -60,11 +70,46 @@
   {#if ui.sideTab === "checks"}
     <div class="tab-panel" role="tabpanel">
       {#each issues as i (i.eventId + i.message)}
-        <button type="button" class="issue" class:knock={i.knockOn} onclick={() => show(i)}>
-          <span class="flag {FLAG[i.severity]}">{i.severity}</span>
-          <span class="msg">{i.message}</span>
-          <span class="where">code {i.index + 1} · {i.rule}</span>
-        </button>
+        {@const later = following[i.eventId] ?? []}
+        {@const key = i.eventId + i.message}
+        <div class="issue-wrap">
+          <button type="button" class="issue" onclick={() => show(i)}>
+            <span class="flag {FLAG[i.severity]}">{i.severity}</span>
+            <span class="msg">{i.message}</span>
+            <span class="where">code {i.index + 1} · {i.rule}</span>
+          </button>
+          {#if later.length || (i.rule === "rotation" && i.severity !== "info")}
+            <div class="issue-tools">
+              {#if later.length}
+                <button
+                  type="button"
+                  class="link"
+                  aria-expanded={open === key}
+                  onclick={() => (open = open === key ? null : key)}
+                  >{later.length} later {later.length === 1 ? "issue follows" : "issues follow"} from
+                  this</button
+                >
+              {/if}
+              {#if i.rule === "rotation" && i.severity !== "info"}
+                <button
+                  type="button"
+                  class="btn"
+                  title="Write the app's rotation codes again from this rally to the end of the set. Rotations you typed stay."
+                  onclick={() => fixRotations(i)}>Fix rotations from here</button
+                >
+              {/if}
+            </div>
+          {/if}
+          {#if open === key}
+            {#each [...later].sort((a, b) => a.index - b.index) as k (k.eventId + k.message)}
+              <button type="button" class="issue knock" onclick={() => show(k)}>
+                <span class="flag info">follows</span>
+                <span class="msg">{k.message}</span>
+                <span class="where">code {k.index + 1} · {k.rule}</span>
+              </button>
+            {/each}
+          {/if}
+        </div>
       {:else}
         <div class="empty-note">No issues.</div>
       {/each}

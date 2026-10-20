@@ -152,6 +152,7 @@ export function fixture(): Snapshot {
         eventId: "fixture-29",
         index: 28,
         knockOn: false,
+        causeId: null,
       },
       {
         severity: "info",
@@ -160,6 +161,7 @@ export function fixture(): Snapshot {
         eventId: "fixture-6",
         index: 5,
         knockOn: true,
+        causeId: "fixture-3",
       },
     ],
     events: 412,
