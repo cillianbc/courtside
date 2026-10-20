@@ -69,6 +69,14 @@ pub struct Stamp {
     pub video_ms: Option<u64>,
 }
 
+/// One change to the console's side-out rotations ([`Current::rerotate`]).
+enum RotationFix {
+    Correct(EventId, Code),
+    Remove(EventId),
+    /// Goes in before the event (at the end of the log when `None`).
+    Insert(Option<EventId>, Code, Stamp),
+}
+
 /// The match being coded.
 struct Current {
     id: MatchId,
@@ -79,6 +87,9 @@ struct Current {
     /// What undo took off, newest last, for redo. Any other change
     /// clears it. Kept in memory only.
     redo: Vec<Vec<MatchEvent>>,
+    /// Log lengths where a change made only of console codes begins (a
+    /// fix the scout asked for): undo stops there, not at the code before.
+    marks: Vec<usize>,
     /// Typing defaults (season settings, step E).
     defaults: Defaults,
     /// The match's own attack combinations (empty: the season's are used).
@@ -461,6 +472,19 @@ fn server_at(folded: &vb_engine::Folded, upto: usize) -> Option<(Team, u8)> {
     Some((team, server))
 }
 
+/// The team that served rally `r`: the last rally's winner in the set,
+/// as the rotation has it (a serve typed for the other team is the slip,
+/// and the checks say so); the set's first rally's serve, or `None`.
+fn server_of(folded: &vb_engine::Folded, r: usize) -> Option<Team> {
+    let now = folded.rallies.get(r)?;
+    folded.rallies[..r]
+        .iter()
+        .rev()
+        .take_while(|x| x.set == now.set)
+        .find_map(|x| x.won_by)
+        .or(now.serving)
+}
+
 fn other(t: Team) -> Team {
     match t {
         Team::Home => Team::Visiting,
@@ -620,18 +644,11 @@ impl Current {
             return;
         };
         let folded = fold(&self.game);
-        // A point with no serve (a penalty): the last rally's winner served.
-        let serving = folded.rallies.last().and_then(|now| {
-            now.serving.or_else(|| {
-                folded
-                    .rallies
-                    .iter()
-                    .rev()
-                    .skip(1)
-                    .take_while(|r| r.set == now.set)
-                    .find_map(|r| r.won_by)
-            })
-        });
+        let serving = folded
+            .rallies
+            .len()
+            .checked_sub(1)
+            .and_then(|r| server_of(&folded, r));
         let last = folded.states.last();
         if typed_point.is_none() {
             let score = last.map(|s| s.score).unwrap_or_default();
@@ -697,6 +714,151 @@ impl Current {
                 .correct(&mut self.ids, id, NewEvent::code(want, Producer::Repair))?;
         }
         Ok(())
+    }
+
+    /// The side-out rotations the console wrote, written again from the
+    /// rally winners for the set at visible event `from`, from the rally
+    /// before it to the set's end: after each point the winner of a
+    /// side-out rotates once, and nobody rotates otherwise. A rotation the
+    /// scout typed (or a console one they edited) stands in place of the
+    /// console's and is never changed; the checks say when it disagrees.
+    fn rerotate(&mut self, from: usize) -> std::result::Result<(), LogError> {
+        for _ in 0..=self.game.log.len() {
+            let Some(fix) = self.rotation_fix(from) else {
+                return Ok(());
+            };
+            match fix {
+                RotationFix::Correct(id, code) => {
+                    self.game.log.correct(
+                        &mut self.ids,
+                        id,
+                        NewEvent::code(code, Producer::Repair),
+                    )?;
+                }
+                RotationFix::Remove(id) => {
+                    self.game.log.remove(&mut self.ids, id, Producer::Repair)?;
+                }
+                RotationFix::Insert(before, code, at) => {
+                    let new = NewEvent {
+                        body: Body::Code(code),
+                        video_ms: at.video_ms,
+                        clock: at.clock,
+                        producer: Producer::Repair,
+                    };
+                    match before {
+                        Some(id) => {
+                            self.game.log.insert_before(&mut self.ids, id, new)?;
+                        }
+                        None => {
+                            self.game.log.append(&mut self.ids, new);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The first console rotation [`Current::rerotate`] would change.
+    fn rotation_fix(&self, from: usize) -> Option<RotationFix> {
+        let folded = fold(&self.game);
+        let visible = self.game.log.visible();
+        let set = folded
+            .states
+            .get(from.min(visible.len().checked_sub(1)?))?
+            .set;
+        let in_set = |i: usize| folded.states.get(i).is_some_and(|s| s.set == set);
+        // From the point before `from`: an edit there decides whether the
+        // rotation after that point is still due.
+        let mut start = from.min(visible.len());
+        while start > 0 && in_set(start - 1) && visible[start - 1].kind() != EventKind::Point {
+            start -= 1;
+        }
+        start = start.saturating_sub(1);
+        for i in start..visible.len() {
+            if !in_set(i) {
+                if i > from {
+                    break;
+                }
+                continue;
+            }
+            let Some(Code::Point { team: winner, .. }) = visible[i].code() else {
+                continue;
+            };
+            let winner = *winner;
+            // The rotation codes between this point and the next play.
+            let mut gap = Vec::new();
+            let mut j = i + 1;
+            while j < visible.len()
+                && in_set(j)
+                && !matches!(
+                    visible[j].kind(),
+                    EventKind::Touch | EventKind::Point | EventKind::SetEnd
+                )
+            {
+                if visible[j].kind() == EventKind::SetterPosition
+                    && matches!(visible[j].code(), Some(Code::SetterPosition { note, .. }) if note.is_empty())
+                {
+                    gap.push(visible[j]);
+                }
+                j += 1;
+            }
+            let st = &folded.states[i];
+            let over = visible
+                .get(j)
+                .is_some_and(|e| e.kind() == EventKind::SetEnd)
+                || won(&self.game, &folded, set, st.score);
+            let serving = st.rally.and_then(|r| server_of(&folded, r));
+            let side_out = !over && serving.is_some_and(|s| s != winner);
+            let want = if side_out {
+                // Where the winner's setter is unknown nothing can be said.
+                let Some(z) = *st.setter_position.get(winner) else {
+                    continue;
+                };
+                let next = if z == 1 { 6 } else { z - 1 };
+                Some(Code::parse(&format!("{}z{next}", winner.as_char())))
+            } else {
+                None
+            };
+            let theirs = |e: &&MatchEvent| e.producer != Producer::Repair;
+            let team_of = |e: &&MatchEvent| e.code().and_then(Code::team);
+            let own = gap.iter().any(|e| theirs(e) && team_of(e) == Some(winner));
+            let mut console = gap.iter().filter(|e| !theirs(e));
+            match want {
+                Some(want) if !own => {
+                    let keep = gap
+                        .iter()
+                        .find(|e| !theirs(e) && team_of(e) == Some(winner));
+                    match keep {
+                        Some(e) if e.code() != Some(&want) => {
+                            return Some(RotationFix::Correct(e.id, want));
+                        }
+                        Some(e) => {
+                            if let Some(extra) = console.find(|x| x.id != e.id) {
+                                return Some(RotationFix::Remove(extra.id));
+                            }
+                        }
+                        None => {
+                            if let Some(extra) = console.next() {
+                                return Some(RotationFix::Remove(extra.id));
+                            }
+                            let at = Stamp {
+                                clock: visible[i].clock,
+                                video_ms: visible[i].video_ms,
+                            };
+                            let before = visible.get(i + 1).map(|e| e.id);
+                            return Some(RotationFix::Insert(before, want, at));
+                        }
+                    }
+                }
+                _ => {
+                    if let Some(extra) = console.next() {
+                        return Some(RotationFix::Remove(extra.id));
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// After an edit, writes again what the console wrote at the end of the
@@ -979,6 +1141,7 @@ impl Session {
             teams,
             ids: IdGen::new(now_ms),
             redo: Vec::new(),
+            marks: Vec::new(),
             defaults: defaults_from(&settings, &combinations),
             own_combinations: combinations.clone(),
             confirm_set_end: false,
@@ -1160,7 +1323,9 @@ impl Session {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
         let mut taken = Vec::new();
-        while let Some(e) = c.game.log.undo() {
+        while !(!taken.is_empty() && c.marks.contains(&c.game.log.len()))
+            && let Some(e) = c.game.log.undo()
+        {
             let auto = e.producer == Producer::Repair;
             taken.push(e);
             if !auto {
@@ -1171,6 +1336,8 @@ impl Session {
             return self.snapshot();
         }
         taken.reverse();
+        let len = c.game.log.len();
+        c.marks.retain(|m| *m < len);
         if let Err(e) = season.save(c.id, &c.game.log) {
             for event in taken {
                 // Puts back exactly what was taken off, so it fits.
@@ -1204,6 +1371,9 @@ impl Session {
             }
             c.redo.push(events);
             return Err(e.into());
+        }
+        if events.iter().all(|e| e.producer == Producer::Repair) {
+            c.marks.push(before);
         }
         self.snapshot()
     }
@@ -1523,7 +1693,8 @@ impl Session {
             if own_rally {
                 c.rescore_from(pos, score_before)?;
             }
-            c.reclose(clock)
+            c.reclose(clock)?;
+            c.rerotate(pos)
         };
         if let Err(e) = change() {
             while c.game.log.len() > before {
@@ -1532,6 +1703,33 @@ impl Session {
             return Err(e.into());
         }
         c.persist(season, before)?;
+        self.snapshot()
+    }
+
+    /// Writes the console's side-out rotations again from the rally at
+    /// event `id` to the end of its set ("Fix rotations from here"): what
+    /// an edit does by itself, for a match whose rotations went wrong
+    /// before it did. The scout's own rotation codes stay.
+    pub fn fix_rotations(&mut self, id: &str) -> Result<Snapshot> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let target = ulid::Ulid::from_string(id)
+            .map(EventId)
+            .map_err(|_| Error::BadCode(format!("no event {id:?}")))?;
+        let pos = c
+            .position_of(target)
+            .ok_or_else(|| Error::BadCode(format!("no event {id:?}")))?;
+        let before = c.game.log.len();
+        if let Err(e) = c.rerotate(pos) {
+            while c.game.log.len() > before {
+                c.game.log.undo();
+            }
+            return Err(e.into());
+        }
+        if c.game.log.len() > before {
+            c.persist(season, before)?;
+            c.marks.push(before);
+        }
         self.snapshot()
     }
 
@@ -1667,15 +1865,21 @@ impl Session {
             }
         };
         // A console-written code the scout edits is the scout's call: the
-        // ending isn't written again over it.
+        // ending and the rotations aren't written again over it.
         let theirs = c
             .game
             .log
             .get(target)
             .is_some_and(|e| e.producer == Producer::Repair);
+        let at = c.position_of(target).unwrap_or(0);
         let before = c.game.log.len();
         change(&mut c.game.log, &mut c.ids, target, new)?;
-        if let Err(e) = if theirs { Ok(()) } else { c.reclose(clock) } {
+        let repair = if theirs {
+            Ok(())
+        } else {
+            c.reclose(clock).and_then(|()| c.rerotate(at))
+        };
+        if let Err(e) = repair {
             while c.game.log.len() > before {
                 c.game.log.undo();
             }

@@ -1141,6 +1141,62 @@ fn review_fixes_on_rally_endings() {
     );
 }
 
+/// The console's side-out rotations are written again after an edit, from
+/// the rally before it to the set's end, and on request from any rally
+/// ("Fix rotations from here"); the scout's own stay.
+#[test]
+fn rotations_follow_the_rally_winners() {
+    let (mut session, _dir) = open_file(&file_with(&LINEUPS));
+    session.commit("*01SH=", None).expect("serve error");
+    session.commit("a12SH=", None).expect("serve error");
+    session.commit("*02SH=", None).expect("serve error");
+    let snap = session.commit("a13SH=", None).expect("serve error");
+    let t = texts(&snap);
+    assert_eq!(
+        t[4..],
+        [
+            "*01SH=", "ap00:01", "az3", "a12SH=", "*p01:01", "*z6", "*02SH=", "ap01:02", "az2",
+            "a13SH=", "*p02:02", "*z5"
+        ]
+    );
+
+    // The scout takes out home's first rotation: that sticks.
+    let snap = session.remove(&row_id(&snap, "*z6")).expect("remove");
+    assert!(!texts(&snap).contains(&"*z6".to_string()));
+
+    // An edit in a later rally writes the rotations after it again, from
+    // the court as it now stands: home's setter moves on from zone 1.
+    let snap = session
+        .correct(&row_id(&snap, "a13SH="), "a13SM=", None)
+        .expect("correct");
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 3..], ["a13SM=", "*p02:02", "*z6"]);
+
+    // Fixing from the second rally puts home's first rotation back and
+    // moves the later one on again; one undo takes the fix back alone.
+    let snap = session
+        .fix_rotations(&row_id(&snap, "a12SH="))
+        .expect("fix");
+    let t = texts(&snap);
+    assert_eq!(t[7..10], ["a12SH=", "*p01:01", "*z6"]);
+    assert_eq!(t[t.len() - 3..], ["a13SM=", "*p02:02", "*z5"]);
+    assert!(
+        snap.issues.iter().all(|i| i.rule != "rotation"),
+        "{:?}",
+        snap.issues
+    );
+    let snap = session.undo().expect("undo");
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 3..], ["a13SM=", "*p02:02", "*z6"]);
+    assert!(!t[..9].contains(&"*z6".to_string()));
+
+    // A rotation the scout typed stands, even where it disagrees.
+    let snap = session.commit("*z3", None).expect("typed rotation");
+    let at = row_id(&snap, "*z3");
+    let snap = session.fix_rotations(&at).expect("fix");
+    assert!(texts(&snap).contains(&"*z3".to_string()));
+}
+
 #[test]
 fn a_confirmed_set_end_follows_a_modified_deciding_code() {
     let mut codes = LINEUPS.to_vec();
@@ -1588,8 +1644,10 @@ fn a_missed_rally_goes_in_mid_set() {
         .insert_before(&serve, "a12S+ 7- ap00:00", None)
         .expect("insert");
     let t = texts(&snap);
-    assert_eq!(t[16..20], ["a12SH+", "*07RH-", "ap01:03", "a12SM="]);
-    assert_eq!(t[20], "*p02:03");
+    // Visiting won it from home's serve: a side-out, so it rotates. The
+    // file's own `*z6` after the next point stays (it isn't the console's).
+    assert_eq!(t[16..20], ["a12SH+", "*07RH-", "ap01:03", "az2"]);
+    assert_eq!(t[20..23], ["a12SM=", "*p02:03", "*z6"]);
 }
 
 /// A line of codes goes in inside a rally too, read with the rally there.
