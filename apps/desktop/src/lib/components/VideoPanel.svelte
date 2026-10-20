@@ -2,6 +2,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { onDestroy, onMount } from "svelte";
   import * as backend from "../backend";
+  import { withKey } from "../kbd";
   import { ui } from "../ui.svelte";
   import { JUMP, LONG_JUMP, video } from "../video.svelte";
   import Icon from "./Icon.svelte";
@@ -163,7 +164,7 @@
       class="icon-btn"
       type="button"
       disabled={!player?.path}
-      title="Back {JUMP} seconds (Shift-click: {LONG_JUMP})"
+      title={`${withKey(`Back ${JUMP} seconds`, "videoBack")}. Shift-click: ${withKey(`back ${LONG_JUMP} seconds`, "videoBackLong")}`}
       aria-label="Back {JUMP} seconds"
       onclick={(e) => video.seek(e.shiftKey ? -LONG_JUMP : -JUMP)}><Icon name="rewind" /></button
     >
@@ -171,7 +172,7 @@
       class="icon-btn"
       type="button"
       disabled={!player?.path}
-      title="One frame back"
+      title={withKey("One frame back", "videoFrameBack")}
       aria-label="One frame back"
       onclick={() => video.step(true)}><Icon name="stepBack" /></button
     >
@@ -179,6 +180,7 @@
       class="icon-btn"
       type="button"
       disabled={!player?.path}
+      title={withKey(player?.paused === false ? "Pause" : "Play", "videoPlay")}
       aria-label={player?.paused === false ? "Pause" : "Play"}
       onclick={video.togglePlay}><Icon name={player?.paused === false ? "pause" : "play"} /></button
     >
@@ -186,7 +188,7 @@
       class="icon-btn"
       type="button"
       disabled={!player?.path}
-      title="One frame on"
+      title={withKey("One frame on", "videoFrameForward")}
       aria-label="One frame on"
       onclick={() => video.step(false)}><Icon name="stepFwd" /></button
     >
@@ -194,7 +196,7 @@
       class="icon-btn"
       type="button"
       disabled={!player?.path}
-      title="Forward {JUMP} seconds (Shift-click: {LONG_JUMP})"
+      title={`${withKey(`Forward ${JUMP} seconds`, "videoForward")}. Shift-click: ${withKey(`forward ${LONG_JUMP} seconds`, "videoForwardLong")}`}
       aria-label="Forward {JUMP} seconds"
       onclick={(e) => video.seek(e.shiftKey ? LONG_JUMP : JUMP)}><Icon name="forward" /></button
     >

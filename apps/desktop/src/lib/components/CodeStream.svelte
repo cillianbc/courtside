@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Group, Row, Snapshot } from "../snapshot";
   import { showCode } from "../jump";
+  import { withKey } from "../kbd";
   import { ui } from "../ui.svelte";
   import { video } from "../video.svelte";
   import CodeMenu from "./CodeMenu.svelte";
@@ -88,10 +89,11 @@
     } else ui.startEdit("correct", r.id, r.text);
   }
 
+  let section: HTMLElement | undefined = $state();
   let menu = $state<{ x: number; y: number; row: Row; group: Group } | null>(null);
 </script>
 
-<section class="panel codes" aria-label="Codes">
+<section class="panel codes" aria-label="Codes" bind:this={section}>
   <div class="set-tabs">
     <div class="set-list" role="tablist" aria-label="Sets">
       {#each snap.sets as s (s.number)}
@@ -119,10 +121,10 @@
       <button
         class="btn"
         type="button"
-        title="Undo the last code (Ctrl+Z)"
+        title={withKey("Undo the last code", "undo")}
         onclick={() => ui.undo()}>Undo</button
       >
-      <button class="btn" type="button" title="Redo (Ctrl+Shift+Z)" onclick={() => ui.redo()}
+      <button class="btn" type="button" title={withKey("Redo", "redo")} onclick={() => ui.redo()}
         >Redo</button
       >
     </span>
@@ -262,6 +264,7 @@
     <CodeMenu
       x={m.x}
       y={m.y}
+      within={section}
       onclose={() => (menu = null)}
       items={[
         { label: "Modify", disabled: !canModify(m.row), run: () => modify(m.row, m.group) },

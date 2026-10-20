@@ -1,5 +1,6 @@
 <script lang="ts">
   import { exportDvw } from "../actions";
+  import { withKey } from "../kbd";
   import * as backend from "../backend";
   import type { Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
@@ -52,15 +53,19 @@
       {#each [["coding", "Coding", "Video on top, codes and the court beside it"], ["watch", "Video", "The video fills the window beside one column"]] as [id, label, title] (id)}
         <button
           type="button"
-          {title}
+          title={withKey(title ?? "", "layout")}
           aria-pressed={ui.layout === id}
           onclick={() => ui.setLayout(id === "watch" ? "watch" : "coding")}>{label}</button
         >
       {/each}
     </div>
     <span>Saved</span><b>event {snap.events}</b>
-    <button class="theme-btn" type="button" disabled={!backend.inTauri} onclick={exportDvw}
-      >Export .dvw</button
+    <button
+      class="theme-btn"
+      type="button"
+      title={withKey("Export the match as a .dvw file", "exportDvw")}
+      disabled={!backend.inTauri}
+      onclick={exportDvw}>Export .dvw</button
     >
     <button class="theme-btn" type="button" onclick={toggleTheme}>Theme</button>
   </div>

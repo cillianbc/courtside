@@ -1,6 +1,5 @@
 <!-- Right-click menu on a code in the stream. -->
 <script lang="ts">
-  import { onMount } from "svelte";
   import { ui } from "../ui.svelte";
   export interface MenuItem {
     label: string;
@@ -9,23 +8,51 @@
     danger?: boolean;
   }
 
-  let { x, y, items, onclose }: { x: number; y: number; items: MenuItem[]; onclose: () => void } =
-    $props();
+  let {
+    x,
+    y,
+    items,
+    onclose,
+    within,
+  }: {
+    x: number;
+    y: number;
+    items: MenuItem[];
+    onclose: () => void;
+    /** The panel the menu stays inside, so it keeps clear of the video. */
+    within?: HTMLElement;
+  } = $props();
 
   let box: HTMLDivElement | undefined = $state();
-  // Kept inside the window; the first item takes focus for the keyboard.
+  // Kept inside its panel (else the window); the first item takes focus
+  // for the keyboard.
   let left = $state(0);
   let top = $state(0);
   $effect(() => {
     if (!box) return;
     const r = box.getBoundingClientRect();
-    left = Math.max(4, Math.min(x, window.innerWidth - r.width - 4));
-    top = Math.max(4, Math.min(y, window.innerHeight - r.height - 4));
+    const area = within?.getBoundingClientRect() ?? {
+      left: 0,
+      top: 0,
+      right: window.innerWidth,
+      bottom: window.innerHeight,
+    };
+    left = Math.max(area.left + 4, Math.min(x, area.right - r.width - 4));
+    top = Math.max(area.top + 4, Math.min(y, area.bottom - r.height - 4));
     box.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   });
 
-  // The match video's native view would hide the menu.
-  onMount(() => {
+  // The match video's native view would hide the menu where they overlap:
+  // then the video steps aside while the menu is open.
+  $effect(() => {
+    if (!box) return;
+    void left;
+    void top;
+    const m = box.getBoundingClientRect();
+    const v = document.querySelector(".video .screen")?.getBoundingClientRect();
+    const overlaps =
+      !!v && m.left < v.right && m.right > v.left && m.top < v.bottom && m.bottom > v.top;
+    if (!overlaps) return;
     ui.covering += 1;
     return () => (ui.covering -= 1);
   });

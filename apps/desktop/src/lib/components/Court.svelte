@@ -4,6 +4,7 @@
   import * as backend from "../backend";
   import { LAYOUT, columns, type Net } from "../court";
   import { rotationCode, timeoutCode } from "../codes";
+  import { withKey } from "../kbd";
   import type { Side, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
   import Icon from "./Icon.svelte";
@@ -68,7 +69,7 @@
         <button
           type="button"
           class="tool"
-          title="Timeout, {name}"
+          title={withKey(`Timeout, ${name}`, side === "home" ? "timeoutHome" : "timeoutAway")}
           disabled={snap.timeouts[side] >= 2}
           onclick={() => ui.commit(timeoutCode(side))}
           ><Icon name="timeout" />Timeout <b>{snap.timeouts[side]}/2</b></button
@@ -76,7 +77,7 @@
         <button
           type="button"
           class="tool"
-          title="Substitution, {name}"
+          title={withKey(`Substitution, ${name}`, side === "home" ? "subHome" : "subAway")}
           aria-pressed={ui.subFor === side}
           disabled={snap.needsLineup[side]}
           onclick={() => (ui.subFor = ui.subFor === side ? null : side)}
@@ -89,7 +90,9 @@
             <button
               type="button"
               class="icon-btn"
-              title={label}
+              title={forward
+                ? withKey(label, side === "home" ? "rotateHome" : "rotateAway")
+                : label}
               aria-label={label}
               disabled={code === null}
               onclick={() => code && ui.commit(code)}
@@ -109,14 +112,14 @@
       <button
         class="icon-btn"
         type="button"
-        title="Swap sides"
+        title={withKey("Swap sides", "swapSides")}
         aria-label="Swap sides"
         onclick={() => (ui.swapped = !ui.swapped)}><Icon name="swap" /></button
       >
       <button
         class="icon-btn"
         type="button"
-        title={ui.endView ? "Side view" : "End view"}
+        title={withKey(ui.endView ? "Side view" : "End view", "endView")}
         aria-label={ui.endView ? "Side view" : "End view"}
         aria-pressed={ui.endView}
         onclick={() => (ui.endView = !ui.endView)}><Icon name="turn" /></button
