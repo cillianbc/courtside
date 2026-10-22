@@ -57,9 +57,11 @@
     return () => (ui.covering -= 1);
   });
 
+  // Run first: closing clears the caller's state (the code the menu was
+  // opened on), which the item's action still reads.
   function pick(item: MenuItem) {
-    onclose();
     item.run();
+    onclose();
   }
 
   function onkeydown(e: KeyboardEvent) {
