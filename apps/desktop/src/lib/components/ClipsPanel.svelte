@@ -318,10 +318,24 @@
   .tab-panel {
     flex: 1;
   }
+  /* A clip row is two lines: the code and what it is, then its time and
+     tools, so Rally, Modify and Checked never run off a narrow column. */
+  .clips :global(.row) {
+    grid-template-columns: 4px auto max-content minmax(0, 1fr);
+    row-gap: 2px;
+    padding-block: 3px;
+  }
+  .clips :global(.row .stripe) {
+    grid-row: span 2;
+  }
   .clip-tools {
-    display: inline-flex;
+    grid-column: 2 / -1;
+    display: flex;
     align-items: center;
     gap: 6px;
+  }
+  .clip-tools .rate {
+    margin-right: auto;
   }
   .checked {
     display: inline-flex;
