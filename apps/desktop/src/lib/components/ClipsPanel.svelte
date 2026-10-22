@@ -321,6 +321,9 @@
   /* A clip row is two lines: the code and what it is, then its time and
      tools, so Rally, Modify and Checked never run off a narrow column. */
   .clips :global(.row) {
+    /* In the scrolling list a row keeps its height (a flex item would
+       shrink below its content, and the picked fill would stop short). */
+    flex: none;
     grid-template-columns: 4px auto max-content minmax(0, 1fr);
     row-gap: 2px;
     padding-block: 3px;
