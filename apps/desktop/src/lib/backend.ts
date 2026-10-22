@@ -155,10 +155,10 @@ export async function setLineup(team: Side, court: number[], setter: number): Pr
   return invoke<Snapshot>("lineup_set", { team, court, setter, clock: clock() });
 }
 
-/** Ends the set in progress once its score wins it. */
-export async function endSet(): Promise<Snapshot> {
+/** Ends the set in progress once its score wins it; `minutes`: its length as the scout gave it. */
+export async function endSet(minutes?: number): Promise<Snapshot> {
   if (!inTauri) throw new Error("Coding needs the desktop app.");
-  return invoke<Snapshot>("set_end", { clock: clock() });
+  return invoke<Snapshot>("set_end", { clock: clock(), minutes: minutes ?? null });
 }
 
 /** Starts a golden set once the match is over. */

@@ -78,6 +78,21 @@
       ? null
       : { key, text: `Set ${snap.set} won ${s.home}:${s.visiting} by ${winner}. End set?` };
   });
+  // The set's length, filled in from the clock when the end comes due;
+  // the scout may change it (#21).
+  let minutes = $state("");
+  let minutesFor = "";
+  let minutesBox: HTMLInputElement | undefined = $state();
+  $effect(() => {
+    if (setEnd && setEnd.key !== minutesFor) {
+      minutesFor = setEnd.key;
+      minutes = snap?.setEndMinutes != null ? String(snap.setEndMinutes) : "";
+    }
+  });
+  function endSet() {
+    const m = Number.parseInt(minutes, 10);
+    return ui.endSet(Number.isFinite(m) && m > 0 && m < 1000 ? m : undefined);
+  }
   // The earlier code being changed, by its match-wide number (v6 T4).
   const editNumber = $derived.by(() => {
     const id = ui.editing?.id;
@@ -94,7 +109,7 @@
     if (busy) return;
     if (!text && ui.snapshot?.setEndDue && !ui.editing) {
       busy = true;
-      await ui.endSet();
+      await endSet();
       busy = false;
       return;
     }
@@ -133,6 +148,11 @@
     } else if (e.key === "Enter") {
       e.preventDefault();
       void commit();
+    } else if (e.key === "Tab" && !e.shiftKey && setEnd && !ui.code && minutesBox) {
+      // Tab from the empty line goes to the set's length.
+      e.preventDefault();
+      minutesBox.focus();
+      minutesBox.select();
     }
   }
 </script>
@@ -158,11 +178,31 @@
   {#if setEnd}
     <div class="confirm">
       <span class="txt">{setEnd.text}</span>
+      <label
+        class="dur"
+        title="Written to the .dvw as the set's length. Filled in from the clock (first serve to last point); change it if the clock was off."
+        >Set length <input
+          bind:this={minutesBox}
+          bind:value={minutes}
+          inputmode="numeric"
+          maxlength="3"
+          aria-label="Set length in minutes"
+          onkeydown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void endSet();
+            } else if (e.key === "Escape" && setEnd) {
+              notYet = setEnd.key;
+              ui.focusCode++;
+            }
+          }}
+        /> min</label
+      >
       <button
         type="button"
         class="btn primary"
         title="End the set (Enter on an empty line)"
-        onclick={() => void ui.endSet()}>End set <kbd class="kbd">↵</kbd></button
+        onclick={() => void endSet()}>End set <kbd class="kbd">↵</kbd></button
       >
       <button type="button" class="btn" onclick={() => (notYet = setEnd.key)}
         >Not yet <kbd class="kbd">Esc</kbd></button

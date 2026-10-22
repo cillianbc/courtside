@@ -201,7 +201,8 @@ fn version_6_files_get_play_positions() {
     {
         let conn = rusqlite::Connection::open(&path).expect("sqlite");
         conn.execute_batch(
-            "ALTER TABLE event DROP COLUMN start_xy;
+            "ALTER TABLE event DROP COLUMN minutes;
+             ALTER TABLE event DROP COLUMN start_xy;
              ALTER TABLE event DROP COLUMN mid_xy;
              ALTER TABLE event DROP COLUMN end_xy;
              PRAGMA user_version = 6;",
@@ -221,6 +222,34 @@ fn version_6_files_get_play_positions() {
     season.save_points(id, &game.log, &[first]).expect("save");
     let game = season.open_match(id).expect("reload").game;
     assert_eq!(game.log.all()[0].points, points);
+}
+
+/// Version 8 adds a set end's minutes; a version 7 file opens with none.
+#[test]
+fn version_7_files_get_set_minutes() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("season.courtside");
+    let id = {
+        let mut season = Season::create(&path, "2026/27", 1).expect("create");
+        season
+            .import_dvw("m.dvw", FILE.as_bytes(), 1_000)
+            .expect("import")
+    };
+    {
+        let conn = rusqlite::Connection::open(&path).expect("sqlite");
+        conn.execute_batch(
+            "ALTER TABLE event DROP COLUMN minutes;
+             PRAGMA user_version = 7;",
+        )
+        .expect("downgrade to v7");
+    }
+    let mut season = Season::open(&path).expect("migrated");
+    let game = season.open_match(id).expect("load").game;
+    let first = game.log.all()[0].id;
+    assert_eq!(game.log.all()[0].minutes, None);
+    season.save_minutes(id, first, Some(24)).expect("save");
+    let game = season.open_match(id).expect("reload").game;
+    assert_eq!(game.log.all()[0].minutes, Some(24));
 }
 
 #[test]

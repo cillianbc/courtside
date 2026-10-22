@@ -35,7 +35,7 @@ use vb_grammar::Code;
 use vb_grammar::Team as Side;
 
 /// Schema version, kept in SQLite's `user_version`.
-const VERSION: u32 = 7;
+const VERSION: u32 = 8;
 
 const SCHEMA: &str = "
 CREATE TABLE season (
@@ -91,6 +91,8 @@ CREATE TABLE event (
     start_xy INTEGER,
     mid_xy INTEGER,
     end_xy INTEGER,
+    -- On a set end: the set's length in minutes as the scout gave it.
+    minutes INTEGER,
     PRIMARY KEY (match_id, seq)
 );
 ";
@@ -236,7 +238,7 @@ impl Season {
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         match version {
             VERSION => {}
-            1..=6 => {
+            1..=7 => {
                 if version < 2 {
                     migrate_1_to_2(&conn)?;
                 }
@@ -252,7 +254,10 @@ impl Season {
                 if version < 6 {
                     migrate_5_to_6(&conn)?;
                 }
-                migrate_6_to_7(&conn)?;
+                if version < 7 {
+                    migrate_6_to_7(&conn)?;
+                }
+                migrate_7_to_8(&conn)?;
             }
             _ => return Err(Error::Version(version)),
         }
@@ -503,6 +508,21 @@ impl Season {
         )?;
         write_events(&tx, id, &events[same..], same)?;
         tx.commit()?;
+        Ok(())
+    }
+
+    /// Saves a set end's length in minutes as the log now has it. The
+    /// event itself is already saved.
+    pub fn save_minutes(
+        &mut self,
+        id: MatchId,
+        event: EventId,
+        minutes: Option<u16>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE event SET minutes = ?1 WHERE match_id = ?2 AND id = ?3",
+            params![minutes, id.to_string(), event.to_string()],
+        )?;
         Ok(())
     }
 
@@ -788,6 +808,17 @@ fn migrate_6_to_7(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Version 8: a set end's length in minutes as the scout gave it (#21).
+fn migrate_7_to_8(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "BEGIN;
+         ALTER TABLE event ADD COLUMN minutes INTEGER;
+         PRAGMA user_version = 8;
+         COMMIT;",
+    )?;
+    Ok(())
+}
+
 /// Version 5 lets event rows mark a golden set (kind `golden`); the table
 /// is rebuilt for the new CHECK constraint, as in version 2.
 fn migrate_4_to_5(conn: &Connection) -> Result<()> {
@@ -844,8 +875,8 @@ fn ms(now_ms: u64) -> i64 {
 
 fn write_events(conn: &Connection, id: MatchId, events: &[MatchEvent], from: usize) -> Result<()> {
     let mut stmt = conn.prepare(
-        "INSERT INTO event (match_id, seq, id, kind, text, video_ms, clock, producer, supersedes, before, source_line, start_xy, mid_xy, end_xy)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO event (match_id, seq, id, kind, text, video_ms, clock, producer, supersedes, before, source_line, start_xy, mid_xy, end_xy, minutes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
     )?;
     for (i, e) in events.iter().enumerate() {
         let (kind, text) = match &e.body {
@@ -872,6 +903,7 @@ fn write_events(conn: &Connection, id: MatchId, events: &[MatchEvent], from: usi
             e.points.start,
             e.points.mid,
             e.points.end,
+            e.minutes,
         ])?;
     }
     Ok(())
@@ -889,11 +921,12 @@ type EventRow = (
     Option<String>,
     Option<i64>,
     Points,
+    Option<u16>,
 );
 
 fn read_events(conn: &Connection, id: MatchId) -> Result<Vec<MatchEvent>> {
     let mut stmt = conn.prepare(
-        "SELECT seq, id, kind, text, video_ms, clock, producer, supersedes, before, source_line, start_xy, mid_xy, end_xy
+        "SELECT seq, id, kind, text, video_ms, clock, producer, supersedes, before, source_line, start_xy, mid_xy, end_xy, minutes
          FROM event WHERE match_id = ?1 ORDER BY seq",
     )?;
     let rows = stmt.query_map([id.to_string()], |r| {
@@ -913,6 +946,7 @@ fn read_events(conn: &Connection, id: MatchId) -> Result<Vec<MatchEvent>> {
                 mid: r.get(11)?,
                 end: r.get(12)?,
             },
+            r.get(13)?,
         ))
     })?;
     rows.map(|row| {
@@ -928,6 +962,7 @@ fn read_events(conn: &Connection, id: MatchId) -> Result<Vec<MatchEvent>> {
             before,
             source_line,
             points,
+            minutes,
         ): EventRow = row?;
         let body = match kind.as_str() {
             "code" => Body::Code(Code::parse(&text)),
@@ -948,6 +983,7 @@ fn read_events(conn: &Connection, id: MatchId) -> Result<Vec<MatchEvent>> {
             before: before.as_deref().map(event_id).transpose()?,
             source_line: source_line.and_then(|l| usize::try_from(l).ok()),
             points,
+            minutes,
         })
     })
     .collect()

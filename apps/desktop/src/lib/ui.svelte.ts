@@ -141,8 +141,9 @@ class Ui {
   }
 
   /** Ends a set whose score wins it (when set ends wait for the scout). */
-  endSet(): Promise<boolean> {
-    return this.apply("Set ended", backend.endSet);
+  /** Ends the set; `minutes`, when given, is written as its length (#21). */
+  endSet(minutes?: number): Promise<boolean> {
+    return this.apply("Set ended", () => backend.endSet(minutes));
   }
 
   /** Video times at the first keystroke of each code on the command line. */

@@ -139,6 +139,7 @@ export function fixture(): Snapshot {
     matchOver: false,
     goldenSet: null,
     setEndDue: false,
+    setEndMinutes: null,
     substitutionLimit: 6,
     starting: [],
     timeouts: { home: 1, visiting: 0 },

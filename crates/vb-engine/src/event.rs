@@ -132,6 +132,10 @@ pub struct MatchEvent {
     /// cells ([`crate::court`]). A stamp like the video time: set in place,
     /// kept by a correction.
     pub points: Points,
+    /// On a set end: the set's length in minutes as the scout gave it,
+    /// which the export writes in place of the clock's. A stamp like
+    /// `points`: set in place, kept by a correction (#21).
+    pub minutes: Option<u16>,
 }
 
 /// A play's court positions as `.dvw` grid cells ([`crate::court`]).
@@ -246,6 +250,7 @@ mod tests {
                 before: None,
                 source_line: None,
                 points: Points::default(),
+                minutes: None,
             }
             .kind()
         };

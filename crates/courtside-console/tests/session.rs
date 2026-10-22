@@ -975,6 +975,45 @@ fn no_set_follows_a_won_match() {
     assert_eq!((snap.set, snap.sets.len()), (3, 3));
 }
 
+/// The scout's set length goes with the set end, is saved, and is what
+/// the export writes (#21).
+#[test]
+fn a_set_end_keeps_the_scouts_minutes() {
+    let (mut session, dir) = open_file(&file_with(&[
+        "*P01>LUp", "*z1>LUp", "aP14>LUp", "az4>LUp", "*p24:10",
+    ]));
+    let mut settings = session.settings().expect("settings");
+    settings.rules.confirm_set_end = true;
+    session.save_settings(&settings).expect("save");
+    assert!(
+        session
+            .commit("p25:10", None)
+            .expect("set point")
+            .set_end_due
+    );
+    session.end_set(None, Some(27)).expect("end set");
+
+    // Saved: a fresh session on the same season sees it.
+    let id = session.matches().expect("matches")[0]
+        .id
+        .parse()
+        .expect("id");
+    let mut again = Session::new();
+    again
+        .open_season(&dir.path().join("s.courtside"))
+        .expect("season");
+    again.open_match(id, 3_000).expect("open");
+    let out = dir.path().join("out.dvw");
+    again.export_dvw(&out, false).expect("export");
+    let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
+    let set1 = text
+        .lines()
+        .skip_while(|l| !l.starts_with("[3SET]"))
+        .nth(1)
+        .expect("set 1 row");
+    assert_eq!(set1.split(';').nth(5), Some("27"), "{set1}");
+}
+
 #[test]
 fn set_ends_wait_for_the_scout_when_the_season_asks() {
     let (mut session, _dir) = open_file(&file_with(&[
@@ -992,11 +1031,11 @@ fn set_ends_wait_for_the_scout_when_the_season_asks() {
     let err = session.commit("*01SH-", None).expect_err("set not ended");
     assert!(err.to_string().contains("end it first"), "{err}");
 
-    let snap = session.end_set(None).expect("end set");
+    let snap = session.end_set(None, None).expect("end set");
     assert!(!snap.set_end_due);
     assert!(texts(&snap).contains(&"**1set".to_string()));
     assert_eq!(snap.set, 2);
-    assert!(session.end_set(None).is_err(), "nothing to end");
+    assert!(session.end_set(None, None).is_err(), "nothing to end");
 
     // Undo takes the set end back; it is due again.
     assert!(session.undo().expect("undo").set_end_due);
@@ -1223,7 +1262,7 @@ fn a_confirmed_set_end_follows_a_modified_deciding_code() {
     session.save_settings(&settings).expect("save");
     let snap = session.commit("*01SH#", None).expect("ace");
     assert!(snap.set_end_due);
-    let snap = session.end_set(None).expect("end set");
+    let snap = session.end_set(None, None).expect("end set");
     assert_eq!(snap.set, 2);
 
     let snap = session

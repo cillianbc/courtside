@@ -2599,3 +2599,23 @@ button.flag {
     gap: 6px;
   }
 }
+.confirm .dur {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.confirm .dur input {
+  width: 4ch;
+  height: 26px;
+  padding: 0 4px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-tag);
+  background: var(--panel);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 13px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

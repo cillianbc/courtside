@@ -1503,7 +1503,9 @@ impl Session {
 
     /// Ends the set in progress once its score wins it: the set end the
     /// console holds back when the season asks to confirm set ends.
-    pub fn end_set(&mut self, clock: Option<ClockTime>) -> Result<Snapshot> {
+    /// `minutes`: the set's length as the scout gave it, which the export
+    /// writes in place of the clock's (#21).
+    pub fn end_set(&mut self, clock: Option<ClockTime>, minutes: Option<u16>) -> Result<Snapshot> {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
         let Some(set) = snapshot::set_end_due(&c.game, &fold(&c.game)) else {
@@ -1519,6 +1521,12 @@ impl Session {
             },
         );
         c.persist(season, before)?;
+        if let Some(end) = c.game.log.all().last().map(|e| e.id)
+            && minutes.is_some()
+        {
+            c.game.log.set_minutes(end, minutes)?;
+            season.save_minutes(c.id, end, minutes)?;
+        }
         self.snapshot()
     }
 

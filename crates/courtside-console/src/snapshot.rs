@@ -76,6 +76,9 @@ pub struct Snapshot {
     /// The set's score wins it but it isn't ended yet: confirm with
     /// `end_set` (or undo).
     pub set_end_due: bool,
+    /// While a set end is due: its length in minutes from the clock (first
+    /// serve to last point), for the scout to confirm or change (#21).
+    pub set_end_minutes: Option<u32>,
     /// Substitutions allowed per team and set.
     pub substitution_limit: u8,
     /// Each set's starting six and setter per team, once anything is
@@ -568,6 +571,12 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
         match_over,
         golden_set: folded.golden_set,
         set_end_due: set_end_due(game, &folded).is_some(),
+        set_end_minutes: set_end_due(game, &folded).and_then(|set| {
+            vb_engine::export::set_minutes(game)
+                .get(usize::from(set).checked_sub(1)?)
+                .copied()
+                .flatten()
+        }),
         substitution_limit: game.rules.substitutions,
         starting: (1..=set)
             .map(|n| SetStart {

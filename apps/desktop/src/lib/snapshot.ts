@@ -120,6 +120,8 @@ export interface Snapshot {
   goldenSet: number | null;
   /** The set's score wins it but it isn't ended yet (confirm or undo). */
   setEndDue: boolean;
+  /** While a set end is due: its length in minutes from the clock, to confirm or change. */
+  setEndMinutes: number | null;
   /** Substitutions allowed per team and set. */
   substitutionLimit: number;
   /** Each team's six and setter as the set in progress started. */

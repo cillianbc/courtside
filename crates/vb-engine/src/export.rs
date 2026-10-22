@@ -16,7 +16,8 @@
 //! follows the template's style (`8 -7` from DataVolley, ` 8- 7` from
 //! VolleyStation).
 //!
-//! - Duration: whole minutes from the first serve to the last point code,
+//! - Duration: the set end's own minutes when the scout gave them (#21);
+//!   else whole minutes from the first serve to the last point code,
 //!   as DataVolley counts them (FORMAT-NOTES "[3SET]"), for a set whose
 //!   scores change; a set left as it was keeps the file's duration, empty
 //!   or not (DataVolley doesn't always follow the scout clock).
@@ -79,6 +80,8 @@ struct SetScores {
     /// Clock of the first serve and of the last point code.
     first_serve: Option<ClockTime>,
     last_point: Option<ClockTime>,
+    /// The set's length as the scout gave it on the set end.
+    given: Option<u16>,
 }
 
 impl SetScores {
@@ -153,9 +156,21 @@ fn set_scores(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Vec<SetScor
                 .and_then(|set| get(m, folded, &mut sets, set))
         {
             s.ended = true;
+            s.given = e.minutes.or(s.given);
         }
     }
     sets
+}
+
+/// Each set's length in whole minutes, by set number from 1: the scout's
+/// own on its set end, else from the clock (first serve to last point).
+pub fn set_minutes(m: &Match) -> Vec<Option<u32>> {
+    let events = m.log.visible();
+    let folded = fold_events(m, &events);
+    set_scores(m, &events, &folded)
+        .iter()
+        .map(|s| s.given.map(u32::from).or_else(|| s.duration()))
+        .collect()
 }
 
 /// Writes the sets' scores and durations; whether any set changed.
@@ -195,12 +210,18 @@ fn write_sets(rows: &mut Vec<SetResult>, sets: &[SetScores], durations: bool) ->
             }
         }
         changed |= row_changed;
-        if durations
-            && row_changed
-            && let Some(minutes) = set.and_then(SetScores::duration)
+        // The scout's minutes always; the clock's only where the scores
+        // changed and the template counts them (not VolleyStation).
+        let minutes = set.and_then(|s| {
+            s.given
+                .map(u32::from)
+                .or_else(|| (durations && row_changed).then(|| s.duration()).flatten())
+        });
+        if let Some(minutes) = minutes
             && fields[5].trim().parse::<u32>().ok() != Some(minutes)
         {
             fields[5] = minutes.to_string();
+            changed = true;
         }
     }
     changed
@@ -469,6 +490,37 @@ mod tests {
         assert_eq!(d.sets[0].0.to_line(), "True;;;;1 -0;20;");
         let d = with(&[("*p01:00", (15, 50, 12))]);
         assert_eq!(d.sets[0].0.to_line(), "True;;;;1 -0;21;");
+    }
+
+    /// The scout's minutes on a set end win over the clock's, even where
+    /// the file had its own (#21).
+    #[test]
+    fn a_set_ends_own_minutes_are_written() {
+        let file = SETS.replace(
+            "[3SET]\r\nTrue;;;;;;\r\n",
+            "[3TEAMS]\r\nT1;Home;;;;\r\nT2;Away;;;;\r\n[3SET]\r\nTrue;;;;1 -0;31;\r\n",
+        )
+        .replace(
+            "*08SH#;;;;;;;15.30.10;1;1;;;;;8;12;;;;;;;;;;;\r\n",
+            "*08SH#;;;;;;;15.30.10;1;1;;;;;8;12;;;;;;;;;;;\r\n*p01:00;;;;;;;15.50.11;1;1;;;;;8;12;;;;;;;;;;;\r\n**1set;;;;;;;15.50.20;1;1;;;;;8;12;;;;;;;;;;;\r\n",
+        );
+        let dvw = Dvw::parse(file.as_bytes()).expect("parse");
+        let mut m = Match::from_dvw(&dvw, &mut IdGen::new(0));
+        let end = m
+            .log
+            .all()
+            .iter()
+            .find(|e| e.kind() == EventKind::SetEnd)
+            .expect("set end")
+            .id;
+        m.log.set_minutes(end, Some(27)).expect("minutes");
+        assert_eq!(m.to_dvw(&dvw).sets[0].0.to_line(), "True;;;;1 -0;27;");
+        assert_eq!(set_minutes(&m), [Some(27)]);
+        m.log.set_minutes(end, None).expect("minutes");
+        // Without them: the file's own 31 stays (its scores didn't change),
+        // and the console offers the clock's 20.
+        assert_eq!(m.to_dvw(&dvw).sets[0].0.to_line(), "True;;;;1 -0;31;");
+        assert_eq!(set_minutes(&m), [Some(20)]);
     }
 
     /// A file's own duration and sets won stay while its sets don't change.

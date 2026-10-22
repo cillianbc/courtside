@@ -113,6 +113,7 @@ impl EventLog {
             before,
             source_line,
             points: Points::default(),
+            minutes: None,
         });
         id
     }
@@ -132,6 +133,7 @@ impl EventLog {
         let old = self.get(target).ok_or(LogError::NotFound(target))?;
         let source_line = old.source_line;
         let points = old.points;
+        let minutes = old.minutes;
         let new = NewEvent {
             video_ms: new.video_ms.or(old.video_ms),
             clock: new.clock.or(old.clock),
@@ -142,7 +144,20 @@ impl EventLog {
         }
         let id = self.push(ids, new, Some(target), None, source_line);
         self.set_points(id, points)?;
+        self.set_minutes(id, minutes)?;
         Ok(id)
+    }
+
+    /// Sets a set end's length in minutes, in place: a stamp like the
+    /// court marks, not a correction.
+    pub fn set_minutes(&mut self, id: EventId, minutes: Option<u16>) -> Result<(), LogError> {
+        let e = self
+            .events
+            .iter_mut()
+            .find(|e| e.id == id)
+            .ok_or(LogError::NotFound(id))?;
+        e.minutes = minutes;
+        Ok(())
     }
 
     /// Sets where an event's play went on the court, in place: a stamp
