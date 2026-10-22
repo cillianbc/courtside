@@ -249,4 +249,28 @@ mod tests {
             Some(0.0)
         );
     }
+
+    /// A dig error under a kill counts against the digger, as DataVolley
+    /// counts it (the user's choice, #22); VolleyStation leaves it neutral.
+    #[test]
+    fn a_dig_error_counts_against_the_digger() {
+        let mut m = Match::default();
+        let mut ids = IdGen::new(0);
+        for c in ["*11SH+", "a07RH+", "a04EH+", "a12AH#", "*06DH=", "ap00:01"] {
+            m.log
+                .append(&mut ids, NewEvent::code(Code::parse(c), Producer::Keyboard));
+        }
+        let s = stats(&m);
+        let dig = &s.home[&'D'];
+        assert_eq!((dig.total, dig.with("=")), (1, 1));
+        assert_eq!(
+            dig.efficiency(Skill::Dig, &SymbolSets::DATAVOLLEY),
+            Some(-1.0)
+        );
+        assert_eq!(
+            dig.efficiency(Skill::Dig, &SymbolSets::VOLLEYSTATION),
+            Some(0.0)
+        );
+        assert_eq!(s.visiting[&'A'].with("#"), 1);
+    }
 }

@@ -182,6 +182,7 @@ Agreed at the phase 1 review (task 8).
 
 - **Setter code without `>LUp`** (`aP11`) is a change of setter in vb-engine and feeds rotation and setter-position tracking; it is not a substitution. The JSON export keeps openvolley's `substitution` flag for compatibility.
 - **Lenient parsing.** The codec and grammar never reject a file: odd values are kept as written (`Code::Unrecognised`, `Role::Unknown`, unparsed dates) and `courtside validate` reports them. Rule checks belong to the validator and vb-engine, not the reader.
+- **Dig errors count against the digger** (user, 2026-10-21, #22): stats default to DataVolley 4's symbol sets, where a dig `=` is negative. VolleyStation's defaults leave it neutral (dig has no losing symbols); `--symbols volleystation` still gives that. An attack→dig dot code with a dig error, `12A.6d=`, writes `*12AH#  a06DH=` in all three products: the kill for the attacker, the dig error for the digger, one point.
 - **No `winnow`.** The formats are positional; hand-written parsers are simpler. Revisit only for a real grammar.
 - **Default and dot codes** are scouting-input features (expanding shorthand while typing) and are built with the scouting screen, not the file reader.
 - **Corpus:** next priority is fully coded DataVolley files (combinations, zones, subzones, custom codes). Other code pages, beach and VolleyStation with video are wanted but not yet available.
