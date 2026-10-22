@@ -271,6 +271,20 @@ export async function fixRotations(id: string): Promise<Snapshot> {
   return invoke<Snapshot>("rotations_fix", { id });
 }
 
+/** What "Fix rotations from here" would change; nothing is changed. */
+export interface FixPreview {
+  codes: number;
+  fromRally: number | null;
+  toRally: number | null;
+  issuesBefore: number;
+  issuesAfter: number;
+}
+
+export async function fixRotationsPreview(id: string): Promise<FixPreview> {
+  needsApp();
+  return invoke<FixPreview>("rotations_fix_preview", { id });
+}
+
 export async function settings(): Promise<Settings | null> {
   if (!inTauri) return null;
   return invoke<Settings>("settings_get");

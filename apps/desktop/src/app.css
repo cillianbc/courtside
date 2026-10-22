@@ -2619,3 +2619,35 @@ button.flag {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.fix-preview {
+  margin: 0 8px 4px 30px;
+  padding: 8px;
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.fix-preview ul {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 2px;
+}
+.fix-actions {
+  display: flex;
+  gap: 6px;
+}
+.done-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--radius-control);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+}
+.done-note span {
+  flex: 1;
+}

@@ -69,6 +69,20 @@ pub struct Stamp {
     pub video_ms: Option<u64>,
 }
 
+/// What "Fix rotations from here" would change ([`Session::fix_rotations_preview`]).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixPreview {
+    /// Rotation codes written, corrected or removed.
+    pub codes: usize,
+    /// The first and last rally they're in.
+    pub from_rally: Option<u16>,
+    pub to_rally: Option<u16>,
+    /// Issues in the match now and after the fix.
+    pub issues_before: usize,
+    pub issues_after: usize,
+}
+
 /// One change to the console's side-out rotations ([`Current::rerotate`]).
 enum RotationFix {
     Correct(EventId, Code),
@@ -1839,6 +1853,61 @@ impl Session {
             c.marks.push(before);
         }
         self.snapshot()
+    }
+
+    /// What [`Session::fix_rotations`] would do from event `id`, without
+    /// doing it: how many codes it writes, the rallies they're in, and the
+    /// issues before and after. A dry run on the match in memory, rolled
+    /// back before returning; nothing is saved and undo is untouched.
+    pub fn fix_rotations_preview(&mut self, id: &str) -> Result<FixPreview> {
+        let issues_before = self.snapshot()?.issues.len();
+        let target = ulid::Ulid::from_string(id)
+            .map(EventId)
+            .map_err(|_| Error::BadCode(format!("no event {id:?}")))?;
+        let (before, redo, done) = {
+            let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+            let pos = c
+                .position_of(target)
+                .ok_or_else(|| Error::BadCode(format!("no event {id:?}")))?;
+            let before = c.game.log.len();
+            let redo = c.redo.clone();
+            (before, redo, c.rerotate(pos))
+        };
+        let result = match done {
+            Err(e) => Err(e.into()),
+            Ok(()) => self.snapshot().map(|after| {
+                let added: Vec<String> = self
+                    .current
+                    .as_ref()
+                    .map(|c| {
+                        c.game.log.all()[before..]
+                            .iter()
+                            .map(|e| e.id.to_string())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let rallies: Vec<u16> = after
+                    .groups
+                    .iter()
+                    .filter(|g| g.rows.iter().any(|r| added.contains(&r.id)))
+                    .filter_map(|g| g.rally)
+                    .collect();
+                FixPreview {
+                    codes: added.len(),
+                    from_rally: rallies.iter().min().copied(),
+                    to_rally: rallies.iter().max().copied(),
+                    issues_before,
+                    issues_after: after.issues.len(),
+                }
+            }),
+        };
+        if let Some(c) = self.current.as_mut() {
+            while c.game.log.len() > before {
+                c.game.log.undo();
+            }
+            c.redo = redo;
+        }
+        result
     }
 
     /// [`Session::preview`] for codes going in just before an earlier code.

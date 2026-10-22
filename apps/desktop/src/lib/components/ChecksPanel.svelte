@@ -33,8 +33,29 @@
     showCode(snap, issue.eventId);
   }
 
-  function fixRotations(issue: IssueView) {
-    void ui.apply("Rotations written again from here", () => backend.fixRotations(issue.eventId));
+  // "Fix rotations from here" first says what it will do (v6 review):
+  // the preview for one issue at a time, then the result with undo.
+  let preview = $state<{ id: string; p: backend.FixPreview } | null>(null);
+  let fixed = $state<backend.FixPreview | null>(null);
+  async function previewFix(issue: IssueView) {
+    try {
+      preview = { id: issue.eventId, p: await backend.fixRotationsPreview(issue.eventId) };
+    } catch (e) {
+      ui.result = { text: String(e), bad: true };
+    }
+  }
+  async function applyFix() {
+    if (!preview) return;
+    const { id, p } = preview;
+    preview = null;
+    if (await ui.apply("Rotations written again from here", () => backend.fixRotations(id)))
+      fixed = p;
+  }
+  function rallies(p: backend.FixPreview): string {
+    if (p.fromRally === null) return "";
+    return p.fromRally === p.toRally
+      ? ` in rally ${p.fromRally}`
+      : ` in rallies ${p.fromRally}–${p.toRally}`;
   }
 
   function selectTab(tab: "checks" | "set") {
@@ -86,6 +107,27 @@
   {#if ui.sideTab === "checks"}
     <div class="tab-panel" role="tabpanel">
       {#if column}<p class="back-note">Typing a code goes back to the log.</p>{/if}
+      {#if fixed}
+        <div class="done-note">
+          <span
+            ><b>Fixed.</b>
+            {fixed.codes} rotation {fixed.codes === 1 ? "code" : "codes"} written{rallies(
+              fixed,
+            )}.</span
+          >
+          <button
+            type="button"
+            class="btn"
+            onclick={() => {
+              fixed = null;
+              void ui.undo();
+            }}><Icon name="undo" />Undo</button
+          >
+          <button type="button" class="btn icon" aria-label="Close" onclick={() => (fixed = null)}
+            >×</button
+          >
+        </div>
+      {/if}
       {#each issues as i (i.eventId + i.message)}
         {@const later = following[i.eventId] ?? []}
         {@const key = i.eventId + i.message}
@@ -110,11 +152,30 @@
               {#if i.rule === "rotation" && i.severity !== "info"}
                 <button
                   type="button"
-                  class="btn"
+                  class="btn primary"
                   title="Write the app's rotation codes again from this rally to the end of the set. Rotations you typed stay."
-                  onclick={() => fixRotations(i)}>Fix rotations from here</button
+                  onclick={() => void previewFix(i)}>Fix rotations from here</button
                 >
               {/if}
+            </div>
+          {/if}
+          {#if preview?.id === i.eventId}
+            {@const p = preview.p}
+            <div class="fix-preview">
+              <b>Fix rotations from here will:</b>
+              <ul>
+                <li>
+                  write {p.codes} rotation {p.codes === 1 ? "code" : "codes"}{rallies(p)}
+                </li>
+                <li>leave {p.issuesAfter} of the {p.issuesBefore} issues</li>
+                <li>keep the rotations you typed</li>
+              </ul>
+              <div class="fix-actions">
+                <button type="button" class="btn primary" onclick={() => void applyFix()}
+                  >Apply fix</button
+                >
+                <button type="button" class="btn" onclick={() => (preview = null)}>Cancel</button>
+              </div>
             </div>
           {/if}
           {#if open !== key && later.length}

@@ -1227,6 +1227,16 @@ fn rotations_follow_the_rally_winners() {
         "{rotation:?}"
     );
 
+    // The preview says what the fix will do and changes nothing.
+    let unchanged = texts(&snap);
+    let preview = session
+        .fix_rotations_preview(&row_id(&snap, "a12SH="))
+        .expect("preview");
+    assert!(preview.codes > 0, "{preview:?}");
+    assert!(preview.issues_after < preview.issues_before, "{preview:?}");
+    assert!(preview.from_rally.is_some() && preview.from_rally <= preview.to_rally);
+    assert_eq!(texts(&session.snapshot().expect("snapshot")), unchanged);
+
     // Fixing from the second rally puts home's first rotation back and
     // moves the later one on again; one undo takes the fix back alone.
     let snap = session

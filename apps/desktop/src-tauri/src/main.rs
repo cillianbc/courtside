@@ -8,8 +8,9 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use courtside_console::{
-    ClipFilter, Clips, ClockTime, Keys, MatchId, MatchItem, PlayerDetail, PlayerListItem, Preview,
-    Resume, Session, Settings, Snapshot, Team, TeamDetail, TeamForm, TeamImportView,
+    ClipFilter, Clips, ClockTime, FixPreview, Keys, MatchId, MatchItem, PlayerDetail,
+    PlayerListItem, Preview, Resume, Session, Settings, Snapshot, Team, TeamDetail, TeamForm,
+    TeamImportView,
 };
 use tauri::{AppHandle, Manager, State};
 
@@ -406,6 +407,12 @@ fn rotations_fix(state: State<'_, Shared>, id: String) -> Reply<Snapshot> {
     with(&state, |s| s.fix_rotations(&id))
 }
 
+/// What "Fix rotations from here" would change, without changing it.
+#[tauri::command]
+fn rotations_fix_preview(state: State<'_, Shared>, id: String) -> Reply<FixPreview> {
+    with(&state, |s| s.fix_rotations_preview(&id))
+}
+
 #[tauri::command]
 fn export_dvw(state: State<'_, Shared>, path: PathBuf, with_video: Option<bool>) -> Reply<()> {
     with(&state, |s| s.export_dvw(&path, with_video.unwrap_or(false)))
@@ -606,6 +613,7 @@ fn main() {
             code_insert,
             code_remove,
             rotations_fix,
+            rotations_fix_preview,
             export_dvw,
             video_open,
             video_sync,
