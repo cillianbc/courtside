@@ -2,13 +2,16 @@
 //!
 //! The command line takes shorthand and fills in the rest:
 //! - no team prefix means home (`7` is `*07`); one-digit numbers are padded;
-//! - a missing skill is predicted from the touch before it in the rally
-//!   (serve → the other team's reception → attack → the other team's dig
-//!   …), else [`Defaults::skill`]. The set is never predicted: scouts code
-//!   the attack straight after their reception or dig (`8` is `*08AH+`;
-//!   the console adds the setter's set in front) and type `E` when
-//!   someone else set or they want the set's details (`4EK1`: a setter
-//!   call fills type and evaluation like a combination does);
+//! - a missing skill is [`Defaults::skill`] (attack unless the season
+//!   says otherwise), as VolleyStation does, except two predictions: a
+//!   rally's first code is the serve, and a number straight after the
+//!   other team's serve is their reception. So `8` after the reception or
+//!   a dig is `*08AH+` (the console adds the setter's set in front), and
+//!   `8` after the other team's attack or a block is the counter-attack,
+//!   with the dig left out (the user's call, #24). Scouts type `D` for a
+//!   dig and `E` when someone else set or they want the set's details
+//!   (`4EK1`: a setter call fills type and evaluation like a combination
+//!   does);
 //! - VolleyStation's order (docs/research/VOLLEYSTATION.md §12): a call or
 //!   combination may stand in for the skill (`4K1`, `8X5#`), zones go
 //!   before the evaluation (`9AQ35#`) and the extended part after it, no
@@ -287,19 +290,16 @@ fn typed_touch(token: &str, implied: bool) -> Result<Typed, String> {
     })
 }
 
-/// The skill that usually comes next after `before` for `team`.
+/// The skill `before` settles for `team`'s next touch: the serve to
+/// start a rally, the reception after the other team's serve. Anything
+/// else takes [`Defaults::skill`], as VolleyStation does: a number after
+/// the other team's attack or a block is the counter-attack, not a dig
+/// (the user's call, #24).
 fn predicted(before: Option<&Touch>, team: Team) -> Option<Skill> {
     let Some(b) = before else {
         return Some(Skill::Serve);
     };
-    let same = b.team == team;
-    match (b.skill, same) {
-        (Skill::Serve, false) => Some(Skill::Reception),
-        // Not the set: most scouts leave it out (the user's call, 2026-10-18).
-        (Skill::Reception | Skill::Dig | Skill::Freeball | Skill::Set, true) => Some(Skill::Attack),
-        (Skill::Set, false) | (Skill::Attack, false) | (Skill::Block, _) => Some(Skill::Dig),
-        _ => None,
-    }
+    (b.skill == Skill::Serve && b.team != team).then_some(Skill::Reception)
 }
 
 /// The type a touch answering `before` takes, if it inherits one.
@@ -896,8 +896,56 @@ mod tests {
         assert_eq!(exp("a2", Some("a15EQ+")), ["a02AH+"]);
         assert_eq!(
             exp("8", Some("a02AQ+")),
+            ["*08AH+"],
+            "after the other team's attack: the counter-attack (#24)"
+        );
+        assert_eq!(
+            exp("8D", Some("a02AQ+")),
             ["*08DQ+"],
-            "dig takes the attack's type"
+            "a typed dig takes the attack's type"
+        );
+        assert_eq!(exp("8", Some("a03BH+")), ["*08AH+"], "after a block");
+        assert_eq!(
+            exp("a3", Some("a07BH-")),
+            ["a03AH+"],
+            "after their own block"
+        );
+        assert_eq!(exp("8", Some("a04EH-")), ["*08AH+"], "after an overpass");
+    }
+
+    /// The season's default skill decides every bare number except the
+    /// reception after a serve; with prediction off, that one too (#24).
+    #[test]
+    fn a_bare_number_takes_the_default_skill() {
+        let rec = match Code::parse("*07RH+") {
+            Code::Touch(t) => t,
+            _ => unreachable!(),
+        };
+        let serve = match Code::parse("a11SH+") {
+            Code::Touch(t) => t,
+            _ => unreachable!(),
+        };
+        let one = |token: &str, before: &Touch, d: &Defaults| {
+            expand(token, Some(before), d).map(|x| x.codes[0].to_string())
+        };
+        let sets = Defaults {
+            skill: Skill::Set,
+            ..Defaults::default()
+        };
+        assert_eq!(one("4", &rec, &sets).as_deref(), Ok("*04EH+"));
+        assert_eq!(
+            one("7", &serve, &sets).as_deref(),
+            Ok("*07RH+"),
+            "still the reception"
+        );
+        let raw = Defaults {
+            predict: false,
+            ..Defaults::default()
+        };
+        assert_eq!(
+            one("7", &serve, &raw).as_deref(),
+            Ok("*07AH+"),
+            "VolleyStation's way"
         );
         assert_eq!(exp("5a#", Some("*08DQ+")), ["*05AH#"], "lower case letters");
         assert_eq!(
@@ -1031,6 +1079,12 @@ mod tests {
         );
         assert_eq!(exp("5A.a12D#", None), ["*05AH-", "a12DH#"]);
         assert_eq!(exp("5A#.a12D", None), ["*05AH#", "a12DH="]);
+        // DataVolley 4 and VolleyStation Pro write the same pair (#22).
+        assert_eq!(
+            exp("12A.6d=", None),
+            ["*12AH#", "a06DH="],
+            "dig error: a kill for the attacker"
+        );
     }
 
     fn follow(old: &str, new: &str, partner: &str, edited_first: bool) -> Option<String> {

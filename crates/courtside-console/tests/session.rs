@@ -333,8 +333,9 @@ fn volleystation_shorthand_fills_the_set() {
 fn dot_codes_write_both_halves() {
     let (mut session, _dir) = opened();
     session.commit("a16RH+ a14E a13", None).expect("rally");
-    // Home digs it; then home attacks and Northgate's 15 blocks it.
-    let snap = session.commit("2 4E 3A.a15#", None).expect("block");
+    // Home digs it (a dig is typed: a bare number there is the
+    // counter-attack, #24); then home attacks and Northgate's 15 blocks it.
+    let snap = session.commit("2D 4E 3A.a15#", None).expect("block");
     let t = texts(&snap);
     assert_eq!(
         t[t.len() - 6..],
@@ -349,7 +350,7 @@ fn dot_codes_write_both_halves() {
                 .find(|r| r.text == "*02DH+")
                 .expect("dig")
                 .id,
-            "2#",
+            "2D#",
             None,
         )
         .expect("correct");

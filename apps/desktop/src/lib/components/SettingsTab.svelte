@@ -79,13 +79,14 @@
     </p>
     <div class="pick">
       <label
-        >Skill when none is predicted
+        >Skill for a number with no letter
         <select bind:value={settings.typing.skill}>
           {#each SKILLS as s (s)}<option value={s}>{SKILL_NAMES[s]}</option>{/each}
         </select>
       </label>
       <label class="inline">
-        <input type="checkbox" bind:checked={settings.typing.predict} /> Predict the skill from the rally
+        <input type="checkbox" bind:checked={settings.typing.predict} /> Read a number after the other
+        team's serve as the reception
       </label>
     </div>
     <table class="list compact">
