@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as backend from "../backend";
+  import { withKey } from "../kbd";
   import { keyFor } from "../settings";
   import type { ClipFilter, Clips, Side, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
@@ -20,6 +21,10 @@
   });
   let result = $state<Clips>({ clips: [], withoutVideo: 0 });
   let error = $state("");
+  // Review and fix (#25): the clip being modified keeps the list's place
+  // when the edit comes back; clips the scout has looked at are ticked.
+  let kept: number | null = null;
+  let checked = $state<Record<string, boolean>>({});
 
   $effect(() => {
     void snap;
@@ -28,6 +33,14 @@
       (c) => {
         result = c;
         error = "";
+        if (kept !== null) {
+          // Back from modifying a clip's code: stay where the scout was
+          // (the next clip, when the edit took it out of the list).
+          video.playlist = c.clips;
+          video.clipAt = Math.min(kept, c.clips.length - 1);
+          kept = null;
+          return;
+        }
         // A new list: the clip playing is no longer where it was.
         video.stopClips();
         video.playlist = c.clips;
@@ -35,6 +48,21 @@
       (e) => (error = String(e)),
     );
   });
+
+  // The clip playing is the picked code, so the court and the picked-code
+  // keys (Modify, Alt+E) work on it.
+  $effect(() => {
+    const c = video.clip;
+    if (c) ui.selected = c.id;
+  });
+
+  function modify(i: number) {
+    const c = result.clips[i];
+    if (!c) return;
+    kept = i;
+    checked[c.id] = true;
+    ui.startEdit("correct", c.id, c.text);
+  }
 
   const SKILLS: [string, string][] = [
     ["S", "Serve"],
@@ -186,7 +214,25 @@
         <span class="tc">S{c.set} {c.score.home}:{c.score.visiting}</span>
         <code>{c.text}</code>
         <span class="meaning">{c.meaning}</span>
-        <span class="rate">{fmt(c.videoMs)}</span>
+        <span class="clip-tools">
+          <span class="rate">{fmt(c.videoMs)}</span>
+          <button
+            type="button"
+            class="btn small"
+            title={withKey("Modify this code; the list keeps its place", "modifyPicked")}
+            onclick={(e) => {
+              e.stopPropagation();
+              modify(i);
+            }}>Modify</button
+          >
+          <label class="checked" title="Ticked: you've looked at this one"
+            ><input
+              type="checkbox"
+              bind:checked={checked[c.id]}
+              onclick={(e) => e.stopPropagation()}
+            />Checked</label
+          >
+        </span>
       </div>
     {:else}
       <div class="empty-note">No clips match.</div>
@@ -234,5 +280,17 @@
   }
   .tab-panel {
     flex: 1;
+  }
+  .clip-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .checked {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 12px;
+    color: var(--muted);
   }
 </style>
