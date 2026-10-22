@@ -115,8 +115,45 @@ export function run(action: string): boolean {
       return stepCode(-1);
     case "codeNext":
       return stepCode(1);
+    case "openChecks":
+      ui.openChecks();
+      return true;
+    case "modifyPicked":
+    case "insertBeforePicked":
+    case "insertAfterPicked":
+    case "removePicked":
+      return runPicked(action);
     default:
       return runVideo(action);
+  }
+}
+
+/** Actions on the code picked in the log; false with none picked. */
+function runPicked(action: string): boolean {
+  const snap = ui.snapshot;
+  const found = snap?.groups
+    .map((g) => ({ g, r: g.rows.find((r) => r.id === ui.selected) }))
+    .find((x) => x.r);
+  const r = found?.r;
+  if (!found || !r) return false;
+  switch (action) {
+    case "modifyPicked":
+      if (r.kind === "goldenSet") return false;
+      if (r.kind === "startingSix") {
+        if (r.team === null) return false;
+        ui.lineupScreen = found.g.set;
+        ui.selected = null;
+      } else ui.startEdit("correct", r.id, r.text);
+      return true;
+    case "insertBeforePicked":
+      ui.startEdit("insert", r.id, r.text);
+      return true;
+    case "insertAfterPicked":
+      ui.startEdit("after", r.id, r.text);
+      return true;
+    default:
+      void ui.remove(r.id, r.text);
+      return true;
   }
 }
 

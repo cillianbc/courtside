@@ -92,6 +92,12 @@ export const ACTIONS: readonly { id: string; label: string; keys: string }[] = [
   // Stepping through codes to mark where each play went.
   { id: "codePrev", label: "Pick the previous play", keys: "Alt+Shift+[" },
   { id: "codeNext", label: "Pick the next play", keys: "Alt+Shift+]" },
+  // The picked code (v6): modify it, add codes around it, remove it.
+  { id: "modifyPicked", label: "Modify the picked code", keys: "Alt+E" },
+  { id: "insertBeforePicked", label: "Add codes before the picked code", keys: "Alt+B" },
+  { id: "insertAfterPicked", label: "Add codes after the picked code", keys: "Alt+A" },
+  { id: "removePicked", label: "Remove the picked code", keys: "Alt+X" },
+  { id: "openChecks", label: "Open Checks", keys: "Alt+C" },
   // Video transport. Alt so they work while typing a code.
   { id: "videoPlay", label: "Video: play or pause", keys: "Alt+K" },
   { id: "videoBack", label: "Video: back 5 seconds", keys: "Alt+J" },

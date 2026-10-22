@@ -173,7 +173,7 @@
       <button
         class="flag err"
         type="button"
-        title="Open Checks here; the video stays as it is"
+        title={withKey("Open Checks here; the video stays as it is", "openChecks")}
         onclick={() => ui.openChecks()}
         ><Mark severity="error" />{faults.roots}
         {faults.roots === 1 ? "fault" : "faults"}{#if faults.follow}&nbsp;· {faults.follow} follow{/if}</button
@@ -318,17 +318,31 @@
     <div class="pick-bar" role="toolbar" aria-label="Code {numberOf[p.row.id]}">
       <span class="picked-label">Code {numberOf[p.row.id]}</span>
       {#if canModify(p.row) && ui.editing?.id !== p.row.id}
-        <button type="button" class="btn" onclick={() => modify(p.row, p.group)}>Modify</button>
+        <button
+          type="button"
+          class="btn"
+          title={withKey("Modify this code", "modifyPicked")}
+          onclick={() => modify(p.row, p.group)}>Modify</button
+        >
       {/if}
-      <button type="button" class="btn" onclick={() => ui.startEdit("insert", p.row.id, p.row.text)}
-        >+ Before</button
+      <button
+        type="button"
+        class="btn"
+        title={withKey("Add codes before this one", "insertBeforePicked")}
+        onclick={() => ui.startEdit("insert", p.row.id, p.row.text)}>+ Before</button
       >
-      <button type="button" class="btn" onclick={() => ui.startEdit("after", p.row.id, p.row.text)}
-        >+ After</button
+      <button
+        type="button"
+        class="btn"
+        title={withKey("Add codes after this one", "insertAfterPicked")}
+        onclick={() => ui.startEdit("after", p.row.id, p.row.text)}>+ After</button
       >
       <button type="button" class="btn" onclick={() => (ui.selected = null)}>Done</button>
-      <button type="button" class="btn danger" onclick={() => void ui.remove(p.row.id, p.row.text)}
-        >Remove</button
+      <button
+        type="button"
+        class="btn danger"
+        title={withKey("Remove this code (undo brings it back)", "removePicked")}
+        onclick={() => void ui.remove(p.row.id, p.row.text)}>Remove</button
       >
     </div>
   {/if}
