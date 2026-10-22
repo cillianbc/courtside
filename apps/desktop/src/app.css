@@ -2651,3 +2651,51 @@ button.flag {
 .done-note span {
   flex: 1;
 }
+
+/* Scrub timeline (v6): rallies tinted by the winner, code ticks, faults. */
+.scrub {
+  height: 22px;
+  background: transparent;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+}
+.scrub::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.scrub span {
+  top: 8px;
+  bottom: auto;
+  height: 6px;
+  opacity: 0.55;
+}
+.scrub .timeline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.rally-band.home {
+  fill: var(--home-soft);
+  stroke: var(--home);
+  stroke-width: 0.06;
+}
+.rally-band.away {
+  fill: var(--away-soft);
+  stroke: var(--away);
+  stroke-width: 0.06;
+}
+.code-tick {
+  fill: var(--screen-fg);
+  opacity: 0.6;
+}
+.fault-tick {
+  fill: var(--err);
+}

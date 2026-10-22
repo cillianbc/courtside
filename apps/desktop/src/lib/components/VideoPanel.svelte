@@ -121,6 +121,36 @@
   const progress = $derived(
     player?.time != null && player.duration ? (player.time / player.duration) * 100 : 0,
   );
+
+  // The scrub bar as a timeline (v6): each finished rally tinted by who
+  // won it, a tick per code, and the error mark on each root fault, all at
+  // their video times. Positions are percent of the video's length.
+  const timeline = $derived.by(() => {
+    const snap = ui.snapshot;
+    const d = player?.duration;
+    if (!snap || !d) return null;
+    const at = (ms: number) => Math.max(0, Math.min(100, (ms / 1000 / d) * 100));
+    const rallies: { from: number; to: number; side: "home" | "away" }[] = [];
+    const ticks: number[] = [];
+    for (const g of snap.groups) {
+      const times = g.rows.filter((r) => r.videoMs !== null).map((r) => r.videoMs ?? 0);
+      for (const t of times) ticks.push(at(t));
+      if (g.closed && g.wonBy && times.length) {
+        rallies.push({
+          from: at(Math.min(...times)),
+          to: at(Math.max(...times)),
+          side: g.wonBy === "home" ? "home" : "away",
+        });
+      }
+    }
+    const rowTime: Record<string, number> = {};
+    for (const g of snap.groups)
+      for (const r of g.rows) if (r.videoMs !== null) rowTime[r.id] = r.videoMs;
+    const faults = snap.issues
+      .filter((i) => i.severity === "error" && !i.knockOn && rowTime[i.eventId] !== undefined)
+      .map((i) => at(rowTime[i.eventId] ?? 0));
+    return { rallies, ticks, faults };
+  });
 </script>
 
 <section class="video" aria-label="Video">
@@ -212,6 +242,25 @@
       aria-valuenow={player?.time ?? 0}
       onclick={scrubTo}
     >
+      {#if timeline}
+        <svg class="timeline" viewBox="0 0 100 22" preserveAspectRatio="none" aria-hidden="true">
+          {#each timeline.rallies as r, i (i)}
+            <rect
+              class="rally-band {r.side}"
+              x={r.from}
+              y="8"
+              width={Math.max(r.to - r.from, 0.2)}
+              height="6"
+            />
+          {/each}
+          {#each timeline.ticks as t, i (i)}
+            <rect class="code-tick" x={t} y="15" width="0.12" height="4" />
+          {/each}
+          {#each timeline.faults as f, i (i)}
+            <rect class="fault-tick" x={f - 0.2} y="1" width="0.4" height="6" />
+          {/each}
+        </svg>
+      {/if}
       <span style:width="{progress}%"></span>
     </div>
     <button
