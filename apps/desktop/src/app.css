@@ -2799,3 +2799,10 @@ button.flag {
   color: var(--on-accent);
   border-color: var(--accent);
 }
+
+/* Clips in the Video layout's column: the court folds (v6 clips design). */
+.work.watch.clips-open .plays svg,
+.work.watch.clips-open .plays .end-legend,
+.work.watch.clips-open .plays .plays-note {
+  display: none;
+}

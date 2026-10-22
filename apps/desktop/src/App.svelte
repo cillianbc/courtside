@@ -2,7 +2,6 @@
   import { onMount } from "svelte";
   import * as backend from "./lib/backend";
   import ChecksPanel from "./lib/components/ChecksPanel.svelte";
-  import ClipsPanel from "./lib/components/ClipsPanel.svelte";
   import CodeStream from "./lib/components/CodeStream.svelte";
   import CommandBar from "./lib/components/CommandBar.svelte";
   import Court from "./lib/components/Court.svelte";
@@ -68,11 +67,12 @@
       {@const set = needsLineup ? snap.set : (ui.lineupScreen ?? snap.set)}
       {#key set}<LineupScreen {snap} {set} />{/key}
     {:else}
-      <main class="work {ui.layout}">
+      <main
+        class="work {ui.layout}"
+        class:clips-open={ui.layout === "watch" && ui.checksOpen && ui.sideTab === "clips"}
+      >
         <VideoPanel />
-        {#if ui.clipsOpen}
-          <ClipsPanel {snap} />
-        {:else if ui.checksOpen && ui.layout === "watch"}
+        {#if ui.checksOpen && ui.layout === "watch"}
           <ChecksPanel {snap} column />
         {:else}
           <CodeStream {snap} />

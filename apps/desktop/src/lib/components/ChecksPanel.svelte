@@ -4,6 +4,7 @@
   import type { IssueView, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
   import Icon from "./Icon.svelte";
+  import ClipsPanel from "./ClipsPanel.svelte";
   import Mark from "./Mark.svelte";
 
   // `column`: shown in place of the code log (Video layout, v6 T8).
@@ -58,9 +59,12 @@
       : ` in rallies ${p.fromRally}–${p.toRally}`;
   }
 
-  function selectTab(tab: "checks" | "set") {
+  function selectTab(tab: "checks" | "set" | "clips") {
     ui.sideTab = tab;
   }
+  // The Video layout keeps a hidden copy of this panel: only the one shown
+  // runs the clip list, so two lists never drive the video.
+  const showClips = $derived(ui.sideTab === "clips" && (column || ui.layout !== "watch"));
 </script>
 
 <section class="panel side" class:in-column={column} aria-label="Checks and set summary">
@@ -103,8 +107,21 @@
       tabindex={ui.sideTab === "set" ? 0 : -1}
       onclick={() => selectTab("set")}>This set</button
     >
+    <button
+      class="tab"
+      role="tab"
+      type="button"
+      aria-selected={ui.sideTab === "clips"}
+      tabindex={ui.sideTab === "clips" ? 0 : -1}
+      title="Play codes as video clips and review them"
+      onclick={() => selectTab("clips")}>Clips</button
+    >
   </div>
-  {#if ui.sideTab === "checks"}
+  {#if showClips}
+    <ClipsPanel {snap} />
+  {:else if ui.sideTab === "clips"}
+    <div class="tab-panel"></div>
+  {:else if ui.sideTab === "checks"}
     <div class="tab-panel" role="tabpanel">
       {#if column}<p class="back-note">Typing a code goes back to the log.</p>{/if}
       {#if fixed}

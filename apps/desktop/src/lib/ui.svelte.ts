@@ -75,9 +75,7 @@ class Ui {
   /** Light, dark or the system's; boost raises contrast over either. Per computer. */
   theme = $state<Theme>(storedTheme());
   boost = $state(remembered("courtside.boost"));
-  sideTab = $state<"checks" | "set">("checks");
-  /** The clip playlist shows where the code stream does. */
-  clipsOpen = $state(false);
+  sideTab = $state<"checks" | "set" | "clips">("checks");
   /** Checks show where the code stream does (Video layout, v6 T8). */
   checksOpen = $state(false);
   /** Set whose codes the stream shows; `null` follows the set in progress. */
@@ -168,8 +166,9 @@ class Ui {
    * were typed at; otherwise (buttons) stamped now.
    */
   commit(text: string, typed = false): Promise<boolean> {
-    // A code typed while Checks stand in for the log brings the log back.
-    if (typed) this.checksOpen = false;
+    // A code typed while Checks stand in for the log brings the log back
+    // (not Clips: a clip being modified keeps its list in view).
+    if (typed && this.sideTab !== "clips") this.checksOpen = false;
     const stamps = stampTokens(text, typed ? this.stamps : [], video.nowMs());
     const at = typed ? this.typedAt : undefined;
     return this.apply(`Added ${text}`, () => backend.commit(text, stamps, at));
@@ -311,10 +310,16 @@ class Ui {
    */
   openChecks() {
     this.sideTab = "checks";
-    if (this.layout === "watch") {
-      this.clipsOpen = false;
-      this.checksOpen = true;
-    }
+    if (this.layout === "watch") this.checksOpen = true;
+  }
+
+  /**
+   * Shows the clip playlist: a tab beside Checks in the Coding layout (the
+   * log stays in view), in place of the log in the Video layout.
+   */
+  openClips() {
+    this.sideTab = "clips";
+    if (this.layout === "watch") this.checksOpen = true;
   }
 
   setTheme(theme: Theme) {

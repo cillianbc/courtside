@@ -184,7 +184,7 @@
         class="btn"
         type="button"
         title="Play the codes as video clips, picked by player, skill, rotation or phase"
-        onclick={() => (ui.clipsOpen = true)}><Icon name="clips" />Clips</button
+        onclick={() => ui.openClips()}><Icon name="clips" />Clips</button
       >
       <button
         class="btn icon"

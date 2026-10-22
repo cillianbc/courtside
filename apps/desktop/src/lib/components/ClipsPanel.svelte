@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import * as backend from "../backend";
   import { asRally, rallySpans, wholeRallies as wholeRallyClips } from "../clips";
   import { withKey } from "../kbd";
@@ -108,120 +109,160 @@
       : filter.evaluations + v;
   }
 
+  // The filter folded to one line (v6 clips design); the form opens below.
+  let filtering = $state(false);
+  const summary = $derived.by(() => {
+    const skill = SKILLS.find(([k]) => k === filter.skill)?.[1];
+    const parts = [skill ? `${skill}s` : "All codes"];
+    parts.push(filter.team ? snap.teams[filter.team].name : "both teams");
+    if (filter.player !== null) parts.push(`#${filter.player}`);
+    if (filter.evaluations) parts.push(filter.evaluations.split("").join(" "));
+    if (filter.rotation !== null) parts.push(`setter in ${filter.rotation}`);
+    if (filter.phase)
+      parts.push({ serve: "serve", reception: "side-out", transition: "transition" }[filter.phase]);
+    parts.push(filter.set === null ? "all sets" : `set ${filter.set}`);
+    return parts;
+  });
+  function clearFilter() {
+    filter = {
+      team: null,
+      player: null,
+      skill: null,
+      evaluations: "",
+      rotation: null,
+      phase: null,
+      set: null,
+    };
+  }
+  const checkedCount = $derived(result.clips.filter((c) => checked[c.id]).length);
+  // Leaving the list stops it.
+  onDestroy(() => video.stopClips());
+
   const fmt = (ms: number) => {
     const s = Math.floor(ms / 1000);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   };
 </script>
 
-<section class="panel clips" aria-label="Clips">
-  <div class="clip-filter">
-    <label
-      >Team
-      <select
-        value={filter.team ?? ""}
-        onchange={(e) => setTeam((e.currentTarget.value || null) as Side | null)}
-      >
-        <option value="">Both</option>
-        <option value="home">{snap.teams.home.name}</option>
-        <option value="visiting">{snap.teams.visiting.name}</option>
-      </select>
-    </label>
-    <label
-      >Player
-      <select bind:value={filter.player} disabled={!filter.team}>
-        <option value={null}>All</option>
-        {#each players as p (p.number)}<option value={p.number}>{p.number} {p.name}</option>{/each}
-      </select>
-    </label>
-    <label
-      >Skill
-      <select bind:value={filter.skill}>
-        <option value={null}>All</option>
-        {#each SKILLS as [k, name] (k)}<option value={k}>{name}</option>{/each}
-      </select>
-    </label>
-    <label
-      >Rotation
-      <select bind:value={filter.rotation} title="The touching team's setter's zone">
-        <option value={null}>All</option>
-        {#each [1, 2, 3, 4, 5, 6] as z (z)}<option value={z}>Setter in {z}</option>{/each}
-      </select>
-    </label>
-    <label
-      >Phase
-      <select bind:value={filter.phase}>
-        <option value={null}>All</option>
-        <option value="serve">Serve</option>
-        <option value="reception">Side-out</option>
-        <option value="transition">Transition</option>
-      </select>
-    </label>
-    <label
-      >Set
-      <select bind:value={filter.set}>
-        <option value={null}>All</option>
-        {#each snap.sets as s (s.number)}<option value={s.number}>{s.number}</option>{/each}
-      </select>
-    </label>
-    <span class="evals" role="group" aria-label="Evaluations">
-      {#each EVALUATIONS as v (v)}
-        <button
-          type="button"
-          class="btn"
-          aria-pressed={filter.evaluations.includes(v)}
-          onclick={() => toggleEvaluation(v)}>{v}</button
-        >
-      {/each}
-    </span>
-  </div>
-  <div class="clip-bar">
-    <span class="rate"
-      >{result.clips.length} clips{#if result.withoutVideo}
-        · {result.withoutVideo} without video time (sync the video){/if}</span
+<div class="clips" aria-label="Clips">
+  <div class="clip-sum">
+    <span class="txt" title={summary.join(" · ")}
+      ><b>{summary[0]}</b> · {summary.slice(1).join(" · ")}</span
     >
-    <span class="stream-tools">
-      <button
-        class="btn"
-        type="button"
-        aria-pressed={wholeRallies}
-        title="Play each clip as its whole rally, serve to point (each rally once)"
-        onclick={toggleWholeRallies}>Whole rallies</button
-      >
-      {#if video.clipAt >= 0}
-        <button class="btn" type="button" onclick={video.stopClips}>Stop</button>
-      {:else}
-        <button
-          class="btn primary"
-          type="button"
-          disabled={!video.open || !result.clips.length}
-          title={video.open ? "Play every clip in turn" : "Open the match video first"}
-          onclick={() => video.playClip(0)}>Play all</button
+    <button
+      class="btn small"
+      type="button"
+      aria-expanded={filtering}
+      aria-pressed={filtering}
+      onclick={() => (filtering = !filtering)}>Filter</button
+    >
+  </div>
+  {#if filtering}
+    <div class="clip-filter">
+      <label
+        >Team
+        <select
+          value={filter.team ?? ""}
+          onchange={(e) => setTeam((e.currentTarget.value || null) as Side | null)}
         >
-      {/if}
+          <option value="">Both</option>
+          <option value="home">{snap.teams.home.name}</option>
+          <option value="visiting">{snap.teams.visiting.name}</option>
+        </select>
+      </label>
+      <label
+        >Player
+        <select bind:value={filter.player} disabled={!filter.team}>
+          <option value={null}>All</option>
+          {#each players as p (p.number)}<option value={p.number}>{p.number} {p.name}</option
+            >{/each}
+        </select>
+      </label>
+      <label
+        >Skill
+        <select bind:value={filter.skill}>
+          <option value={null}>All</option>
+          {#each SKILLS as [k, name] (k)}<option value={k}>{name}</option>{/each}
+        </select>
+      </label>
+      <label
+        >Set
+        <select bind:value={filter.set}>
+          <option value={null}>All</option>
+          {#each snap.sets as s (s.number)}<option value={s.number}>{s.number}</option>{/each}
+        </select>
+      </label>
+      <label
+        >Rotation
+        <select bind:value={filter.rotation} title="The touching team's setter's zone">
+          <option value={null}>All</option>
+          {#each [1, 2, 3, 4, 5, 6] as z (z)}<option value={z}>Setter in {z}</option>{/each}
+        </select>
+      </label>
+      <label
+        >Phase
+        <select bind:value={filter.phase}>
+          <option value={null}>All</option>
+          <option value="serve">Serve</option>
+          <option value="reception">Side-out</option>
+          <option value="transition">Transition</option>
+        </select>
+      </label>
+      <span class="evals" role="group" aria-label="Evaluations">
+        {#each EVALUATIONS as v (v)}
+          <button
+            type="button"
+            class="btn small"
+            aria-pressed={filter.evaluations.includes(v)}
+            onclick={() => toggleEvaluation(v)}>{v}</button
+          >
+        {/each}
+      </span>
+      <span class="filter-done">
+        <button class="btn small" type="button" onclick={clearFilter}>Clear</button>
+        <button class="btn small primary" type="button" onclick={() => (filtering = false)}
+          >Done</button
+        >
+      </span>
+    </div>
+  {/if}
+  <div class="clip-controls">
+    {#if video.clipAt >= 0}
+      <button class="btn small primary" type="button" onclick={video.stopClips}>Stop</button>
+    {:else}
       <button
-        class="btn"
+        class="btn small primary"
         type="button"
         disabled={!video.open || !result.clips.length}
-        title="Previous clip ({keyFor(ui.keymap, 'clipPrev')})"
-        onclick={() => video.stepClip(-1)}>Prev</button
+        title={video.open ? "Play every clip in turn" : "Open the match video first"}
+        onclick={() => video.playClip(0)}>Play all</button
       >
-      <button
-        class="btn"
-        type="button"
-        disabled={!video.open || !result.clips.length}
-        title="Next clip ({keyFor(ui.keymap, 'clipNext')})"
-        onclick={() => video.stepClip(1)}>Next</button
-      >
-      <button
-        class="btn"
-        type="button"
-        onclick={() => {
-          video.stopClips();
-          ui.clipsOpen = false;
-        }}>Codes</button
-      >
-    </span>
+    {/if}
+    <button
+      class="btn small"
+      type="button"
+      disabled={!video.open || !result.clips.length}
+      title="Previous clip ({keyFor(ui.keymap, 'clipPrev')})"
+      onclick={() => video.stepClip(-1)}>Prev</button
+    >
+    <button
+      class="btn small"
+      type="button"
+      disabled={!video.open || !result.clips.length}
+      title="Next clip ({keyFor(ui.keymap, 'clipNext')})"
+      onclick={() => video.stepClip(1)}>Next</button
+    >
+    <button
+      class="btn small"
+      type="button"
+      aria-pressed={wholeRallies}
+      title="Play each clip as its whole rally, serve to point (each rally once)"
+      onclick={toggleWholeRallies}>Whole rallies</button
+    >
+    <span class="count"
+      >{result.clips.length} clips · {checkedCount} checked{#if result.withoutVideo}
+        · {result.withoutVideo} without video time{/if}</span
+    >
   </div>
   <div class="tab-panel">
     {#if error}<div class="empty-note">{error}</div>{/if}
@@ -275,48 +316,94 @@
       <div class="empty-note">No clips match.</div>
     {/each}
   </div>
-</section>
+</div>
 
 <style>
   .clips {
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
+    gap: 6px;
+    padding: 6px 8px 8px;
+  }
+  .clip-sum {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 4px 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--sunk);
+    flex: none;
+  }
+  .clip-sum .txt {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 13px;
+  }
+  .clip-sum b {
+    font-weight: 600;
   }
   .clip-filter {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 10px;
-    align-items: end;
-    padding-bottom: 8px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--edge);
+    border-radius: var(--radius-control);
+    background: var(--panel);
+    flex: none;
   }
   .clip-filter label {
-    display: flex;
-    flex-direction: column;
-    font-size: 11px;
+    display: grid;
     gap: 2px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .clip-filter select {
+    font: inherit;
+    font-size: 13px;
+    height: 28px;
+    color: var(--fg);
+    background: var(--sunk);
+    border: 1px solid var(--edge);
+    border-radius: var(--radius-control);
   }
   .evals {
+    grid-column: 1 / -1;
     display: flex;
-    gap: 2px;
+    gap: 3px;
   }
   .evals .btn {
-    min-width: 26px;
-    padding-inline: 4px;
+    min-width: 28px;
     font-family: var(--mono);
   }
-  .evals .btn[aria-pressed="true"] {
-    background: var(--accent);
-    color: var(--on-accent);
-  }
-  .clip-bar {
+  .filter-done {
+    grid-column: 1 / -1;
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .clip-controls {
+    display: flex;
     align-items: center;
-    gap: 8px;
-    padding-bottom: 6px;
+    flex-wrap: wrap;
+    gap: 4px;
+    flex: none;
+  }
+  .clip-controls .count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
   }
   .tab-panel {
     flex: 1;
+    min-height: 0;
+    padding: 0;
   }
   /* A clip row is two lines: the code and what it is, then its time and
      tools, so Rally, Modify and Checked never run off a narrow column. */
