@@ -520,24 +520,37 @@ fn build(
     }
 }
 
-/// The second half's evaluation for the first half's, by pair.
-fn second_from_first(first: Skill, second: Skill, ev: char) -> Option<char> {
+/// What the second half of a pair may be rated, given the first half's
+/// rating, in VolleyStation's rally-flow order (its shipped table, read
+/// from its code: docs/research/VOLLEYSTATION.md §5; GitHub #22). A serve
+/// `-` lets the pass be `+` or `#`; the others allow one rating.
+fn second_allowed(first: Skill, second: Skill, ev: char) -> Option<&'static [char]> {
     Some(match (first, second, ev) {
-        (Skill::Serve, Skill::Reception, '/') => '/',
-        (Skill::Serve, Skill::Reception, '-') => '#',
-        (Skill::Serve, Skill::Reception, '!') => '!',
-        (Skill::Serve, Skill::Reception, '+') => '-',
-        (Skill::Serve, Skill::Reception, '#') => '=',
-        (Skill::Attack, Skill::Block, '/') => '#',
-        (Skill::Attack, Skill::Block, '-') => '+',
-        (Skill::Attack, Skill::Block, '!') => '!',
-        (Skill::Attack, Skill::Block, '+') => '-',
-        (Skill::Attack, Skill::Block, '#') => '=',
-        (Skill::Attack, Skill::Dig, '-') => '#',
-        (Skill::Attack, Skill::Dig, '+') => '-',
-        (Skill::Attack, Skill::Dig, '#') => '=',
+        (Skill::Serve, Skill::Reception, '/') => &['/'],
+        (Skill::Serve, Skill::Reception, '-') => &['+', '#'],
+        (Skill::Serve, Skill::Reception, '!') => &['!'],
+        (Skill::Serve, Skill::Reception, '+') => &['-'],
+        (Skill::Serve, Skill::Reception, '#') => &['='],
+        (Skill::Attack, Skill::Block, '/') => &['#'],
+        (Skill::Attack, Skill::Block, '-') => &['+'],
+        (Skill::Attack, Skill::Block, '!') => &['!'],
+        (Skill::Attack, Skill::Block, '+') => &['-'],
+        (Skill::Attack, Skill::Block, '#') => &['='],
+        (Skill::Attack, Skill::Dig, '-') => &['+', '-', '#'],
+        (Skill::Attack, Skill::Dig, '+') => &['-'],
+        (Skill::Attack, Skill::Dig, '#') => &['='],
         _ => return None,
     })
+}
+
+/// The second half's rating for the first half's, as VolleyStation fills
+/// a pair: `keep` (the season's default, or what the half already had)
+/// when the first half allows it, else the first rating it allows. So a
+/// serve `-` gives the default `+` pass, not a perfect one.
+fn second_from_first(first: Skill, second: Skill, ev: char, keep: Option<char>) -> Option<char> {
+    let allowed = second_allowed(first, second, ev)?;
+    keep.filter(|k| allowed.contains(k))
+        .or_else(|| allowed.first().copied())
 }
 
 /// The first half's evaluation for the second half's, by pair.
@@ -618,7 +631,8 @@ fn compound(
             filled.push("second evaluation derived".into());
             (
                 x,
-                second_from_first(skill_a, skill_b, x).unwrap_or(d.evaluations[slot(skill_b)]),
+                second_from_first(skill_a, skill_b, x, Some(d.evaluations[slot(skill_b)]))
+                    .unwrap_or(d.evaluations[slot(skill_b)]),
             )
         }
         (None, Some(y)) => {
@@ -725,7 +739,8 @@ pub fn follow_pair(old: &Touch, new: &Touch, partner: &Touch, edited_first: bool
         && let Some(e) = new.evaluation()
     {
         let derived = if edited_first {
-            second_from_first(first.skill, second.skill, e)
+            // The other half keeps its rating while it still fits.
+            second_from_first(first.skill, second.skill, e, partner.evaluation())
         } else {
             first_from_second(first.skill, second.skill, e)
         };
@@ -1079,6 +1094,18 @@ mod tests {
         );
         assert_eq!(exp("5A.a12D#", None), ["*05AH-", "a12DH#"]);
         assert_eq!(exp("5A#.a12D", None), ["*05AH#", "a12DH="]);
+        // A serve or attack rated `-`: the default pass or dig (`+`), as
+        // VolleyStation fills it, not a perfect one.
+        assert_eq!(
+            exp("5S-.a12", None),
+            ["*05SH-", "a12RH+"],
+            "serve - : pass +"
+        );
+        assert_eq!(
+            exp("5A-.a12D", None),
+            ["*05AH-", "a12DH+"],
+            "attack - : dig +"
+        );
         // DataVolley 4 and VolleyStation Pro write the same pair (#22).
         assert_eq!(
             exp("12A.6d=", None),
@@ -1089,6 +1116,18 @@ mod tests {
 
     fn follow(old: &str, new: &str, partner: &str, edited_first: bool) -> Option<String> {
         follow_pair(&touch(old), &touch(new), &touch(partner), edited_first).map(|t| t.to_string())
+    }
+
+    #[test]
+    fn a_corrected_serve_keeps_a_pass_that_still_fits() {
+        // Serve corrected from + to -: a # pass still fits (- allows + or #),
+        // so the pass needn't change.
+        assert_eq!(follow("*05SH+", "*05SH-", "a12RH#", true), None);
+        // A pass that no longer fits takes the first that does.
+        assert_eq!(
+            follow("*05SH#", "*05SH-", "a12RH=", true).as_deref(),
+            Some("a12RH+")
+        );
     }
 
     #[test]
