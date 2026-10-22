@@ -204,11 +204,12 @@ mod surface {
     use objc2_quartz_core::{CALayer, CAOpenGLLayer};
     use std::ffi::{c_char, c_void};
     use std::ptr::{NonNull, null_mut};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
 
     unsafe extern "C" {
         fn glGetIntegerv(pname: u32, data: *mut i32);
+        fn glViewport(x: i32, y: i32, width: i32, height: i32);
         fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
     }
     const GL_VIEWPORT: u32 = 0x0BA2;
@@ -224,6 +225,8 @@ mod surface {
         cgl: CGLContextObj,
         /// mpv has a new frame, or the layer changed size.
         dirty: AtomicBool,
+        /// The last layer size noted as differing from the GL viewport.
+        noted: AtomicU64,
         /// mpv's render context, while a player is attached.
         mpv: Mutex<Option<NonNull<mpv::mpv_render_context>>>,
     }
@@ -300,6 +303,7 @@ mod surface {
                 pf,
                 cgl,
                 dirty: AtomicBool::new(true),
+                noted: AtomicU64::new(0),
                 mpv: Mutex::new(None),
             })
         }
@@ -351,8 +355,11 @@ mod surface {
         }
 
         /// Draws mpv's current frame into the framebuffer Core Animation
-        /// bound in our context (locked and current during its draw).
-        fn draw(&self) {
+        /// bound in our context (locked and current during its draw), at
+        /// `size` in pixels: the layer's own, so mpv fits the picture to
+        /// what is shown and keeps its shape (a viewport left from an earlier
+        /// size made mpv fill the box, stretching the picture).
+        fn draw(&self, size: Option<(i32, i32)>) {
             self.dirty.store(false, Ordering::Release);
             let Ok(slot) = self.mpv.lock() else {
                 return;
@@ -366,10 +373,25 @@ mod surface {
                 glGetIntegerv(GL_FRAMEBUFFER_BINDING, &raw mut fbo);
                 glGetIntegerv(GL_VIEWPORT, viewport.as_mut_ptr());
             }
+            let (w, h) = size
+                .filter(|&(w, h)| w > 0 && h > 0)
+                .unwrap_or((viewport[2], viewport[3]));
+            if (w, h) != (viewport[2], viewport[3]) {
+                // Noted once per size, so the log shows when it happens.
+                let key = (u64::from(w.unsigned_abs()) << 32) | u64::from(h.unsigned_abs());
+                if self.noted.swap(key, Ordering::Relaxed) != key {
+                    eprintln!(
+                        "courtside video: viewport {}x{}, layer {w}x{h}; drawing at the layer's",
+                        viewport[2], viewport[3]
+                    );
+                }
+                // SAFETY: a plain GL call on the current context.
+                unsafe { glViewport(0, 0, w, h) };
+            }
             let mut target = mpv::mpv_opengl_fbo {
                 fbo,
-                w: viewport[2],
-                h: viewport[3],
+                w,
+                h,
                 internal_format: 0,
             };
             let mut flip: i32 = 1;
@@ -463,7 +485,15 @@ mod surface {
                 t: CFTimeInterval,
                 ts: *const CVTimeStamp,
             ) {
-                self.ivars().render.draw();
+                // The layer's size in pixels, which is what Core Animation shows.
+                let b = self.bounds();
+                let scale = self.contentsScale();
+                #[allow(clippy::cast_possible_truncation)]
+                let size = (
+                    (b.size.width * scale).round() as i32,
+                    (b.size.height * scale).round() as i32,
+                );
+                self.ivars().render.draw(Some(size));
                 // SAFETY: the superclass's draw flushes what was drawn.
                 unsafe {
                     let _: () = msg_send![
