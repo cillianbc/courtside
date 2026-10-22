@@ -9,34 +9,203 @@
   --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
 }
 
-/* Layout: left side is the coding desk: video on top, the code stream beside team controls and rosters, the command bar along the bottom. Right side is the court and the checks. */
+/* Colour tokens: docs/design/v6-tokens.css, verbatim (light, dark, and the
+   boost over each; `data-theme` and `data-boost` on <html>, set by `ui`). */
 :root {
   --bg: #eef2f6;
   --panel: #ffffff;
-  --sunk: #e3e9f0;
-  --line: #cfd8e3;
+  --sunk: #e6ebf1;
+  --line: #c9d2dd;
+  --edge: #718096;
   --fg: #142234;
-  --muted: #5a6b80;
+  --muted: #505f73;
   --home: #1d5fbf;
-  --home-soft: #dce8fa;
-  --away: #b5541a;
-  --away-soft: #f8e4d6;
-  --accent: #0f8a7e;
+  --home-soft: #dfe9f9;
+  --away: #b04a12;
+  --away-soft: #f8e6da;
+  --accent: #0b7a6e;
+  --accent-soft: #d9f0ec;
   --on-accent: #ffffff;
-  --err: #c0283c;
-  --warn: #b07a00;
-  --info: #4b6a8c;
-  --err-soft: #fbe1e5;
-  --warn-soft: #fbf0d0;
-  --info-soft: #e2eaf3;
-  --court: #d9e6f2;
-  --court-line: #ffffff;
+  --focus: #0b7a6e;
+  --err: #b3124e;
+  --err-soft: #fbe3ea;
+  --warn: #7a5a00;
+  --warn-mark: #e0a800;
+  --on-warn-mark: #142234; /* v6 review: ink for the triangle's outline and "!" */
+  --warn-soft: #fbf1cf;
+  --info: #3f5f80;
+  --info-soft: #e3eaf2;
+  --setter: #7a3fb0;
+  --court: #dbe7f2;
+  --court-line: #5f7891;
   --screen: #0a1119;
   --screen-fg: #c9d6e4;
-  /* Roles the v5 design adds; today's values, so nothing looks different. */
-  --focus: var(--accent);
-  --setter: var(--accent);
+  --disabled-fg: #8a96a6;
+}
+:root[data-theme="dark"] {
+  --bg: #0e1620;
+  --panel: #152130;
+  --sunk: #0f1924;
+  --line: #2a3d54;
+  --edge: #5d7590;
+  --fg: #e6edf5;
+  --muted: #9aabbf;
+  --home: #6aa3ff;
+  --home-soft: #1a2e4a;
+  --away: #f39a62;
+  --away-soft: #3a2618;
+  --accent: #3cc7b6;
+  --accent-soft: #143a38;
+  --on-accent: #0b1a1a;
+  --focus: #3cc7b6;
+  --err: #ff6f9a;
+  --err-soft: #3d1726;
+  --warn: #f2c94c;
+  --warn-mark: #f2c94c;
+  --on-warn-mark: #1a1400; /* v6 review: ink for the triangle's outline and "!" */
+  --warn-soft: #352b10;
+  --info: #9fb6d0;
+  --info-soft: #1b2a3b;
+  --setter: #c79bf2;
+  --court: #1a2c40;
+  --court-line: #6b87a6;
+  --screen: #05090e;
+  --screen-fg: #c9d6e4;
+  --disabled-fg: #5d6f84;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1620;
+    --panel: #152130;
+    --sunk: #0f1924;
+    --line: #2a3d54;
+    --edge: #5d7590;
+    --fg: #e6edf5;
+    --muted: #9aabbf;
+    --home: #6aa3ff;
+    --home-soft: #1a2e4a;
+    --away: #f39a62;
+    --away-soft: #3a2618;
+    --accent: #3cc7b6;
+    --accent-soft: #143a38;
+    --on-accent: #0b1a1a;
+    --focus: #3cc7b6;
+    --err: #ff6f9a;
+    --err-soft: #3d1726;
+    --warn: #f2c94c;
+    --warn-mark: #f2c94c;
+    --on-warn-mark: #1a1400; /* v6 review: ink for the triangle's outline and "!" */
+    --warn-soft: #352b10;
+    --info: #9fb6d0;
+    --info-soft: #1b2a3b;
+    --setter: #c79bf2;
+    --court: #1a2c40;
+    --court-line: #6b87a6;
+    --screen: #05090e;
+    --screen-fg: #c9d6e4;
+    --disabled-fg: #5d6f84;
+  }
+}
+:root[data-boost] {
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --sunk: #eef1f5;
+  --line: #4a5868;
+  --edge: #2b3644;
+  --fg: #000000;
+  --muted: #2f3b4a;
+  --home: #0b3f8f;
+  --home-soft: #dfe9f9;
+  --away: #7f3000;
+  --away-soft: #f8e6da;
+  --accent: #005c52;
+  --accent-soft: #d2efe9;
+  --on-accent: #ffffff;
+  --focus: #000000;
+  --err: #8f0038;
+  --err-soft: #fbe3ea;
+  --warn: #5a4100;
+  --warn-mark: #c99400;
+  --on-warn-mark: #000000; /* v6 review: ink for the triangle's outline and "!" */
+  --warn-soft: #fbf1cf;
+  --info: #26405c;
+  --info-soft: #e3eaf2;
+  --setter: #5a2290;
+  --court: #e3edf6;
+  --court-line: #2b3644;
+  --screen: #000000;
+  --screen-fg: #ffffff;
+  --disabled-fg: #6b7686;
+}
+:root[data-boost][data-theme="dark"] {
+  --bg: #000000;
+  --panel: #0a0a0a;
+  --sunk: #141414;
+  --line: #8a8a8a;
+  --edge: #bdbdbd;
+  --fg: #ffffff;
+  --muted: #d0d0d0;
+  --home: #8cbcff;
+  --home-soft: #0f2340;
+  --away: #ffb07a;
+  --away-soft: #3a2010;
+  --accent: #5eead4;
+  --accent-soft: #0d3a35;
+  --on-accent: #000000;
+  --focus: #ffffff;
+  --err: #ff8fb1;
+  --err-soft: #3a0f1f;
+  --warn: #ffd84d;
+  --warn-mark: #ffd84d;
+  --on-warn-mark: #1a1400; /* v6 review: ink for the triangle's outline and "!" */
+  --warn-soft: #332800;
+  --info: #c3d4e8;
+  --info-soft: #18222e;
+  --setter: #dcb6ff;
+  --court: #0f1a26;
+  --court-line: #9fb3c8;
+  --screen: #000000;
+  --screen-fg: #ffffff;
+  --disabled-fg: #8a8a8a;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-boost]:not([data-theme="light"]) {
+    --bg: #000000;
+    --panel: #0a0a0a;
+    --sunk: #141414;
+    --line: #8a8a8a;
+    --edge: #bdbdbd;
+    --fg: #ffffff;
+    --muted: #d0d0d0;
+    --home: #8cbcff;
+    --home-soft: #0f2340;
+    --away: #ffb07a;
+    --away-soft: #3a2010;
+    --accent: #5eead4;
+    --accent-soft: #0d3a35;
+    --on-accent: #000000;
+    --focus: #ffffff;
+    --err: #ff8fb1;
+    --err-soft: #3a0f1f;
+    --warn: #ffd84d;
+    --warn-mark: #ffd84d;
+    --on-warn-mark: #1a1400; /* v6 review: ink for the triangle's outline and "!" */
+    --warn-soft: #332800;
+    --info: #c3d4e8;
+    --info-soft: #18222e;
+    --setter: #dcb6ff;
+    --court: #0f1a26;
+    --court-line: #9fb3c8;
+    --screen: #000000;
+    --screen-fg: #ffffff;
+    --disabled-fg: #8a8a8a;
+  }
+}
+
+/* Type, radii and spacing (roles, not sizes). */
+:root {
   --radius-control: 6px;
+  --radius-tag: 4px;
   --radius-panel: 10px;
   --radius-pill: 999px;
   --space-1: 4px;
@@ -48,55 +217,13 @@
   --body: "IBM Plex Sans", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0c1622;
-    --panel: #13202f;
-    --sunk: #0f1a27;
-    --line: #22344a;
-    --fg: #e4ecf5;
-    --muted: #8a9cb2;
-    --home: #6aa3ff;
-    --home-soft: #182c48;
-    --away: #f0915a;
-    --away-soft: #3a2416;
-    --accent: #3cc7b6;
-    --on-accent: #0c1622;
-    --err: #ff6b7d;
-    --warn: #f2c14e;
-    --info: #93b2d4;
-    --err-soft: #3a1820;
-    --warn-soft: #362b10;
-    --info-soft: #1a2a3c;
-    --court: #1a2c40;
-    --court-line: #2e4560;
-    --screen: #05090e;
     color-scheme: dark;
   }
-}
-:root[data-theme="dark"] {
-  --bg: #0c1622;
-  --panel: #13202f;
-  --sunk: #0f1a27;
-  --line: #22344a;
-  --fg: #e4ecf5;
-  --muted: #8a9cb2;
-  --home: #6aa3ff;
-  --home-soft: #182c48;
-  --away: #f0915a;
-  --away-soft: #3a2416;
-  --accent: #3cc7b6;
-  --on-accent: #0c1622;
-  --err: #ff6b7d;
-  --warn: #f2c14e;
-  --info: #93b2d4;
-  --err-soft: #3a1820;
-  --warn-soft: #362b10;
-  --info-soft: #1a2a3c;
-  --court: #1a2c40;
-  --court-line: #2e4560;
-  --screen: #05090e;
-  color-scheme: dark;
 }
 * {
   box-sizing: border-box;
@@ -134,30 +261,36 @@ body {
   margin: 0;
 }
 
-/* Top bar */
+/* Top bar (v6 T5): three columns; names shorten so the actions fit at 1024. */
 .bar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px 20px;
+  gap: var(--space-3);
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
-  padding: 6px 14px;
+  padding: 6px 10px;
 }
-.teams {
+.bar-left,
+.bar-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-2);
+}
+.bar-match {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   min-width: 0;
-  flex-wrap: wrap;
 }
 .team-name {
   font-weight: 600;
   white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 .team-name.home {
   color: var(--home);
@@ -167,30 +300,31 @@ body {
 }
 .side-tag {
   font-family: var(--body);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 1px 5px;
-  border-radius: 4px;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: var(--radius-tag);
   flex: none;
 }
 .side-tag.home {
-  background: var(--home);
-  color: var(--on-accent);
+  background: var(--home-soft);
+  color: var(--home);
 }
 .side-tag.away {
-  background: var(--away);
-  color: var(--on-accent);
+  background: var(--away-soft);
+  color: var(--away);
 }
 .score {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 34px;
+  font-size: 32px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex: none;
 }
 .score .h {
   color: var(--home);
@@ -210,49 +344,67 @@ body {
   display: inline-block;
   flex: none;
 }
-.sets {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+.serve-dot.off {
+  visibility: hidden;
 }
-.set-chip {
-  font-family: var(--mono);
+.set-info {
   font-size: 12px;
-  padding: 3px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--sunk);
   color: var(--muted);
+  white-space: nowrap;
+  flex: none;
+}
+.set-info b {
+  color: var(--fg);
+  font-weight: 600;
+}
+.num {
   font-variant-numeric: tabular-nums;
 }
-.set-chip.now {
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
+/* Segmented buttons: layout, theme, boost. */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--sunk);
 }
-.saved {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 12px;
-}
-.saved b {
-  color: var(--accent);
-  font-weight: 600;
-}
-.menu-btn {
-  font-weight: 600;
-}
-.theme-btn {
+.seg button {
   font: inherit;
   font-size: 12px;
-  background: var(--sunk);
-  color: var(--fg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  padding: 4px 8px;
+  font-weight: 600;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.seg button + button {
+  border-left: 1px solid var(--line);
+}
+.seg button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.seg.icons button {
+  width: 30px;
+  padding: 0;
+  justify-content: center;
+}
+.seg button:focus-visible {
+  outline-offset: -3px;
+}
+.seg button[aria-pressed="true"]:focus-visible {
+  outline-color: var(--on-accent);
+}
+.seg svg,
+.btn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 
 /* Work area: one set of panels, placed by the layout (approved mockup,
@@ -269,16 +421,29 @@ body {
   min-height: 0;
 }
 .work.coding {
-  /* The two columns under the video share about its 16:9 width. */
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(320px, 2fr);
-  grid-template-rows: minmax(200px, 44vh) minmax(0, 1fr) auto;
+  /* v6 T6: the video's column is as wide as a 16:9 picture of the row's
+     height (less the transport strip), so the picture fills it. Codes sit
+     under the video at that width; the court and team share the middle
+     column; Checks take the right; the command bar spans the bottom. */
+  --video-row: clamp(180px, 42vh, 620px);
+  --transport-h: 40px;
+  grid-template-columns:
+    minmax(0, calc((var(--video-row) - var(--transport-h)) * 16 / 9))
+    minmax(250px, 1fr)
+    minmax(280px, 1fr);
+  grid-template-rows: var(--video-row) minmax(0, 1fr) auto;
   grid-template-areas:
-    "video video plays"
+    "video plays checks"
     "codes team checks"
-    "cmd cmd checks";
+    "cmd cmd cmd";
+}
+.work.coding .transport {
+  flex-wrap: nowrap;
+  height: var(--transport-h);
 }
 .work.watch {
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  /* v6 T7: the column grows with the window, 350 to 460 px. */
+  grid-template-columns: clamp(350px, 26vw, 460px) minmax(0, 1fr);
   grid-template-rows: minmax(220px, 1fr) auto auto auto;
   grid-template-areas:
     "codes video"
@@ -317,27 +482,6 @@ body {
 }
 .work.watch .team {
   padding: 6px 8px;
-}
-/* The narrow column's command bar: the Point buttons keep their colour
-   and side, the team name is in their tooltip. */
-.work.watch .cmd {
-  gap: 4px 6px;
-  padding-inline: 8px;
-  flex-wrap: wrap;
-}
-.work.watch .cmd .pt-name {
-  display: none;
-}
-/* The read-back gets its own line under the code. */
-.work.watch .cmd .hint {
-  order: 3;
-  flex-basis: 100%;
-  white-space: normal;
-}
-.work.watch .cmd .code-input {
-  flex: 1 1 0;
-  width: 0;
-  min-width: 0;
 }
 .work.watch .plays svg {
   flex: none;
@@ -496,7 +640,18 @@ body {
   outline-offset: 1px;
 }
 .lu-zone.setter input {
-  box-shadow: inset 0 0 0 2px currentColor;
+  border: 2px solid var(--setter);
+  box-shadow: 0 0 0 1px var(--setter);
+}
+.lu-setter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.lu-zone label {
+  font-size: 12px;
 }
 .lu-row {
   display: flex;
@@ -1257,13 +1412,19 @@ button.rally-toggle {
 }
 .btn {
   font: inherit;
-  font-size: 12px;
-  border: 1px solid var(--line);
+  font-size: 13px;
+  border: 1px solid var(--edge);
   background: var(--sunk);
   color: var(--fg);
   border-radius: var(--radius-control);
   padding: 3px 10px;
+  min-height: 28px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 .btn.primary {
   background: var(--accent);
@@ -1494,7 +1655,8 @@ button.rally-toggle {
   outline-offset: 2px;
 }
 .btn:disabled {
-  opacity: 0.5;
+  color: var(--disabled-fg);
+  border-color: var(--line);
   cursor: not-allowed;
 }
 
@@ -1876,4 +2038,564 @@ label.inline {
 }
 .video-error {
   color: var(--err);
+}
+
+/* ===== v6 (docs/design/v6-console.html): marks, log, checks ===== */
+svg.mark {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  vertical-align: -3px;
+}
+.setter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--setter);
+  color: var(--panel);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  flex: none;
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 5px;
+  margin-right: 4px;
+  border-radius: var(--radius-tag);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+.tag.auto {
+  background: var(--sunk);
+  color: var(--muted);
+  border: 1px solid var(--edge);
+}
+.tag.edited {
+  background: var(--panel);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.btn.icon {
+  width: 30px;
+  padding: 0;
+}
+.btn.danger {
+  color: var(--err);
+}
+.flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  min-height: 22px;
+  padding: 0 6px;
+  border-radius: var(--radius-tag);
+  white-space: nowrap;
+}
+.flag.err {
+  background: var(--err-soft);
+  color: var(--err);
+  border: 1px solid var(--err);
+}
+button.flag {
+  cursor: pointer;
+}
+.panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.log-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 2px;
+  flex: none;
+}
+.log-head .panel-title {
+  margin-right: auto;
+}
+.log-head .stream-tools {
+  margin: 0;
+}
+.set-tabs .lineup-small {
+  display: none;
+  margin-bottom: 4px;
+}
+/* Short windows: Starting lineup moves into the tab strip (v6 review). */
+@media (max-height: 760px) {
+  .lineup-btn {
+    display: none;
+  }
+  .set-tabs .lineup-small {
+    display: inline-flex;
+  }
+}
+.log {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tab-panel {
+  padding: 4px 8px 8px;
+}
+.rally {
+  border-radius: var(--radius-control);
+}
+.rally:not(.closed) .rally-head {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+}
+.rally-head {
+  align-items: center;
+  min-height: 28px;
+  padding: 0 4px 0 8px;
+}
+.rally-toggle {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 6px;
+}
+.rally-toggle b {
+  color: var(--fg);
+  font-weight: 600;
+  font-family: var(--body);
+}
+.rally-toggle .num {
+  font-family: var(--mono);
+}
+.rally-toggle .chev {
+  display: inline-block;
+  width: 10px;
+  transition: none;
+}
+.rally-toggle .chev.open {
+  transform: rotate(90deg);
+}
+.rally-head .out {
+  margin-left: auto;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.out.home {
+  color: var(--home);
+}
+.out.away {
+  color: var(--away);
+}
+.out.live {
+  color: var(--fg);
+}
+.rally-add {
+  height: 22px;
+  font-size: 12px;
+  color: var(--fg);
+  border-color: var(--edge);
+  flex: none;
+}
+.gap-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px dashed var(--info);
+  border-radius: var(--radius-control);
+  background: var(--info-soft);
+  color: var(--fg);
+  font-size: 12px;
+  flex: none;
+}
+.gap-hint span {
+  flex: 1;
+  min-width: 0;
+}
+.row {
+  grid-template-columns: 4px 34px max-content minmax(0, 1fr) auto;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 6px 0 0;
+}
+.row .tc {
+  font-size: 12px;
+}
+.row .meaning {
+  font-size: 13px;
+}
+.row.picked,
+.row[aria-selected="true"] {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.row.auto code {
+  font-style: normal;
+}
+.row .flags {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  min-width: 20px;
+}
+.follows {
+  font-size: 12px;
+  color: var(--fg);
+  border-color: var(--err);
+  background: var(--panel);
+  opacity: 1;
+}
+.pick-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--accent-soft);
+  border-top: 1px solid var(--accent);
+  flex: none;
+}
+.pick-bar .danger {
+  margin-left: auto;
+}
+.picked-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  margin-right: 2px;
+}
+/* Checks */
+.counts .count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.issue {
+  grid-template-columns: 16px minmax(0, 1fr);
+}
+.issue-wrap.root {
+  border: 1px solid var(--err);
+  background: var(--err-soft);
+  border-radius: var(--radius-control);
+  padding-bottom: 4px;
+}
+.issue-wrap.root > .issue {
+  background: transparent;
+}
+.issue.knock {
+  opacity: 1;
+  margin-left: 22px;
+  grid-template-columns: auto minmax(0, 1fr);
+  border-left: 2px solid var(--err);
+  border-radius: 0;
+  background: transparent;
+}
+.knock-n {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.back-note {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.work.watch > .side.in-column {
+  display: flex;
+  grid-area: codes;
+}
+.issue .msg,
+.issue .where {
+  grid-column: 2;
+}
+
+/* Command bar (v6 T7, T9, T10) */
+.cmd {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 8px;
+}
+.cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cmd .field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 8px;
+  background: var(--sunk);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-control);
+}
+.cmd .code-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 18px;
+}
+.cmd .code-input::placeholder {
+  color: var(--muted);
+  font-size: 14px;
+}
+.cmd .hint {
+  height: 20px;
+  line-height: 20px;
+  font-size: 14px;
+  padding: 0 2px;
+  flex: none;
+}
+.point-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid var(--edge);
+}
+.point-btn.home {
+  background: var(--home-soft);
+}
+.point-btn.away {
+  background: var(--away-soft);
+}
+.point-btn:hover:not(:disabled) {
+  background: var(--panel);
+}
+.point-btn:disabled {
+  opacity: 1;
+  color: var(--disabled-fg);
+  background: var(--sunk);
+  border-color: var(--line);
+  cursor: not-allowed;
+}
+.work.watch .point-btn .pt-name {
+  display: none;
+}
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: var(--radius-tag);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--fg);
+  background: var(--sunk);
+  border: 1px solid var(--edge);
+}
+.confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border-radius: var(--radius-control);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+}
+.confirm .txt {
+  flex: 1;
+  min-width: 12ch;
+  font-weight: 600;
+}
+.editing-tag {
+  align-self: flex-start;
+  max-width: 100%;
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: var(--radius-tag);
+  background: var(--panel);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editing-tag code {
+  font-family: var(--mono);
+}
+
+/* Team rows and courts (v6 T2, T11) */
+.ctl-row {
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: var(--radius-control);
+}
+.ctl-row .who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.ctl-row .who .team-name {
+  font-size: 13px;
+}
+.setter-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* The Video layout's column: one line per team. */
+.work.watch .ctl-row .who {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.work.watch .setter-in .lbl {
+  display: none;
+}
+.tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  white-space: nowrap;
+}
+.tool:disabled {
+  opacity: 1;
+  color: var(--disabled-fg);
+  border-color: var(--line);
+  background: var(--sunk);
+  cursor: not-allowed;
+}
+.icon-btn {
+  border-color: var(--edge);
+}
+/* Keys stay in the tooltips where the panel is narrow. */
+.team {
+  container-type: inline-size;
+}
+@container (max-width: 400px) {
+  .team .tool .kbd {
+    display: none;
+  }
+}
+.zone.setter {
+  background: var(--panel);
+  border: 2px solid var(--setter);
+  box-shadow: 0 0 0 1px var(--setter);
+}
+.zone .setter-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+}
+.zone small {
+  font-size: 12px;
+}
+.court-legend {
+  font-size: 12px;
+}
+.court-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Play court (v6 T12) */
+.end-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.end-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.end-legend svg {
+  width: 18px;
+  height: 12px;
+  color: var(--fg);
+}
+.mark-open {
+  display: none;
+}
+@media (max-height: 760px) {
+  .work.watch .plays .mark-open {
+    display: inline-flex;
+  }
+  .work.watch .plays:not(.marking) svg,
+  .work.watch .plays:not(.marking) .end-legend,
+  .work.watch .plays .plays-note {
+    display: none;
+  }
+  .work.watch .plays.marking svg {
+    height: 36vh;
+  }
+}
+
+/* v6 T3: nothing under 12 px. */
+.court-head h2,
+.half-label,
+.issue .where,
+.plays-head,
+.sub-note {
+  font-size: 12px;
+}
+/* The end-mark legend's icons are not the court. */
+.plays .end-legend svg {
+  width: 18px;
+  height: 12px;
+  max-width: none;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  flex: none;
+  cursor: default;
+}
+@container (max-width: 400px) {
+  .team .setter-in .lbl {
+    display: none;
+  }
+  /* Name and setter on their own line, the buttons under them. */
+  .team .ctl-row {
+    flex-wrap: wrap;
+  }
+  .team .ctl-row .who {
+    flex: 1 0 100%;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
 }

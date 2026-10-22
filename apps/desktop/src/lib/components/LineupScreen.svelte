@@ -2,6 +2,7 @@
      while a team still needs its six, and from the lineup button to
      modify a set's sixes. Zones are laid out as each team faces the net. -->
 <script lang="ts">
+  import SetterBadge from "./SetterBadge.svelte";
   import { untrack } from "svelte";
   import * as backend from "../backend";
   import { startOf, type Side, type Snapshot } from "../snapshot";
@@ -158,6 +159,9 @@
                 autocomplete="off"
                 bind:value={draft[side].zones[z - 1]}
               />
+              {#if n > 0 && n === setterOf(side, six)}<span class="lu-setter"
+                  ><SetterBadge />setter</span
+                >{/if}
             </div>
           {/each}
         </div>

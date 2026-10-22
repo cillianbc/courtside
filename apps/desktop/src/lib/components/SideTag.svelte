@@ -4,7 +4,7 @@
 </script>
 
 {#if side === "home"}
-  <span class="side-tag home">HOME</span>
+  <span class="side-tag home">Home</span>
 {:else}
-  <span class="side-tag away">AWAY</span>
+  <span class="side-tag away">Away</span>
 {/if}

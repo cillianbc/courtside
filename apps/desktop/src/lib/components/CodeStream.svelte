@@ -1,11 +1,12 @@
 <script lang="ts">
-  import type { Group, Row, Snapshot } from "../snapshot";
+  import type { Group, IssueView, Row, Snapshot } from "../snapshot";
   import { showCode } from "../jump";
   import { withKey } from "../kbd";
   import { ui } from "../ui.svelte";
   import { video } from "../video.svelte";
   import CodeMenu from "./CodeMenu.svelte";
   import Icon from "./Icon.svelte";
+  import Mark from "./Mark.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
 
@@ -51,13 +52,21 @@
     return side ? snap.teams[side].name : "";
   }
 
+  // The score before a rally: the one before it in the set, else 0:0.
+  function scoreBefore(i: number): string {
+    for (let j = i - 1; j >= 0; j--) {
+      const s = groups[j]?.scoreAfter;
+      if (s) return `${s.home}:${s.visiting}`;
+    }
+    return "0:0";
+  }
+
   // Picking a code shows it in the video, where it has a video time.
   function pick(r: Row) {
     ui.selected = ui.selected === r.id ? null : r.id;
     if (ui.selected && r.videoMs !== null && video.open) void video.seekTo(r.videoMs / 1000);
   }
 
-  const FLAG = { error: "err", warning: "warn", info: "info" } as const;
   // A code whose issues all follow from an earlier fault: that fault.
   const causeOf = $derived.by(() => {
     const own = new Set(snap.issues.filter((i) => !i.causeId).map((i) => i.eventId));
@@ -67,13 +76,36 @@
     }
     return cause;
   });
-  function faultNumber(id: string): number | null {
-    for (const g of snap.groups) {
-      const r = g.rows.find((x) => x.id === id);
-      if (r) return r.index + 1;
+  // Match-wide code numbers by event id, once per snapshot (v6 T4).
+  const numberOf = $derived.by(() => {
+    const n: Record<string, number> = {};
+    for (const g of snap.groups) for (const r of g.rows) n[r.id] = r.index + 1;
+    return n;
+  });
+  // The first issue on each code, for its mark's tooltip.
+  const issueOf = $derived.by(() => {
+    const m: Record<string, IssueView> = {};
+    for (const i of snap.issues) m[i.eventId] ??= i;
+    return m;
+  });
+  // A long gap before a serve (the missed-rally check) shows between the
+  // rally heads it falls between, by the code it was found on.
+  const gapBefore = $derived.by(() => {
+    const m: Record<string, IssueView> = {};
+    for (const i of snap.issues) {
+      if (i.severity === "info" && i.message.includes("since the last point")) m[i.eventId] = i;
     }
-    return null;
+    return m;
+  });
+  function gapIn(g: Group): IssueView | undefined {
+    for (const r of g.rows) if (gapBefore[r.id]) return gapBefore[r.id];
+    return undefined;
   }
+  // Root faults and the issues that follow from them, for the log's badge.
+  const faults = $derived({
+    roots: snap.issues.filter((i) => i.severity === "error" && !i.knockOn).length,
+    follow: snap.issues.filter((i) => i.knockOn).length,
+  });
 
   // A lineup row is modified in the lineup form, for the row's set.
   function canModify(r: Row): boolean {
@@ -88,6 +120,14 @@
       ui.selected = null;
     } else ui.startEdit("correct", r.id, r.text);
   }
+
+  const picked = $derived.by(() => {
+    for (const g of groups) {
+      const r = g.rows.find((x) => x.id === ui.selected);
+      if (r) return { row: r, group: g };
+    }
+    return null;
+  });
 
   let section: HTMLElement | undefined = $state();
   let menu = $state<{ x: number; y: number; row: Row; group: Group } | null>(null);
@@ -111,23 +151,12 @@
         </button>
       {/each}
     </div>
-    <span class="stream-tools">
-      <button
-        class="btn"
-        type="button"
-        title="Play the codes as video clips, picked by player, skill, rotation or phase"
-        onclick={() => (ui.clipsOpen = true)}>Clips</button
-      >
-      <button
-        class="btn"
-        type="button"
-        title={withKey("Undo the last code", "undo")}
-        onclick={() => ui.undo()}>Undo</button
-      >
-      <button class="btn" type="button" title={withKey("Redo", "redo")} onclick={() => ui.redo()}
-        >Redo</button
-      >
-    </span>
+    <button
+      class="btn lineup-small"
+      type="button"
+      title="Both teams' starting sixes for the set shown"
+      onclick={() => (ui.lineupScreen = shown)}><Icon name="lineup" />Lineup</button
+    >
   </div>
   <button
     class="btn lineup-btn"
@@ -138,127 +167,171 @@
       ? "golden set"
       : `set ${shown}`}</button
   >
+  <div class="log-head">
+    <span class="panel-title">Codes</span>
+    {#if faults.roots}
+      <button
+        class="flag err"
+        type="button"
+        title="Open Checks here; the video stays as it is"
+        onclick={() => ui.openChecks()}
+        ><Mark severity="error" />{faults.roots}
+        {faults.roots === 1 ? "fault" : "faults"}{#if faults.follow}&nbsp;· {faults.follow} follow{/if}</button
+      >
+    {/if}
+    <span class="stream-tools">
+      <button
+        class="btn"
+        type="button"
+        title="Play the codes as video clips, picked by player, skill, rotation or phase"
+        onclick={() => (ui.clipsOpen = true)}><Icon name="clips" />Clips</button
+      >
+      <button
+        class="btn icon"
+        type="button"
+        aria-label="Undo"
+        title={withKey("Undo the last code", "undo")}
+        onclick={() => ui.undo()}><Icon name="undo" /></button
+      >
+      <button class="btn" type="button" title={withKey("Redo", "redo")} onclick={() => ui.redo()}
+        >Redo</button
+      >
+    </span>
+  </div>
   <div class="tab-panel" role="tabpanel" bind:this={pane}>
-    {#each groups as g, i (key(g))}
-      {@const closed = folded(g, i)}
-      {@const first = firstTouch(g)}
-      <div class="rally" class:closed>
-        <div class="rally-head">
-          {#if g.closed}
-            <button
-              class="rally-toggle"
-              type="button"
-              aria-expanded={!closed}
-              onclick={() => toggle(g)}
-            >
-              <span>Rally {g.rally} · {g.rows.length} codes</span>
-              <span
-                >{teamName(g.wonBy)}
-                {#if g.scoreAfter}<b>{g.scoreAfter.home}:{g.scoreAfter.visiting}</b>{/if}</span
-              >
-            </button>
-          {:else}
-            <span class="rally-toggle">
-              <span>Rally {g.rally ?? ""} · {g.rows.length ? "in progress" : "next"}</span>
-              <span>{g.serving ? `${teamName(g.serving)} serving` : ""}</span>
-            </span>
-          {/if}
-          {#if first}
-            <button
-              class="rally-add"
-              type="button"
-              title="Add a missed rally before this one: type its codes, Enter. The point is written and later scores move on."
-              onclick={() => ui.startEdit("rally", first.id, first.text)}>+ Rally</button
-            >
-          {/if}
-        </div>
-        {#each g.rows as r (r.id)}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <div
-            role="row"
-            tabindex="-1"
-            onclick={() => pick(r)}
-            oncontextmenu={(e) => {
-              e.preventDefault();
-              ui.selected = r.id;
-              menu = { x: e.clientX, y: e.clientY, row: r, group: g };
-            }}
-            class:picked={ui.selected === r.id}
-            class:edited={r.edited}
-            class="row"
-            class:home={r.team === "home"}
-            class:away={r.team === "visiting"}
-            class:sys={r.team === null}
-            class:auto={r.auto}
-            title={r.auto ? "Written by the console" : undefined}
-            id={`ev-${r.id}`}
-          >
-            <span class="stripe"></span>
-            <span class="tc">{r.index + 1}</span>
-            <code>{r.text}</code>
-            <span class="meaning">{r.meaning}</span>
-            {#if ui.selected === r.id}
-              <span class="row-actions">
-                {#if canModify(r)}
-                  <button
-                    type="button"
-                    class="btn"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      modify(r, g);
-                    }}>Modify</button
-                  >
-                {/if}
-                <button
-                  type="button"
-                  class="btn"
-                  onclick={(e) => {
-                    e.stopPropagation();
-                    ui.startEdit("insert", r.id, r.text);
-                  }}>Add before</button
-                >
-                <button
-                  type="button"
-                  class="btn"
-                  onclick={(e) => {
-                    e.stopPropagation();
-                    ui.startEdit("after", r.id, r.text);
-                  }}>Add after</button
-                >
-                <button
-                  type="button"
-                  class="btn"
-                  onclick={(e) => {
-                    e.stopPropagation();
-                    void ui.remove(r.id, r.text);
-                  }}>Remove</button
-                >
-              </span>
-            {:else if causeOf[r.id]}
-              {@const cause = causeOf[r.id] ?? ""}
-              {@const n = faultNumber(cause)}
+    <div class="log" role="listbox" aria-label="Codes, set {shown}">
+      {#each groups as g, i (key(g))}
+        {@const closed = folded(g, i)}
+        {@const first = firstTouch(g)}
+        {@const gap = gapIn(g)}
+        {#if gap}
+          <div class="gap-hint">
+            <Mark severity="info" />
+            <span>{gap.message}</span>
+            {#if first}
               <button
+                class="rally-add"
                 type="button"
-                class="follows"
-                title="This follows from the fault at code {n ??
-                  '?'}: fix that one first. Click to go there."
-                onclick={(e) => {
-                  e.stopPropagation();
-                  showCode(snap, cause);
-                }}>↳ {n ?? "fault"}</button
+                onclick={() => ui.startEdit("rally", first.id, first.text)}>+ Rally</button
               >
-            {:else if r.severity}
-              <span class="flag {FLAG[r.severity]}">{r.severity}</span>
-            {:else}
-              <span></span>
             {/if}
           </div>
-        {:else}
-          <div class="empty-note">No codes yet. Start with the serve.</div>
-        {/each}
-      </div>
-    {/each}
+        {/if}
+        <div class="rally" class:closed role="group" aria-label="Rally {g.rally ?? ''}">
+          <div class="rally-head">
+            {#if g.closed}
+              <button
+                class="rally-toggle"
+                type="button"
+                aria-expanded={!closed}
+                onclick={() => toggle(g)}
+              >
+                <span class="chev" class:open={!closed}>›</span>
+                <b>Rally {g.rally}</b>
+                <span class="num"
+                  >{scoreBefore(i)} → {g.scoreAfter
+                    ? `${g.scoreAfter.home}:${g.scoreAfter.visiting}`
+                    : ""}</span
+                >
+                <span class="out {g.wonBy === 'home' ? 'home' : 'away'}">{teamName(g.wonBy)}</span>
+              </button>
+            {:else}
+              <span class="rally-toggle">
+                <b>Rally {g.rally ?? ""}</b>
+                <span class="num">{scoreBefore(i)}</span>
+                <span class="out live"
+                  >{g.rows.length
+                    ? "in progress"
+                    : g.serving
+                      ? `${teamName(g.serving)} to serve`
+                      : ""}</span
+                >
+              </span>
+            {/if}
+            {#if first}
+              <button
+                class="rally-add"
+                type="button"
+                title="Add a missed rally before this one: type its codes, Enter. The point is written and later scores move on."
+                onclick={() => ui.startEdit("rally", first.id, first.text)}>+ Rally</button
+              >
+            {/if}
+          </div>
+          {#each g.rows as r (r.id)}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <div
+              role="option"
+              tabindex="-1"
+              aria-selected={ui.selected === r.id}
+              onclick={() => pick(r)}
+              oncontextmenu={(e) => {
+                e.preventDefault();
+                ui.selected = r.id;
+                menu = { x: e.clientX, y: e.clientY, row: r, group: g };
+              }}
+              class:picked={ui.selected === r.id}
+              class="row"
+              class:home={r.team === "home"}
+              class:away={r.team === "visiting"}
+              class:sys={r.team === null}
+              class:auto={r.auto}
+              title={r.meaning}
+              id={`ev-${r.id}`}
+            >
+              <span class="stripe"></span>
+              <span class="tc">{numberOf[r.id]}</span>
+              <code>{r.text}</code>
+              <span class="meaning"
+                >{#if r.auto}<span class="tag auto" title="Written by the console">added</span
+                  >{/if}{#if r.edited}<span class="tag edited">edited</span>{/if}{r.meaning}</span
+              >
+              <span class="flags">
+                {#if causeOf[r.id]}
+                  {@const cause = causeOf[r.id] ?? ""}
+                  {@const n = numberOf[cause]}
+                  <button
+                    type="button"
+                    class="follows"
+                    title="This follows from the fault at code {n ??
+                      '?'}: fix that one first. Click to go there."
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      showCode(snap, cause);
+                    }}>↳ {n ?? "fault"}</button
+                  >
+                {:else if r.severity}
+                  <span title={issueOf[r.id]?.message ?? r.severity}
+                    ><Mark severity={r.severity} label={issueOf[r.id]?.message} /></span
+                  >
+                {/if}
+              </span>
+            </div>
+          {:else}
+            <div class="empty-note">No codes yet. Start with the serve.</div>
+          {/each}
+        </div>
+      {/each}
+    </div>
   </div>
+  {#if picked}
+    {@const p = picked}
+    <div class="pick-bar" role="toolbar" aria-label="Code {numberOf[p.row.id]}">
+      <span class="picked-label">Code {numberOf[p.row.id]}</span>
+      {#if canModify(p.row) && ui.editing?.id !== p.row.id}
+        <button type="button" class="btn" onclick={() => modify(p.row, p.group)}>Modify</button>
+      {/if}
+      <button type="button" class="btn" onclick={() => ui.startEdit("insert", p.row.id, p.row.text)}
+        >+ Before</button
+      >
+      <button type="button" class="btn" onclick={() => ui.startEdit("after", p.row.id, p.row.text)}
+        >+ After</button
+      >
+      <button type="button" class="btn" onclick={() => (ui.selected = null)}>Done</button>
+      <button type="button" class="btn danger" onclick={() => void ui.remove(p.row.id, p.row.text)}
+        >Remove</button
+      >
+    </div>
+  {/if}
   {#if menu}
     {@const m = menu}
     <CodeMenu

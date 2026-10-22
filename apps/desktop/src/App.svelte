@@ -65,6 +65,8 @@
         <VideoPanel />
         {#if ui.clipsOpen}
           <ClipsPanel {snap} />
+        {:else if ui.checksOpen && ui.layout === "watch"}
+          <ChecksPanel {snap} column />
         {:else}
           <CodeStream {snap} />
         {/if}

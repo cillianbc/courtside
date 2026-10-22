@@ -3,10 +3,11 @@
   import { showCode } from "../jump";
   import type { IssueView, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
+  import Icon from "./Icon.svelte";
+  import Mark from "./Mark.svelte";
 
-  let { snap }: { snap: Snapshot } = $props();
-
-  const FLAG = { error: "err", warning: "warn", info: "info" } as const;
+  // `column`: shown in place of the code log (Video layout, v6 T8).
+  let { snap, column = false }: { snap: Snapshot; column?: boolean } = $props();
   // Knock-ons sit under the fault they follow from, not in the list.
   const roots = $derived(snap.issues.filter((i) => !i.causeId).map((i) => i.eventId));
   const issues = $derived(
@@ -41,8 +42,17 @@
   }
 </script>
 
-<section class="panel side" aria-label="Checks and set summary">
+<section class="panel side" class:in-column={column} aria-label="Checks and set summary">
   <div class="tabs" role="tablist">
+    {#if column}
+      <button
+        class="btn icon"
+        type="button"
+        aria-label="Back to the codes"
+        title="Back to the codes"
+        onclick={() => (ui.checksOpen = false)}><Icon name="left" /></button
+      >
+    {/if}
     <button
       class="tab"
       role="tab"
@@ -53,9 +63,15 @@
     >
       Checks
       <span class="counts">
-        {#if counts.error}<span class="flag err" title="Errors">{counts.error}</span>{/if}
-        {#if counts.warning}<span class="flag warn" title="Warnings">{counts.warning}</span>{/if}
-        <span class="flag info" title="Info">{counts.info}</span>
+        {#if counts.error}<span class="count" title="Errors"
+            ><Mark severity="error" />{counts.error}</span
+          >{/if}
+        {#if counts.warning}<span class="count" title="Warnings"
+            ><Mark severity="warning" />{counts.warning}</span
+          >{/if}
+        {#if counts.info}<span class="count" title="Info"
+            ><Mark severity="info" />{counts.info}</span
+          >{/if}
       </span>
     </button>
     <button
@@ -69,12 +85,13 @@
   </div>
   {#if ui.sideTab === "checks"}
     <div class="tab-panel" role="tabpanel">
+      {#if column}<p class="back-note">Typing a code goes back to the log.</p>{/if}
       {#each issues as i (i.eventId + i.message)}
         {@const later = following[i.eventId] ?? []}
         {@const key = i.eventId + i.message}
-        <div class="issue-wrap">
+        <div class="issue-wrap" class:root={i.severity === "error" && later.length > 0}>
           <button type="button" class="issue" onclick={() => show(i)}>
-            <span class="flag {FLAG[i.severity]}">{i.severity}</span>
+            <Mark severity={i.severity} />
             <span class="msg">{i.message}</span>
             <span class="where">code {i.index + 1} · {i.rule}</span>
           </button>
@@ -84,7 +101,7 @@
                 <button
                   type="button"
                   class="link"
-                  aria-expanded={open === key}
+                  aria-expanded={open !== key}
                   onclick={() => (open = open === key ? null : key)}
                   >{later.length} later {later.length === 1 ? "issue follows" : "issues follow"} from
                   this</button
@@ -100,10 +117,10 @@
               {/if}
             </div>
           {/if}
-          {#if open === key}
+          {#if open !== key && later.length}
             {#each [...later].sort((a, b) => a.index - b.index) as k (k.eventId + k.message)}
               <button type="button" class="issue knock" onclick={() => show(k)}>
-                <span class="flag info">follows</span>
+                <span class="knock-n">↳ {k.index + 1}</span>
                 <span class="msg">{k.message}</span>
                 <span class="where">code {k.index + 1} · {k.rule}</span>
               </button>
@@ -117,8 +134,8 @@
   {:else}
     <div class="tab-panel" role="tabpanel">
       <div class="tally">
-        <span></span><span class="hd">{snap.teams.home.name.slice(0, 3).toUpperCase()}</span><span
-          class="hd">{snap.teams.visiting.name.slice(0, 3).toUpperCase()}</span
+        <span></span><span class="hd">{snap.teams.home.name}</span><span class="hd"
+          >{snap.teams.visiting.name}</span
         >
         <span>Points</span><span class="h">{snap.score.home}</span><span class="v"
           >{snap.score.visiting}</span

@@ -101,6 +101,11 @@
     };
   });
 
+  // On a short window the Video layout folds the court to its header until
+  // a play is picked or a clip plays, or the scout opens it (v6 review).
+  let opened = $state(false);
+  const marking_ = $derived(opened || !!ui.selected || !!video.clip);
+
   let svg: SVGSVGElement | undefined = $state();
   let from = $state<Pt | null>(null);
   let to = $state<Pt | null>(null);
@@ -190,12 +195,24 @@
   {/if}
 {/snippet}
 
-<section class="panel plays play-court" class:end aria-label="Where plays went">
+<section
+  class="panel plays play-court"
+  class:end
+  class:marking={marking_}
+  aria-label="Where plays went"
+>
   <div class="play-head">
     {#if target}
       <span
         >Where it went: <code>{target.text}</code>
         <span class="sub-note">{target.meaning}</span></span
+      >
+      <button
+        class="btn mark-open"
+        type="button"
+        aria-pressed={opened}
+        title="Show the court to mark this play"
+        onclick={() => (opened = !opened)}>Mark</button
       >
       {#if target.start !== null || target.end !== null}
         <button class="btn" type="button" onclick={clear}>Clear</button>
@@ -233,6 +250,35 @@
       <line class="play drag" x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
     {/if}
   </svg>
+  <div class="end-legend" aria-label="End marks">
+    <span
+      ><svg viewBox="0 0 18 12" aria-hidden="true"
+        ><path d="M2 6h10" stroke="currentColor" stroke-width="1.6" /><circle
+          cx="13"
+          cy="6"
+          r="3.4"
+          fill="currentColor"
+        /></svg
+      >point</span
+    >
+    <span
+      ><svg viewBox="0 0 18 12" aria-hidden="true"
+        ><path d="M2 6h9" stroke="currentColor" stroke-width="1.6" /><path
+          d="M10.5 2.5l6 7M16.5 2.5l-6 7"
+          stroke="currentColor"
+          stroke-width="1.8"
+        /></svg
+      >error</span
+    >
+    <span
+      ><svg viewBox="0 0 18 12" aria-hidden="true"
+        ><path d="M2 6h10" stroke="currentColor" stroke-width="1.6" /><path
+          d="M11 2l6 4-6 4Z"
+          fill="currentColor"
+        /></svg
+      >rally went on</span
+    >
+  </div>
   <p class="sub-note plays-note">
     Drag from start to end, or click the end when the code has a start zone; a set or block is
     clicked where it was. The mark writes the code's zones; Clear puts back the typed ones.

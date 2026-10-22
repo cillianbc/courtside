@@ -8,6 +8,8 @@
   import type { Side, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
   import Icon from "./Icon.svelte";
+  import Kbd from "./Kbd.svelte";
+  import SetterBadge from "./SetterBadge.svelte";
   import SideTag from "./SideTag.svelte";
   import SubForm from "./SubForm.svelte";
 
@@ -36,6 +38,7 @@
           class:server={side === snap.serving && zone === 1}
         >
           <small>{zone}</small>{n ?? ""}
+          {#if n !== null && n === snap.setter[side]}<SetterBadge />{/if}
         </div>
       {/each}
     </div>
@@ -64,24 +67,41 @@
   <div class="team-ctl">
     {#each ui.order as side (side)}
       {@const name = snap.teams[side].name}
-      <div class="ctl-row" class:away={side === "visiting"} title={name}>
-        <SideTag {side} />
+      {@const toOut = snap.timeouts[side] >= 2}
+      {@const subOut = snap.substitutions[side] >= snap.substitutionLimit}
+      <div class="ctl-row" class:away={side === "visiting"}>
+        <span class="who">
+          <b class="team-name {side === 'home' ? 'home' : 'away'}" title={name}>{name}</b>
+          <span class="setter-in" title="Setter in zone {snap.setterZone[side] ?? '?'}"
+            ><SetterBadge /><span class="lbl">setter in</span> {snap.setterZone[side] ?? "?"}</span
+          >
+        </span>
         <button
           type="button"
           class="tool"
-          title={withKey(`Timeout, ${name}`, side === "home" ? "timeoutHome" : "timeoutAway")}
-          disabled={snap.timeouts[side] >= 2}
+          title={toOut
+            ? "No timeouts left in this set"
+            : withKey(`Timeout, ${name}`, side === "home" ? "timeoutHome" : "timeoutAway")}
+          aria-label="Timeout, {name}"
+          disabled={toOut}
           onclick={() => ui.commit(timeoutCode(side))}
-          ><Icon name="timeout" />Timeout <b>{snap.timeouts[side]}/2</b></button
+          ><Icon name="timeout" /><span class="num">{snap.timeouts[side]}/2</span><Kbd
+            action={side === "home" ? "timeoutHome" : "timeoutAway"}
+          /></button
         >
         <button
           type="button"
           class="tool"
-          title={withKey(`Substitution, ${name}`, side === "home" ? "subHome" : "subAway")}
+          title={subOut
+            ? `${snap.substitutionLimit} of ${snap.substitutionLimit} substitutions used`
+            : withKey(`Substitution, ${name}`, side === "home" ? "subHome" : "subAway")}
+          aria-label="Substitution, {name}"
           aria-pressed={ui.subFor === side}
-          disabled={snap.needsLineup[side]}
+          disabled={snap.needsLineup[side] || subOut}
           onclick={() => (ui.subFor = ui.subFor === side ? null : side)}
-          ><Icon name="sub" />Sub <b>{snap.substitutions[side]}/{snap.substitutionLimit}</b></button
+          ><Icon name="sub" /><span class="num"
+            >{snap.substitutions[side]}/{snap.substitutionLimit}</span
+          ><Kbd action={side === "home" ? "subHome" : "subAway"} /></button
         >
         <span class="rot-group">
           {#each [false, true] as forward (forward)}
@@ -132,7 +152,7 @@
     {@render half(ui.order[1] ?? "visiting", nets[1])}
   </div>
   <div class="court-legend">
-    <span><span class="sw"></span>Setter</span>
+    <span><SetterBadge />Setter (ring and S)</span>
     <span><span class="serve-dot"></span>Server</span>
     <span>Small number: zone</span>
     <span

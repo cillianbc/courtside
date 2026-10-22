@@ -39,6 +39,27 @@ export function remember(key: string, on: boolean) {
   }
 }
 
+export type Theme = "light" | "dark" | "system";
+
+/** The theme this computer last chose ("system" when none or unreadable). */
+function storedTheme(): Theme {
+  try {
+    const t = localStorage.getItem("courtside.theme");
+    return t === "light" || t === "dark" ? t : "system";
+  } catch {
+    return "system";
+  }
+}
+
+/** Puts the theme and boost on <html>, where the colour tokens read them. */
+function applyLook(theme: Theme, boost: boolean) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (theme === "system") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", theme);
+  root.toggleAttribute("data-boost", boost);
+}
+
 class Ui {
   snapshot = $state<Snapshot | null>(null);
   /** Away team drawn first (left / bottom). */
@@ -51,9 +72,14 @@ class Ui {
    * one narrow column. Remembered per computer.
    */
   layout = $state<"coding" | "watch">(remembered("courtside.watchLayout") ? "watch" : "coding");
+  /** Light, dark or the system's; boost raises contrast over either. Per computer. */
+  theme = $state<Theme>(storedTheme());
+  boost = $state(remembered("courtside.boost"));
   sideTab = $state<"checks" | "set">("checks");
   /** The clip playlist shows where the code stream does. */
   clipsOpen = $state(false);
+  /** Checks show where the code stream does (Video layout, v6 T8). */
+  checksOpen = $state(false);
   /** Set whose codes the stream shows; `null` follows the set in progress. */
   shownSet = $state<number | null>(null);
   code = $state("");
@@ -141,6 +167,8 @@ class Ui {
    * were typed at; otherwise (buttons) stamped now.
    */
   commit(text: string, typed = false): Promise<boolean> {
+    // A code typed while Checks stand in for the log brings the log back.
+    if (typed) this.checksOpen = false;
     const stamps = stampTokens(text, typed ? this.stamps : [], video.nowMs());
     const at = typed ? this.typedAt : undefined;
     return this.apply(`Added ${text}`, () => backend.commit(text, stamps, at));
@@ -276,6 +304,34 @@ class Ui {
     remember("courtside.watchLayout", layout === "watch");
   }
 
+  /**
+   * Shows the checks without moving the video: in place of the code log in
+   * the Video layout, as the side panel's tab in the Coding layout.
+   */
+  openChecks() {
+    this.sideTab = "checks";
+    if (this.layout === "watch") {
+      this.clipsOpen = false;
+      this.checksOpen = true;
+    }
+  }
+
+  setTheme(theme: Theme) {
+    this.theme = theme;
+    try {
+      localStorage.setItem("courtside.theme", theme);
+    } catch {
+      // Blocked storage: the choice lasts this session.
+    }
+    applyLook(this.theme, this.boost);
+  }
+
+  setBoost(on: boolean) {
+    this.boost = on;
+    remember("courtside.boost", on);
+    applyLook(this.theme, this.boost);
+  }
+
   /** Loads this computer's keys (at start, after opening a season or saving them). */
   async loadKeymap() {
     try {
@@ -298,3 +354,4 @@ class Ui {
 }
 
 export const ui = new Ui();
+applyLook(ui.theme, ui.boost);

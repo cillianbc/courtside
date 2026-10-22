@@ -4,6 +4,7 @@
   import { keyFor, keyString, textFor, typeText } from "../settings";
   import type { Preview, Side } from "../snapshot";
   import { ui } from "../ui.svelte";
+  import Kbd from "./Kbd.svelte";
 
   let input: HTMLInputElement | undefined = $state();
   let preview = $state<Preview | null>(null);
@@ -65,6 +66,29 @@
   );
   const pointLabel = (side: Side) => `Point to ${snap?.teams[side].name ?? side}`;
 
+  // The set just won, for the confirm line; "Not yet" hides it until the
+  // score changes.
+  let notYet = $state<string | null>(null);
+  const setEnd = $derived.by(() => {
+    if (!snap?.setEndDue || ui.editing) return null;
+    const s = snap.score;
+    const winner = s.home > s.visiting ? snap.teams.home.name : snap.teams.visiting.name;
+    const key = `${snap.set}-${s.home}:${s.visiting}`;
+    return key === notYet
+      ? null
+      : { key, text: `Set ${snap.set} won ${s.home}:${s.visiting} by ${winner}. End set?` };
+  });
+  // The earlier code being changed, by its match-wide number (v6 T4).
+  const editNumber = $derived.by(() => {
+    const id = ui.editing?.id;
+    if (!id || !snap) return null;
+    for (const g of snap.groups) {
+      const r = g.rows.find((x) => x.id === id);
+      if (r) return r.index + 1;
+    }
+    return null;
+  });
+
   async function commit() {
     const text = ui.code.trim();
     if (busy) return;
@@ -101,6 +125,7 @@
       return;
     }
     if (e.key === "Escape") {
+      if (setEnd && !ui.code) notYet = setEnd.key;
       if (ui.editing) ui.cancelEdit();
       ui.code = "";
       ui.clearStamps();
@@ -112,6 +137,9 @@
   }
 </script>
 
+<!-- v6 T7/T9/T10: an optional line (set end, or the code being changed),
+     the input between the point buttons, and one fixed read-back line, so the
+     bar never changes height while the scout types. -->
 <section class="cmd" class:bad={hint.bad} aria-label="Command bar">
   {#snippet point(side: Side, left: boolean)}
     <button
@@ -122,48 +150,58 @@
       title="{pointLabel(side)} ({keyFor(ui.keymap, left ? 'pointLeft' : 'pointRight')})"
       disabled={!canPoint}
       onclick={() => void ui.point(side)}
-      >{#if left}◀
-      {/if}Point<span class="pt-name">
-        {snap?.teams[side].name ?? ""}</span
-      >{#if !left}&nbsp;▶{/if}</button
+      >Point<span class="pt-name">&nbsp;{snap?.teams[side].name ?? ""}</span><Kbd
+        action={left ? "pointLeft" : "pointRight"}
+      /></button
     >
   {/snippet}
-  {@render point(ui.order[0] ?? "home", true)}
-  {#if ui.editing}
-    <span class="edit-tag"
-      >{{ correct: "Modify", insert: "Before", after: "After", rally: "New rally before" }[
-        ui.editing.mode
-      ]}
-      <code>{ui.editing.text}</code></span
-    >
-  {:else}
-    <span class="prompt" aria-hidden="true">›</span>
+  {#if setEnd}
+    <div class="confirm">
+      <span class="txt">{setEnd.text}</span>
+      <button
+        type="button"
+        class="btn primary"
+        title="End the set (Enter on an empty line)"
+        onclick={() => void ui.endSet()}>End set <kbd class="kbd">↵</kbd></button
+      >
+      <button type="button" class="btn" onclick={() => (notYet = setEnd.key)}
+        >Not yet <kbd class="kbd">Esc</kbd></button
+      >
+    </div>
+  {:else if ui.editing}
+    <div class="editing-tag">
+      {{
+        correct: "Modifying",
+        insert: "Adding before",
+        after: "Adding after",
+        rally: "New rally before",
+      }[ui.editing.mode]}
+      {#if editNumber}code {editNumber}:{/if} <code>{ui.editing.text}</code> · Esc cancels
+    </div>
   {/if}
-  <input
-    class="code-input"
-    bind:this={input}
-    bind:value={ui.code}
-    {onkeydown}
-    {onfocus}
-    onpointerdown={() => {
-      clicked = true;
-      requestAnimationFrame(() => (clicked = false));
-    }}
-    oninput={() => ui.keyed()}
-    autocomplete="off"
-    spellcheck="false"
-    aria-label="Scout code"
-    aria-describedby="hint"
-    placeholder={nextServe ? `${nextServe} serves: type + or the passer` : "a08RM+"}
-  />
-  <output class="hint" id="hint">{hint.text}</output>
-  {#if snap?.setEndDue}
-    <button
-      type="button"
-      class="btn primary"
-      title="The score wins the set; end it (Enter on an empty line)"
-      onclick={() => void ui.endSet()}>End set {snap.set}</button
-    >
-  {/if}
-  {@render point(ui.order[1] ?? "visiting", false)}
+  <div class="cmd-row">
+    {@render point(ui.order[0] ?? "home", true)}
+    <div class="field">
+      <span class="prompt" aria-hidden="true">›</span>
+      <input
+        class="code-input"
+        bind:this={input}
+        bind:value={ui.code}
+        {onkeydown}
+        {onfocus}
+        onpointerdown={() => {
+          clicked = true;
+          requestAnimationFrame(() => (clicked = false));
+        }}
+        oninput={() => ui.keyed()}
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="Scout code"
+        aria-describedby="hint"
+        placeholder={nextServe ? `${nextServe} serves: type + or the passer` : "a08RM+"}
+      />
+    </div>
+    {@render point(ui.order[1] ?? "visiting", false)}
+  </div>
+  <output class="hint" id="hint" title={hint.text}>{hint.text}</output>
 </section>
