@@ -6,6 +6,8 @@ import {
   nextNumber,
   rosterProblems,
   suggestCode,
+  TEAM_COLOURS,
+  teamColour,
 } from "./teams";
 
 const p = (number: number, lastName: string, firstName = "", code = "") => ({
@@ -78,5 +80,33 @@ describe("team import summary", () => {
     expect(describeImport({ ...r, created: false, playersAdded: 2, playersKept: 12 })).toBe(
       "Northgate was already here: added 2 players, kept 12 players as they were.",
     );
+  });
+});
+
+describe("team colours", () => {
+  // WCAG contrast between two #rrggbb colours.
+  const lum = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
+  };
+  const ratio = (a: string, b: string) => {
+    const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+    return ((x ?? 0) + 0.05) / ((y ?? 0) + 0.05);
+  };
+
+  it("every preset reads on the panels in light and dark (v6 T13)", () => {
+    for (const c of TEAM_COLOURS) {
+      expect(ratio(c.light, "#ffffff"), c.key).toBeGreaterThanOrEqual(4.5); // light --panel
+      expect(ratio(c.light, "#e6ebf1"), c.key).toBeGreaterThanOrEqual(4.5); // light --sunk
+      expect(ratio(c.dark, "#152130"), c.key).toBeGreaterThanOrEqual(4.5); // dark --panel
+    }
+  });
+
+  it("finds a preset by its key", () => {
+    expect(teamColour("navy")?.light).toBe("#2b3f8f");
+    expect(teamColour("")).toBeNull();
   });
 });

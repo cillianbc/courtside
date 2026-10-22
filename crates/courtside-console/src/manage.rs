@@ -12,6 +12,8 @@ pub struct TeamDetail {
     pub code: String,
     pub coach: String,
     pub assistant: String,
+    /// A colour preset's key; empty for the default.
+    pub colour: String,
     pub matches: usize,
     pub players: Vec<PlayerDetail>,
 }
@@ -53,6 +55,9 @@ pub struct TeamForm {
     pub code: String,
     pub coach: String,
     pub assistant: String,
+    /// A colour preset's key; empty for the default.
+    #[serde(default)]
+    pub colour: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -91,6 +96,7 @@ impl From<Team> for TeamDetail {
             code: t.code,
             coach: t.coach,
             assistant: t.assistant,
+            colour: t.colour,
             matches: t.matches,
             players: t.players.into_iter().map(PlayerDetail::from).collect(),
         }
@@ -115,6 +121,7 @@ impl From<&TeamForm> for TeamInput {
             code: f.code.clone(),
             coach: f.coach.clone(),
             assistant: f.assistant.clone(),
+            colour: f.colour.clone(),
         }
     }
 }

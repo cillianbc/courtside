@@ -122,8 +122,8 @@ export function fixture(): Snapshot {
   return {
     matchId: "fixture",
     teams: {
-      home: { name: "Harbour City VC", players: players("home") },
-      visiting: { name: "Northgate Volley", players: players("visiting") },
+      home: { name: "Harbour City VC", colour: "", players: players("home") },
+      visiting: { name: "Northgate Volley", colour: "", players: players("visiting") },
     },
     set: 2,
     score: { home: 14, visiting: 12 },

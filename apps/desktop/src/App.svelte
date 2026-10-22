@@ -13,9 +13,16 @@
   import VideoPanel from "./lib/components/VideoPanel.svelte";
   import { run } from "./lib/actions";
   import { actionFor, keyString, usableWhileTyping } from "./lib/settings";
+  import { applyTeamColours } from "./lib/teams";
   import { ui } from "./lib/ui.svelte";
 
   let loaded = $state(false);
+
+  // The open match's team colours, on the colour tokens (v6 T13).
+  $effect(() => {
+    const t = ui.snapshot?.teams;
+    applyTeamColours(t?.home.colour ?? "", t?.visiting.colour ?? "");
+  });
 
   // A team without its six can't play: the lineup screen until both are in.
   const needsLineup = $derived(

@@ -35,7 +35,7 @@ use vb_grammar::Code;
 use vb_grammar::Team as Side;
 
 /// Schema version, kept in SQLite's `user_version`.
-const VERSION: u32 = 8;
+const VERSION: u32 = 9;
 
 const SCHEMA: &str = "
 CREATE TABLE season (
@@ -51,7 +51,9 @@ CREATE TABLE team (
     name TEXT NOT NULL UNIQUE,
     code TEXT NOT NULL DEFAULT '',
     coach TEXT NOT NULL,
-    assistant TEXT NOT NULL
+    assistant TEXT NOT NULL,
+    -- The team's colour: a preset's key (apps/desktop teams.ts), '' for the default.
+    colour TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX team_code ON team(code) WHERE code <> '';
 CREATE TABLE match (
@@ -238,7 +240,7 @@ impl Season {
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         match version {
             VERSION => {}
-            1..=7 => {
+            1..=8 => {
                 if version < 2 {
                     migrate_1_to_2(&conn)?;
                 }
@@ -257,7 +259,10 @@ impl Season {
                 if version < 7 {
                     migrate_6_to_7(&conn)?;
                 }
-                migrate_7_to_8(&conn)?;
+                if version < 8 {
+                    migrate_7_to_8(&conn)?;
+                }
+                migrate_8_to_9(&conn)?;
             }
             _ => return Err(Error::Version(version)),
         }
@@ -814,6 +819,17 @@ fn migrate_7_to_8(conn: &Connection) -> Result<()> {
         "BEGIN;
          ALTER TABLE event ADD COLUMN minutes INTEGER;
          PRAGMA user_version = 8;
+         COMMIT;",
+    )?;
+    Ok(())
+}
+
+/// Version 9: each team's colour (v6 T13).
+fn migrate_8_to_9(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "BEGIN;
+         ALTER TABLE team ADD COLUMN colour TEXT NOT NULL DEFAULT '';
+         PRAGMA user_version = 9;
          COMMIT;",
     )?;
     Ok(())

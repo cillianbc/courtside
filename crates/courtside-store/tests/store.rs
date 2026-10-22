@@ -166,7 +166,8 @@ fn starting_sixes_are_stored() {
 /// rosters.
 fn downgrade_to_v2(conn: &rusqlite::Connection) {
     conn.execute_batch(
-        "ALTER TABLE match DROP COLUMN tables;
+        "ALTER TABLE team DROP COLUMN colour;
+         ALTER TABLE match DROP COLUMN tables;
          ALTER TABLE match DROP COLUMN video_path;
          DROP TABLE setting;
          DROP INDEX team_code;
@@ -201,7 +202,8 @@ fn version_6_files_get_play_positions() {
     {
         let conn = rusqlite::Connection::open(&path).expect("sqlite");
         conn.execute_batch(
-            "ALTER TABLE event DROP COLUMN minutes;
+            "ALTER TABLE team DROP COLUMN colour;
+             ALTER TABLE event DROP COLUMN minutes;
              ALTER TABLE event DROP COLUMN start_xy;
              ALTER TABLE event DROP COLUMN mid_xy;
              ALTER TABLE event DROP COLUMN end_xy;
@@ -238,7 +240,8 @@ fn version_7_files_get_set_minutes() {
     {
         let conn = rusqlite::Connection::open(&path).expect("sqlite");
         conn.execute_batch(
-            "ALTER TABLE event DROP COLUMN minutes;
+            "ALTER TABLE team DROP COLUMN colour;
+             ALTER TABLE event DROP COLUMN minutes;
              PRAGMA user_version = 7;",
         )
         .expect("downgrade to v7");
@@ -250,6 +253,39 @@ fn version_7_files_get_set_minutes() {
     season.save_minutes(id, first, Some(24)).expect("save");
     let game = season.open_match(id).expect("reload").game;
     assert_eq!(game.log.all()[0].minutes, Some(24));
+}
+
+/// Version 9 adds a colour per team; a version 8 file's teams have none.
+#[test]
+fn version_8_files_get_team_colours() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("season.courtside");
+    {
+        let mut season = Season::create(&path, "2026/27", 1).expect("create");
+        season
+            .import_dvw("m.dvw", FILE.as_bytes(), 1_000)
+            .expect("import");
+    }
+    {
+        let conn = rusqlite::Connection::open(&path).expect("sqlite");
+        conn.execute_batch(
+            "ALTER TABLE team DROP COLUMN colour;
+             PRAGMA user_version = 8;",
+        )
+        .expect("downgrade to v8");
+    }
+    let mut season = Season::open(&path).expect("migrated");
+    let team = season.teams().expect("teams").remove(0);
+    assert_eq!(team.colour, "");
+    let input = courtside_store::TeamInput {
+        name: team.name.clone(),
+        code: team.code.clone(),
+        coach: team.coach.clone(),
+        assistant: team.assistant.clone(),
+        colour: "navy".into(),
+    };
+    season.update_team(&team.id, &input).expect("update");
+    assert_eq!(season.team(&team.id).expect("team").colour, "navy");
 }
 
 #[test]

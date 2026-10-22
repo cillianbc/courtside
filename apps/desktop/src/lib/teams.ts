@@ -24,6 +24,8 @@ export interface TeamDetail {
   code: string;
   coach: string;
   assistant: string;
+  /** A colour preset's key ([`TEAM_COLOURS`]); empty for the default. */
+  colour: string;
   matches: number;
   players: PlayerDetail[];
 }
@@ -33,6 +35,49 @@ export interface TeamForm {
   code: string;
   coach: string;
   assistant: string;
+  colour: string;
+}
+
+/**
+ * Team colours a team may pick (v6 T13): each a light and a dark tone that
+ * keep 4.5:1 on the panels, and far enough from the error, warning,
+ * selection and setter colours (docs/design/reviews/v5-ui-designer.md,
+ * "Team-colour picker range"). Contrast on the light / dark panel noted.
+ */
+export const TEAM_COLOURS: readonly { key: string; label: string; light: string; dark: string }[] =
+  [
+    { key: "blue", label: "Blue", light: "#1d5fbf", dark: "#6aa3ff" }, // 6.10 / 6.42
+    { key: "navy", label: "Navy", light: "#2b3f8f", dark: "#8fa2ef" }, // 9.50 / 6.64
+    { key: "green", label: "Green", light: "#2e7629", dark: "#6fcf6a" }, // 5.62 (4.68 on sunk) / 8.37
+    { key: "orange", label: "Orange", light: "#b04a12", dark: "#f39a62" }, // 5.48 / 7.44
+    { key: "red-orange", label: "Red-orange", light: "#b8361e", dark: "#ff8a70" }, // 5.86 / 7.06
+    { key: "brown", label: "Brown", light: "#7a4a26", dark: "#d39a6e" }, // 7.41 / 6.67
+    { key: "charcoal", label: "Charcoal", light: "#2b2f36", dark: "#c9d1db" }, // 13.4 / 10.6
+  ];
+
+/** The preset for `key`, if it is one. */
+export function teamColour(key: string) {
+  return TEAM_COLOURS.find((c) => c.key === key) ?? null;
+}
+
+/**
+ * Puts a match's team colours on <html> (the colour tokens read them). The
+ * visiting team keeps its default when both picked the same colour, so the
+ * two teams never look alike.
+ */
+export function applyTeamColours(home: string, visiting: string) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  const set = (side: "home" | "away", key: string) => {
+    const c = teamColour(key);
+    root.toggleAttribute(`data-${side}-colour`, !!c);
+    if (c) {
+      root.style.setProperty(`--${side}-l`, c.light);
+      root.style.setProperty(`--${side}-d`, c.dark);
+    }
+  };
+  set("home", home);
+  set("away", visiting && visiting === home ? "" : visiting);
 }
 
 export interface PlayerListItem {

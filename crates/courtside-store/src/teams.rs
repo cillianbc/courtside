@@ -20,6 +20,8 @@ pub struct Team {
     pub code: String,
     pub coach: String,
     pub assistant: String,
+    /// A colour preset's key; empty for the default.
+    pub colour: String,
     pub players: Vec<Player>,
     /// Matches the team plays in.
     pub matches: usize,
@@ -52,6 +54,8 @@ pub struct TeamInput {
     pub code: String,
     pub coach: String,
     pub assistant: String,
+    /// A colour preset's key; empty for the default.
+    pub colour: String,
 }
 
 /// A roster row as entered. `id` is set for a player already on the
@@ -170,7 +174,7 @@ impl Season {
         let mut teams: Vec<Team> = self
             .conn
             .prepare(
-                "SELECT t.id, t.name, t.code, t.coach, t.assistant,
+                "SELECT t.id, t.name, t.code, t.coach, t.assistant, t.colour,
                         (SELECT COUNT(*) FROM match m
                          WHERE m.home_team_id = t.id OR m.visiting_team_id = t.id)
                  FROM team t ORDER BY t.name",
@@ -182,8 +186,9 @@ impl Season {
                     code: r.get(2)?,
                     coach: r.get(3)?,
                     assistant: r.get(4)?,
+                    colour: r.get(5)?,
                     players: Vec::new(),
-                    matches: r.get::<_, i64>(5)?.try_into().unwrap_or(0),
+                    matches: r.get::<_, i64>(6)?.try_into().unwrap_or(0),
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
@@ -470,13 +475,14 @@ fn team_create_in(tx: &Transaction<'_>, input: &TeamInput, now_ms: u64) -> Resul
     let id = next_id(tx, now_ms)?.to_string();
     let code = team_code(tx, input, &id)?;
     tx.execute(
-        "INSERT INTO team (id, name, code, coach, assistant) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO team (id, name, code, coach, assistant, colour) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             id,
             input.name.trim(),
             code,
             input.coach.trim(),
-            input.assistant.trim()
+            input.assistant.trim(),
+            input.colour.trim()
         ],
     )
     .map_err(|e| unique_name(e, &input.name))?;
@@ -487,13 +493,14 @@ fn team_update_in(tx: &Transaction<'_>, id: &str, input: &TeamInput) -> Result<(
     let code = team_code(tx, input, id)?;
     let n = tx
         .execute(
-            "UPDATE team SET name = ?2, code = ?3, coach = ?4, assistant = ?5 WHERE id = ?1",
+            "UPDATE team SET name = ?2, code = ?3, coach = ?4, assistant = ?5, colour = ?6 WHERE id = ?1",
             params![
                 id,
                 input.name.trim(),
                 code,
                 input.coach.trim(),
-                input.assistant.trim()
+                input.assistant.trim(),
+                input.colour.trim()
             ],
         )
         .map_err(|e| unique_name(e, &input.name))?;
@@ -862,6 +869,7 @@ impl Season {
                         code,
                         coach: file.coach.clone(),
                         assistant: file.assistant.clone(),
+                        colour: String::new(),
                     },
                     now_ms,
                 )?

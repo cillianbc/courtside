@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as backend from "../backend";
-  import { rosterProblems, type PlayerDetail, type TeamDetail } from "../teams";
+  import { TEAM_COLOURS, rosterProblems, type PlayerDetail, type TeamDetail } from "../teams";
   import RosterGrid from "./RosterGrid.svelte";
 
   let { team, onclose }: { team: TeamDetail | null; onclose: (saved: boolean) => void } = $props();
@@ -12,6 +12,7 @@
     code: team?.code ?? "",
     coach: team?.coach ?? "",
     assistant: team?.assistant ?? "",
+    colour: team?.colour ?? "",
   });
   // svelte-ignore state_referenced_locally
   let rows = $state<PlayerDetail[]>(structuredClone(team?.players ?? []));
@@ -58,6 +59,28 @@
     <label class="grow">Coach <input bind:value={form.coach} /></label>
     <label class="grow">Assistant <input bind:value={form.assistant} /></label>
   </div>
+  <fieldset class="colours">
+    <legend>Colour</legend>
+    <p class="sub-note">
+      Light and dark tones, each easy to read on the panels. Colours that look like an error, a
+      warning, a selection or the setter aren't offered. When both teams in a match pick the same
+      one, the visiting team keeps its default.
+    </p>
+    <div class="swatches">
+      <label class="sw" class:on={form.colour === ""}>
+        <input type="radio" name="colour" value="" bind:group={form.colour} />
+        <span class="chip default"><i></i><i></i></span>Default
+      </label>
+      {#each TEAM_COLOURS as c (c.key)}
+        <label class="sw" class:on={form.colour === c.key}>
+          <input type="radio" name="colour" value={c.key} bind:group={form.colour} />
+          <span class="chip"
+            ><i style:background={c.light}></i><i style:background={c.dark}></i></span
+          >{c.label}
+        </label>
+      {/each}
+    </div>
+  </fieldset>
   <RosterGrid bind:rows />
   {#if error}<p class="error">{error}</p>{/if}
   <div class="actions">

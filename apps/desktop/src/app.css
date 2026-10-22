@@ -2705,3 +2705,91 @@ button.flag {
   padding: 0 8px;
   font-size: 12px;
 }
+
+/* Team colours (v6 T13): a team's preset replaces the default tone, light
+   or dark by theme (teams.ts `applyTeamColours`). Later than the token
+   blocks with the same specificity, so these win over them and the boost. */
+:root[data-home-colour] {
+  --home: var(--home-l);
+  --home-soft: color-mix(in srgb, var(--home-l) 14%, #ffffff);
+}
+:root[data-away-colour] {
+  --away: var(--away-l);
+  --away-soft: color-mix(in srgb, var(--away-l) 14%, #ffffff);
+}
+:root[data-home-colour][data-theme="dark"] {
+  --home: var(--home-d);
+  --home-soft: color-mix(in srgb, var(--home-d) 20%, #152130);
+}
+:root[data-away-colour][data-theme="dark"] {
+  --away: var(--away-d);
+  --away-soft: color-mix(in srgb, var(--away-d) 20%, #152130);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-home-colour]:not([data-theme="light"]) {
+    --home: var(--home-d);
+    --home-soft: color-mix(in srgb, var(--home-d) 20%, #152130);
+  }
+  :root[data-away-colour]:not([data-theme="light"]) {
+    --away: var(--away-d);
+    --away-soft: color-mix(in srgb, var(--away-d) 20%, #152130);
+  }
+}
+.colours {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  display: grid;
+  gap: 6px;
+}
+.colours legend {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sw {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-control);
+  background: var(--sunk);
+  font-size: 13px;
+  cursor: pointer;
+}
+.sw.on {
+  border: 2px solid var(--accent);
+  padding: 3px 7px 3px 3px;
+}
+.sw input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.sw:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.sw .chip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-tag);
+  overflow: hidden;
+  border: 1px solid var(--edge);
+}
+.sw .chip.default i:first-child {
+  background: #1d5fbf;
+}
+.sw .chip.default i:last-child {
+  background: #b04a12;
+}
