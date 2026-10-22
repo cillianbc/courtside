@@ -363,8 +363,14 @@
     gap: 2px;
     font-size: 12px;
     color: var(--muted);
+    min-width: 0;
   }
+  /* A select is as wide as its longest option (a team's name) unless told
+     otherwise: it fills its column instead and never spills into the next. */
   .clip-filter select {
+    width: 100%;
+    min-width: 0;
+    text-overflow: ellipsis;
     font: inherit;
     font-size: 13px;
     height: 28px;
