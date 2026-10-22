@@ -18,11 +18,29 @@ describe("clip windows", () => {
     expect([c.startMs, c.endMs]).toEqual([7_000, 19_000]);
   });
 
+  it("starts a rally where the one before was last coded", () => {
+    // Rally 2 runs from rally 1's last code (16 s), less the lead-in.
+    const c = asRally(clip("d2", 43_000), spans);
+    expect([c.startMs, c.endMs]).toEqual([13_000, 49_000]);
+  });
+
+  it("keeps two rallies typed in one line apart", () => {
+    // Both coded at 27:55.8 with the video paused; the first rally's play
+    // lies after the point before them (27:38.9).
+    const paused = rallySpans([
+      group(5, [row("p5", 1_658_967)]),
+      group(6, [row("s6", 1_675_842), row("k6", 1_675_842)]),
+      group(7, [row("s7", 1_675_842), row("e7", 1_677_598)]),
+    ]);
+    expect(paused["k6"]).toMatchObject({ from: 1_658_967, to: 1_675_842 });
+    expect(paused["e7"]).toMatchObject({ from: 1_675_842, to: 1_677_598 });
+  });
+
   it("plays each rally once", () => {
     const list = wholeRallies([clip("d1", 14_000), clip("d2", 43_000), clip("d3", 46_000)], spans);
     expect(list.map((c) => [c.startMs, c.endMs])).toEqual([
       [7_000, 19_000],
-      [37_000, 49_000],
+      [13_000, 49_000],
       [49_000, 49_000],
     ]);
   });

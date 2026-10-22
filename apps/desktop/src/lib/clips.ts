@@ -8,14 +8,29 @@ export interface RallySpan {
   to: number;
 }
 
-/** Each code's rally span, by event id (rallies with no video time left out). */
+/**
+ * Each code's rally span, by event id (rallies with no video time left out).
+ * A rally starts where the rally before it was last coded: codes are typed
+ * after the play (often several rallies in one line while the video is
+ * paused, so they share a time), and the play itself lies between the two.
+ */
 export function rallySpans(groups: Group[]): Record<string, RallySpan> {
   const m: Record<string, RallySpan> = {};
+  let before: number | null = null;
+  let set: number | null = null;
   for (const g of groups) {
+    if (g.set !== set) {
+      set = g.set;
+      before = null;
+    }
     const times = g.rows.filter((r) => r.videoMs !== null).map((r) => r.videoMs ?? 0);
     if (!times.length) continue;
-    const span = { key: `${g.set}-${g.rally}`, from: Math.min(...times), to: Math.max(...times) };
+    const first = Math.min(...times);
+    const last = Math.max(...times);
+    const from = before !== null && before < first ? before : first;
+    const span = { key: `${g.set}-${g.rally}`, from, to: last };
     for (const r of g.rows) m[r.id] = span;
+    before = last;
   }
   return m;
 }
