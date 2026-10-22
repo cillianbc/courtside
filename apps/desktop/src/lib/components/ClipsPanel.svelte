@@ -1,8 +1,9 @@
 <script lang="ts">
   import * as backend from "../backend";
+  import { asRally, rallySpans, wholeRallies as wholeRallyClips } from "../clips";
   import { withKey } from "../kbd";
   import { keyFor } from "../settings";
-  import type { ClipFilter, Clips, Side, Snapshot } from "../snapshot";
+  import type { Clip, ClipFilter, Clips, Side, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
   import { video } from "../video.svelte";
 
@@ -36,14 +37,14 @@
         if (kept !== null) {
           // Back from modifying a clip's code: stay where the scout was
           // (the next clip, when the edit took it out of the list).
-          video.playlist = c.clips;
+          video.playlist = windows(c.clips);
           video.clipAt = Math.min(kept, c.clips.length - 1);
           kept = null;
           return;
         }
         // A new list: the clip playing is no longer where it was.
         video.stopClips();
-        video.playlist = c.clips;
+        video.playlist = windows(c.clips);
       },
       (e) => (error = String(e)),
     );
@@ -55,6 +56,25 @@
     const c = video.clip;
     if (c) ui.selected = c.id;
   });
+
+  // A clip's whole rally (the code times don't always line up with the
+  // touch); "Whole rallies" plays every clip that way, each rally once.
+  let wholeRallies = $state(false);
+  const rallyOf = $derived(rallySpans(snap.groups));
+  function windows(clips: Clip[]): Clip[] {
+    return wholeRallies ? wholeRallyClips(clips, rallyOf) : clips;
+  }
+  function toggleWholeRallies() {
+    wholeRallies = !wholeRallies;
+    video.playlist = windows(result.clips);
+  }
+  /** Plays clip `i`'s whole rally once; the list carries on from there. */
+  function playRally(i: number) {
+    const c = result.clips[i];
+    if (!c || !video.open) return;
+    video.playlist = video.playlist.map((x, j) => (j === i ? asRally(c, rallyOf) : x));
+    void video.playClip(i);
+  }
 
   function modify(i: number) {
     const c = result.clips[i];
@@ -161,6 +181,13 @@
         · {result.withoutVideo} without video time (sync the video){/if}</span
     >
     <span class="stream-tools">
+      <button
+        class="btn"
+        type="button"
+        aria-pressed={wholeRallies}
+        title="Play each clip as its whole rally, serve to point (each rally once)"
+        onclick={toggleWholeRallies}>Whole rallies</button
+      >
       {#if video.clipAt >= 0}
         <button class="btn" type="button" onclick={video.stopClips}>Stop</button>
       {:else}
@@ -216,6 +243,16 @@
         <span class="meaning">{c.meaning}</span>
         <span class="clip-tools">
           <span class="rate">{fmt(c.videoMs)}</span>
+          <button
+            type="button"
+            class="btn small"
+            disabled={!video.open || !rallyOf[c.id]}
+            title="Play this clip's whole rally, serve to point"
+            onclick={(e) => {
+              e.stopPropagation();
+              playRally(i);
+            }}>Rally</button
+          >
           <button
             type="button"
             class="btn small"

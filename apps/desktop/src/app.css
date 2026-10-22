@@ -2793,3 +2793,9 @@ button.flag {
 .sw .chip.default i:last-child {
   background: #b04a12;
 }
+
+.btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
