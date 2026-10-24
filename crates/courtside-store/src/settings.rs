@@ -86,7 +86,8 @@ pub struct Typing {
     pub types: [char; 7],
     /// Evaluation per skill, in [`SKILLS`] order.
     pub evaluations: [char; 7],
-    /// Predict the skill from the touch before.
+    /// Read a bare number straight after the other team's serve as their
+    /// reception (a rally's first code is the serve either way).
     pub predict: bool,
 }
 

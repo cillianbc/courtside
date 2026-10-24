@@ -45,7 +45,8 @@ pub struct Defaults {
     pub types: [char; 7],
     /// Evaluation per skill when none is typed, same order.
     pub evaluations: [char; 7],
-    /// Predict the skill from the touch before.
+    /// Read a bare number straight after the other team's serve as their
+    /// reception. A rally's first code is the serve either way.
     pub predict: bool,
     /// Attack combinations. A typed combination fills a missing type and
     /// start zone.
@@ -291,15 +292,16 @@ fn typed_touch(token: &str, implied: bool) -> Result<Typed, String> {
 }
 
 /// The skill `before` settles for `team`'s next touch: the serve to
-/// start a rally, the reception after the other team's serve. Anything
-/// else takes [`Defaults::skill`], as VolleyStation does: a number after
-/// the other team's attack or a block is the counter-attack, not a dig
-/// (the user's call, #24).
-fn predicted(before: Option<&Touch>, team: Team) -> Option<Skill> {
+/// start a rally, and the reception after the other team's serve unless
+/// the season turned that off ([`Defaults::predict`]). Anything else
+/// takes [`Defaults::skill`], as VolleyStation does: a number after the
+/// other team's attack or a block is the counter-attack, not a dig (the
+/// user's call, #24).
+fn predicted(before: Option<&Touch>, team: Team, d: &Defaults) -> Option<Skill> {
     let Some(b) = before else {
         return Some(Skill::Serve);
     };
-    (b.skill == Skill::Serve && b.team != team).then_some(Skill::Reception)
+    (d.predict && b.skill == Skill::Serve && b.team != team).then_some(Skill::Reception)
 }
 
 /// The type a touch answering `before` takes, if it inherits one.
@@ -334,7 +336,7 @@ fn complete(
             let c = t.pre.chars().next().unwrap_or('?');
             return Err(format!("Unknown skill letter {c}."));
         }
-        None => match predicted(before, team).filter(|_| d.predict) {
+        None => match predicted(before, team, d) {
             Some(s) => {
                 filled.push("skill predicted".into());
                 s
@@ -598,7 +600,9 @@ fn compound(
     b.team = Some(team_b);
     let skill_a = match a.skill {
         Some(s) => s,
-        None => match predicted(before, team_a).filter(|_| d.predict) {
+        // A combination stands in for the attack (`2X2.a8=`).
+        None if a.pre.get(..2).is_some_and(|c| d.combination(c).is_some()) => Skill::Attack,
+        None => match predicted(before, team_a, d) {
             Some(s @ (Skill::Serve | Skill::Attack)) => s,
             _ => Skill::Attack,
         },
@@ -616,10 +620,23 @@ fn compound(
     if a.skill.is_none() {
         filled.push(format!("{} from the dot", name(skill_a)));
     }
-    // Type: one half's for the other, else the first half's default.
+    let rest_a = layout(skill_a, &a, d)?;
+    // The attack's combination gives a missing type and start zone, as on
+    // a single code.
+    let combination = (skill_a == Skill::Attack)
+        .then(|| rest_a.get(..2))
+        .flatten()
+        .and_then(|code| d.combination(code));
+    // Type: one half's for the other, else the combination's, else the
+    // first half's default.
     let ty = a
         .skill_type
         .or(b.skill_type)
+        .or_else(|| {
+            let c = combination?;
+            filled.push("type from the combination".into());
+            Some(c.tempo)
+        })
         .or_else(|| {
             filled.push("type default".into());
             Some(d.types[slot(skill_a)])
@@ -655,14 +672,13 @@ fn compound(
         Code::Touch(x) => x.player,
         _ => crate::code::Player::Unknown,
     };
-    let mut first = build(
-        team_a,
-        player(&a),
-        skill_a,
-        ty,
-        ev_a,
-        &layout(skill_a, &a, d)?,
-    );
+    let mut first = build(team_a, player(&a), skill_a, ty, ev_a, &rest_a);
+    if let Some(c) = combination
+        && first.start_zone().is_none()
+    {
+        filled.push("zone from the combination".into());
+        first = first.with_start_zone(c.start_zone);
+    }
     let mut second = build(
         team_b,
         player(&b),
@@ -962,6 +978,10 @@ mod tests {
             Ok("*07AH+"),
             "VolleyStation's way"
         );
+        // A rally still starts with the serve, single or dot code.
+        let first = |token: &str| expand(token, None, &raw).map(|x| x.codes[0].to_string());
+        assert_eq!(first("7").as_deref(), Ok("*07SH+"));
+        assert_eq!(first("7.a8#").as_deref(), Ok("*07SH-"));
         assert_eq!(exp("5a#", Some("*08DQ+")), ["*05AH#"], "lower case letters");
         assert_eq!(
             exp("a2AQ#X5~42", None),
@@ -1068,6 +1088,26 @@ mod tests {
             assert_eq!(x.codes.len(), 1, "{code}");
             assert_eq!(x.codes[0].to_string(), code);
         }
+    }
+
+    /// A combination in a dot code gives the attack its type and start
+    /// zone as it does on its own; the block mirrors the zone.
+    #[test]
+    fn a_dot_code_takes_its_combination() {
+        let d = Defaults {
+            combinations: vec![combo("X5", 'T', '4', 'F')],
+            ..Defaults::default()
+        };
+        let dot = |token: &str| -> Vec<String> {
+            expand(token, None, &d)
+                .unwrap_or_else(|e| panic!("{token}: {e}"))
+                .codes
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        };
+        assert_eq!(dot("2X5.a8="), ["*02AT#X5~4", "a08BT=~~~2"]);
+        assert_eq!(dot("2AX5.a8D="), ["*02AT#X5~4", "a08DT=~~~4"]);
     }
 
     #[test]

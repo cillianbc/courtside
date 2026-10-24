@@ -2,10 +2,10 @@
   import { onDestroy } from "svelte";
   import * as backend from "../backend";
   import { asRally, rallySpans, wholeRallies as wholeRallyClips } from "../clips";
-  import { emptyFilter, filterSummary } from "../filter";
+  import { filterSummary } from "../filter";
   import { withKey } from "../kbd";
   import { keyFor } from "../settings";
-  import type { Clip, ClipFilter, Clips, Snapshot } from "../snapshot";
+  import type { Clip, Clips, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
   import { video } from "../video.svelte";
   import CodeFilter from "./CodeFilter.svelte";
@@ -14,17 +14,19 @@
 
   // The playlist the filter picks (PRD F-23), played clip by clip in the
   // video with the season's pre- and post-roll.
-  let filter = $state<ClipFilter>(emptyFilter());
+  // Kept in `ui` while the panel is closed (switching tab or layout).
+  $effect.pre(() => void ui.clipsFor(snap.matchId));
+  const saved = $derived(ui.clips);
   let result = $state<Clips>({ clips: [], withoutVideo: 0 });
   let error = $state("");
   // Review and fix (#25): the clip being modified keeps the list's place
   // when the edit comes back; clips the scout has looked at are ticked.
   let kept: number | null = null;
-  let checked = $state<Record<string, boolean>>({});
+  const checked = $derived(saved.checked);
 
   $effect(() => {
     void snap;
-    const f = $state.snapshot(filter);
+    const f = $state.snapshot(saved.filter);
     backend.clips(f).then(
       (c) => {
         result = c;
@@ -54,13 +56,13 @@
 
   // A clip's whole rally (the code times don't always line up with the
   // touch); "Whole rallies" plays every clip that way, each rally once.
-  let wholeRallies = $state(false);
+
   const rallyOf = $derived(rallySpans(snap.groups));
   function windows(clips: Clip[]): Clip[] {
-    return wholeRallies ? wholeRallyClips(clips, rallyOf) : clips;
+    return saved.wholeRallies ? wholeRallyClips(clips, rallyOf) : clips;
   }
   function toggleWholeRallies() {
-    wholeRallies = !wholeRallies;
+    saved.wholeRallies = !saved.wholeRallies;
     video.playlist = windows(result.clips);
   }
   /** Plays clip `i`'s whole rally once; the list carries on from there. */
@@ -81,7 +83,7 @@
 
   // The filter folded to one line (v6 clips design); the form opens below.
   let filtering = $state(false);
-  const summary = $derived(filterSummary(filter, snap));
+  const summary = $derived(filterSummary(saved.filter, snap));
   const checkedCount = $derived(result.clips.filter((c) => checked[c.id]).length);
   // Leaving the list stops it.
   onDestroy(() => video.stopClips());
@@ -106,7 +108,7 @@
     >
   </div>
   {#if filtering}
-    <CodeFilter {snap} bind:filter ondone={() => (filtering = false)} />
+    <CodeFilter {snap} bind:filter={saved.filter} ondone={() => (filtering = false)} />
   {/if}
   <div class="clip-controls">
     {#if video.clipAt >= 0}
@@ -137,7 +139,7 @@
     <button
       class="btn small"
       type="button"
-      aria-pressed={wholeRallies}
+      aria-pressed={saved.wholeRallies}
       title="Play each clip as its whole rally, serve to point (each rally once)"
       onclick={toggleWholeRallies}>Whole rallies</button
     >

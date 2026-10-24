@@ -53,9 +53,10 @@
     <button class="btn primary" type="submit" disabled={!code}>Make substitution</button>
     <button class="btn" type="button" onclick={onclose}>Cancel</button>
   </div>
-  <div class="sub-note" class:bad={next > 6}>
-    {code ? `Writes ${code}. ` : ""}This is substitution {next} of 6{next > 6
-      ? ", one too many."
+  <div class="sub-note" class:bad={next > snap.substitutionLimit}>
+    {code ? `Writes ${code}. ` : ""}This is substitution {next} of {snap.substitutionLimit}{next >
+    snap.substitutionLimit
+      ? ", over the season's limit."
       : "."}
   </div>
 </form>

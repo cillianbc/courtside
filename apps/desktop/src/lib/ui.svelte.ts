@@ -61,6 +61,17 @@ function applyLook(theme: Theme, boost: boolean) {
   root.toggleAttribute("data-boost", boost);
 }
 
+interface ClipsState {
+  matchId: string | null;
+  filter: ClipFilter;
+  checked: Record<string, boolean>;
+  wholeRallies: boolean;
+}
+
+function freshClips(matchId: string | null): ClipsState {
+  return { matchId, filter: emptyFilter(), checked: {}, wholeRallies: false };
+}
+
 class Ui {
   snapshot = $state<Snapshot | null>(null);
   /** Away team drawn first (left / bottom). */
@@ -87,6 +98,11 @@ class Ui {
   findFilter = $state<ClipFilter>(emptyFilter());
   found = $state<string[]>([]);
   findFocus = $state(0);
+  /**
+   * Clips' filter, Checked ticks and Whole rallies, kept while the panel is
+   * closed, for the match `matchId` (another match starts afresh).
+   */
+  clips = $state<ClipsState>(freshClips(null));
   /** Set whose codes the stream shows; `null` follows the set in progress. */
   shownSet = $state<number | null>(null);
   code = $state("");
@@ -320,6 +336,12 @@ class Ui {
   openChecks() {
     this.sideTab = "checks";
     if (this.layout === "watch") this.checksOpen = true;
+  }
+
+  /** Clips' kept state for the open match, started afresh for another one. */
+  clipsFor(matchId: string): ClipsState {
+    if (this.clips.matchId !== matchId) this.clips = freshClips(matchId);
+    return this.clips;
   }
 
   /** Opens the code log's search (in place of Checks, in the Video layout) and focuses it. */
