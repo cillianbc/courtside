@@ -36,6 +36,8 @@ head = "# The courtside CLI's source, published from the app's private repositor
 open(out, "w").write(head + s)
 PY
 
+printf '/target\n' > "$dest/.gitignore"
+
 # Cargo trims the lock to these crates; the build must pass on its own.
 (cd "$dest" && cargo build -q -p courtside-cli && cargo test -q --workspace >/dev/null)
 git -C "$dest" add -A
