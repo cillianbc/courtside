@@ -1,0 +1,84 @@
+name: Desktop app
+
+# Installers that need nothing else installed (video included,
+# docs/adr/0004): a .dmg for macOS (Apple silicon), an .exe installer for
+# Windows. Run by hand for now; app releases (app-v* tags) come later.
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Crash reports go to Sentry only with a DSN in the build (diagnostics.rs).
+  SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
+jobs:
+  macos:
+    # The bundled libraries are Homebrew's for this macOS, so the app runs
+    # on it and later.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - run: brew install mpv dylibbundler
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/desktop
+      - run: tools/bundle/macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: courtside-macos
+          path: target/release/bundle/dmg/*.dmg
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - uses: ilammy/msvc-dev-cmd@v1
+      # libmpv for Windows: shinchiro's mpv-winbuild-cmake development
+      # package (libmpv-2.dll, a .def). The import library is made from the
+      # .def; the DLL goes beside the app (the --config on the build).
+      - name: libmpv
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $asset = gh release view --repo shinchiro/mpv-winbuild-cmake --json assets `
+            --jq '.assets[] | select(.name | test("^mpv-dev-x86_64-[0-9]")) | .name' | Select-Object -First 1
+          gh release download --repo shinchiro/mpv-winbuild-cmake --pattern $asset --dir mpv
+          7z x "mpv/$asset" -ompv -y | Out-Null
+          $def = Get-ChildItem mpv -Recurse -Filter *.def | Select-Object -First 1
+          $dll = Get-ChildItem mpv -Recurse -Filter 'libmpv*.dll' | Select-Object -First 1
+          if (-not $def -or -not $dll) { Get-ChildItem mpv -Recurse | Select-Object FullName; exit 1 }
+          lib /nologo /def:$($def.FullName) /name:$($dll.Name) /out:mpv/mpv.lib /machine:x64
+          New-Item -ItemType Directory -Force apps/desktop/src-tauri/libmpv | Out-Null
+          Copy-Item $dll.FullName apps/desktop/src-tauri/libmpv/libmpv-2.dll
+          "MPV_LIB_DIR=$PWD\mpv" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "libmpv: $asset" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/desktop
+      - run: >-
+          pnpm tauri build --bundles nsis
+          --config '{"bundle":{"resources":{"libmpv/libmpv-2.dll":"libmpv-2.dll"}}}'
+        working-directory: apps/desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: courtside-windows
+          path: target/release/bundle/nsis/*.exe
