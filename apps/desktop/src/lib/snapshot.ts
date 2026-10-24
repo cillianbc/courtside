@@ -187,6 +187,8 @@ export interface ClipFilter {
   rotation: number | null;
   phase: "serve" | "reception" | "transition" | null;
   set: number | null;
+  /** Text the code contains, as written (`D=`, `a12`); "" for all. */
+  text: string;
 }
 
 export interface Clip {

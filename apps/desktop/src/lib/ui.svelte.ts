@@ -3,11 +3,12 @@
 
 import * as backend from "./backend";
 import { pointCode } from "./codes";
+import { emptyFilter } from "./filter";
 import { setNews } from "./news";
 import type { Hint } from "./hint";
 import { effectiveKeymap, type KeyBinding, type KeyText } from "./settings";
 import { stampTokens, video } from "./video.svelte";
-import type { Side, Snapshot } from "./snapshot";
+import type { ClipFilter, Side, Snapshot } from "./snapshot";
 
 /** The command bar is editing an earlier code rather than adding one. */
 export interface Editing {
@@ -78,6 +79,14 @@ class Ui {
   sideTab = $state<"checks" | "set" | "clips">("checks");
   /** Checks show where the code stream does (Video layout, v6 T8). */
   checksOpen = $state(false);
+  /**
+   * The code log's search (#25): open or not, what it looks for, and the
+   * codes it found by event id in match order.
+   */
+  finding = $state(false);
+  findFilter = $state<ClipFilter>(emptyFilter());
+  found = $state<string[]>([]);
+  findFocus = $state(0);
   /** Set whose codes the stream shows; `null` follows the set in progress. */
   shownSet = $state<number | null>(null);
   code = $state("");
@@ -311,6 +320,18 @@ class Ui {
   openChecks() {
     this.sideTab = "checks";
     if (this.layout === "watch") this.checksOpen = true;
+  }
+
+  /** Opens the code log's search (in place of Checks, in the Video layout) and focuses it. */
+  openFind() {
+    this.finding = true;
+    if (this.layout === "watch") this.checksOpen = false;
+    this.findFocus += 1;
+  }
+
+  closeFind() {
+    this.finding = false;
+    this.found = [];
   }
 
   /**

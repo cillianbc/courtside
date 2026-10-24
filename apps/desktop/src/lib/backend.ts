@@ -149,6 +149,21 @@ export async function clips(filter: ClipFilter): Promise<Clips> {
   return invoke<Clips>("clips", { filter });
 }
 
+/**
+ * The codes a search in the code log finds, by event id in match order.
+ * In a browser, a text search over the fixture's rows.
+ */
+export async function findCodes(filter: ClipFilter): Promise<string[]> {
+  if (!inTauri) {
+    if (!filter.text) return [];
+    return fixture()
+      .groups.flatMap((g) => g.rows)
+      .filter((r) => r.text.includes(filter.text))
+      .map((r) => r.id);
+  }
+  return invoke<string[]>("find_codes", { filter });
+}
+
 /** Enters a team's six (zones 1–6) and setter for the set in progress. */
 export async function setLineup(team: Side, court: number[], setter: number): Promise<Snapshot> {
   if (!inTauri) throw new Error("Coding needs the desktop app.");

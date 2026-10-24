@@ -307,6 +307,12 @@ fn clips(state: State<'_, Shared>, filter: ClipFilter) -> Reply<Clips> {
     with(&state, |s| s.clips(&filter))
 }
 
+/// The codes a search in the code log finds, by event id.
+#[tauri::command]
+fn find_codes(state: State<'_, Shared>, filter: ClipFilter) -> Reply<Vec<String>> {
+    with(&state, |s| s.find_codes(&filter))
+}
+
 /// Enters a team's six for the set in progress: `team` is `"home"` or
 /// `"visiting"`, `court` shirt numbers in zones 1–6.
 #[tauri::command]
@@ -618,6 +624,7 @@ fn main() {
             video_open,
             video_sync,
             clips,
+            find_codes,
             match_video_set,
             video_place,
             video_command,

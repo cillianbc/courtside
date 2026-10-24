@@ -174,7 +174,11 @@ fn a_side_out_rotates_the_winner() {
         }
     );
     let t = texts(&snap);
-    assert_eq!(t[t.len() - 4..], ["a14EH+", "a13AH#", "ap01:02", "az2"]);
+    // The visiting kill had no home touch after it: home's green code.
+    assert_eq!(
+        t[t.len() - 5..],
+        ["a14EH+", "a13AH#", "*$$&H=", "ap01:02", "az2"]
+    );
     // 13 rotates into zone 1 and serves next; setter 14 in zone 2.
     assert_eq!(snap.court.visiting[0], Some(13));
     assert_eq!(snap.setter_zone.visiting, Some(2));
@@ -262,8 +266,8 @@ fn shorthand_is_expanded_with_the_rally_as_context() {
     let snap = session.commit("a16 a14E a13#", None).expect("commit");
     let t = texts(&snap);
     assert_eq!(
-        t[t.len() - 5..],
-        ["a16RH+", "a14EH+", "a13AH#", "ap01:02", "az2"]
+        t[t.len() - 6..],
+        ["a16RH+", "a14EH+", "a13AH#", "*$$&H=", "ap01:02", "az2"]
     );
 }
 
@@ -280,8 +284,8 @@ fn the_setters_set_is_added_unless_typed() {
     let snap = session.commit("a16# a8#", None).expect("commit");
     let t = texts(&snap);
     assert_eq!(
-        t[t.len() - 5..t.len() - 1],
-        ["a16RH#", "a14EH+", "a08AH#", "ap01:02"]
+        t[t.len() - 6..t.len() - 1],
+        ["a16RH#", "a14EH+", "a08AH#", "*$$&H=", "ap01:02"]
     );
 
     // Someone else set: the typed set (default evaluation) and no other.
@@ -1101,6 +1105,35 @@ fn row_id(snap: &courtside_console::Snapshot, text: &str) -> String {
 }
 
 #[test]
+fn the_green_code_follows_the_rally_ending() {
+    let (mut session, _dir) = opened();
+    // A kill nobody touched after: the other team's green code.
+    let snap = session.commit("a12RH+ a14EH+ a13AH#", None).expect("rally");
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 4..], ["a13AH#", "*$$&H=", "ap01:02", "az2"]);
+
+    // A dig the scout missed pairs with the kill: no green code.
+    let snap = session
+        .insert_before(&row_id(&snap, "*$$&H="), "*05DH=", None)
+        .expect("insert");
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 4..], ["a13AH#", "*05DH=", "ap01:02", "az2"]);
+
+    // Taken out again, the green code is back.
+    let snap = session.remove(&row_id(&snap, "*05DH=")).expect("remove");
+    let t = texts(&snap);
+    assert_eq!(t[t.len() - 4..], ["a13AH#", "*$$&H=", "ap01:02", "az2"]);
+
+    // Not a kill after all: the rally is open again, with no green code.
+    let snap = session
+        .correct(&row_id(&snap, "a13AH#"), "a13AH+", None)
+        .expect("modify");
+    let t = texts(&snap);
+    assert_eq!(t.last().map(String::as_str), Some("a13AH+"));
+    assert!(!t.iter().any(|c| c.contains("$$&")), "{t:?}");
+}
+
+#[test]
 fn modifying_the_deciding_code_moves_the_point() {
     let (mut session, _dir) = opened();
     // Home serves at 1:1; the visiting kill is a side-out.
@@ -1113,7 +1146,7 @@ fn modifying_the_deciding_code_moves_the_point() {
         .correct(&row_id(&snap, "a13AH#"), "a13AH=", None)
         .expect("modify");
     let t = texts(&snap);
-    assert_eq!(t[t.len() - 2..], ["a13AH=", "*p02:01"], "{t:?}");
+    assert_eq!(t[t.len() - 3..], ["a13AH=", "*$$&H#", "*p02:01"], "{t:?}");
     assert_eq!((snap.score.home, snap.score.visiting), (2, 1));
 
     // A change that keeps the result leaves the console's codes alone.
@@ -1195,8 +1228,8 @@ fn rotations_follow_the_rally_winners() {
     assert_eq!(
         t[4..],
         [
-            "*01SH=", "ap00:01", "az3", "a12SH=", "*p01:01", "*z6", "*02SH=", "ap01:02", "az2",
-            "a13SH=", "*p02:02", "*z5"
+            "*01SH=", "a$$&H#", "ap00:01", "az3", "a12SH=", "*$$&H#", "*p01:01", "*z6", "*02SH=",
+            "a$$&H#", "ap01:02", "az2", "a13SH=", "*$$&H#", "*p02:02", "*z5"
         ]
     );
 
@@ -1210,7 +1243,7 @@ fn rotations_follow_the_rally_winners() {
         .correct(&row_id(&snap, "a13SH="), "a13SM=", None)
         .expect("correct");
     let t = texts(&snap);
-    assert_eq!(t[t.len() - 3..], ["a13SM=", "*p02:02", "*z6"]);
+    assert_eq!(t[t.len() - 4..], ["a13SM=", "*$$&H#", "*p02:02", "*z6"]);
     // The set's first rotation fault is the one shown; the rest follow it.
     let rotation: Vec<_> = snap
         .issues
@@ -1243,8 +1276,8 @@ fn rotations_follow_the_rally_winners() {
         .fix_rotations(&row_id(&snap, "a12SH="))
         .expect("fix");
     let t = texts(&snap);
-    assert_eq!(t[7..10], ["a12SH=", "*p01:01", "*z6"]);
-    assert_eq!(t[t.len() - 3..], ["a13SM=", "*p02:02", "*z5"]);
+    assert_eq!(t[8..12], ["a12SH=", "*$$&H#", "*p01:01", "*z6"]);
+    assert_eq!(t[t.len() - 4..], ["a13SM=", "*$$&H#", "*p02:02", "*z5"]);
     assert!(
         snap.issues.iter().all(|i| i.rule != "rotation"),
         "{:?}",
@@ -1252,8 +1285,8 @@ fn rotations_follow_the_rally_winners() {
     );
     let snap = session.undo().expect("undo");
     let t = texts(&snap);
-    assert_eq!(t[t.len() - 3..], ["a13SM=", "*p02:02", "*z6"]);
-    assert!(!t[..9].contains(&"*z6".to_string()));
+    assert_eq!(t[t.len() - 4..], ["a13SM=", "*$$&H#", "*p02:02", "*z6"]);
+    assert!(!t[..11].contains(&"*z6".to_string()));
 
     // A rotation the scout typed stands, even where it disagrees.
     let snap = session.commit("*z3", None).expect("typed rotation");
@@ -1436,12 +1469,13 @@ fn exact_mode_stamps_each_code_with_its_keystroke() {
         .expect("commit");
     let v = video_times(&snap);
     assert_eq!(
-        v[v.len() - 5..],
+        v[v.len() - 6..],
         [
             ("a16RM+".into(), Some(10_000)),
             ("a14EH+".into(), Some(11_200)),
             ("a13AH#".into(), Some(12_050)),
             // What the console writes gets the last code's time.
+            ("*$$&H=".into(), Some(12_050)),
             ("ap01:02".into(), Some(12_050)),
             ("az2".into(), Some(12_050)),
         ]
@@ -1572,6 +1606,45 @@ fn the_video_path_is_exported_only_when_asked() {
     );
 }
 
+#[test]
+fn a_search_finds_codes_with_or_without_video() {
+    use courtside_console::ClipFilter;
+
+    let (session, _dir) = opened();
+    let found = |f: ClipFilter| -> Vec<String> {
+        let snap = session.snapshot().expect("snapshot");
+        let text: std::collections::HashMap<String, String> = snap
+            .groups
+            .iter()
+            .flat_map(|g| &g.rows)
+            .map(|r| (r.id.clone(), r.text.clone()))
+            .collect();
+        session
+            .find_codes(&f)
+            .expect("find")
+            .iter()
+            .map(|id| text[id].clone())
+            .collect()
+    };
+    let text = |t: &str| ClipFilter {
+        text: t.into(),
+        ..ClipFilter::default()
+    };
+    // Nothing asked, nothing found; the codes aren't synced to video.
+    assert!(found(ClipFilter::default()).is_empty());
+    assert_eq!(found(text("a12")), ["a12RM+", "a12SM="]);
+    // Text alone looks through every code, not just touches.
+    assert_eq!(found(text("*T")), ["*T"]);
+    assert_eq!(found(text("p0")), ["ap00:01", "*p01:01"]);
+    // With a touch field, touches only.
+    let serves = ClipFilter {
+        skill: Some('S'),
+        text: "*".into(),
+        ..ClipFilter::default()
+    };
+    assert_eq!(found(serves), ["*01SM-", "*02SH+"]);
+}
+
 fn clip_texts(clips: &courtside_console::Clips) -> Vec<&str> {
     clips.clips.iter().map(|c| c.text.as_str()).collect()
 }
@@ -1683,7 +1756,7 @@ fn a_missed_rally_goes_in_mid_set() {
     assert_eq!(
         t[9..],
         [
-            "az3", "*T", "a12SH#", "ap00:02", "a12SM=", "*p01:02", "*z6", "*02SH+"
+            "az3", "*T", "a12SH#", "*$$&H=", "ap00:02", "a12SM=", "*p01:02", "*z6", "*02SH+"
         ]
     );
     assert!(
@@ -1698,8 +1771,8 @@ fn a_missed_rally_goes_in_mid_set() {
         .insert_before(&serve, "a12S= ", None)
         .expect("insert");
     let t = texts(&snap);
-    assert_eq!(t[13..17], ["a12SH=", "*p01:02", "*z6", "a12SM="]);
-    assert_eq!(t[17], "*p02:02");
+    assert_eq!(t[14..19], ["a12SH=", "*$$&H#", "*p01:02", "*z6", "a12SM="]);
+    assert_eq!(t[19], "*p02:02");
 
     // A rally nobody won yet is refused; a typed point ends it and takes
     // the score where it lands.
@@ -1711,8 +1784,8 @@ fn a_missed_rally_goes_in_mid_set() {
     let t = texts(&snap);
     // Visiting won it from home's serve: a side-out, so it rotates. The
     // file's own `*z6` after the next point stays (it isn't the console's).
-    assert_eq!(t[16..20], ["a12SH+", "*07RH-", "ap01:03", "az2"]);
-    assert_eq!(t[20..23], ["a12SM=", "*p02:03", "*z6"]);
+    assert_eq!(t[18..22], ["a12SH+", "*07RH-", "ap01:03", "az2"]);
+    assert_eq!(t[22..25], ["a12SM=", "*p02:03", "*z6"]);
 }
 
 /// A line of codes goes in inside a rally too, read with the rally there.

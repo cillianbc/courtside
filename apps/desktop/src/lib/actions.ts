@@ -3,6 +3,8 @@
 import { ask, save } from "@tauri-apps/plugin-dialog";
 import * as backend from "./backend";
 import { rotationCode, timeoutCode } from "./codes";
+import { stepMatch } from "./filter";
+import { pickCode } from "./jump";
 import type { Side } from "./snapshot";
 import { ui } from "./ui.svelte";
 import { JUMP, LONG_JUMP, video } from "./video.svelte";
@@ -43,9 +45,10 @@ function rotate(side: Side) {
  * none is), shows it in the log and the video: stepping through plays to
  * mark where each went.
  */
-function stepCode(by: number): boolean {
+function stepCode(by: 1 | -1): boolean {
   const snap = ui.snapshot;
   if (!snap) return false;
+  if (ui.finding && ui.found.length) return stepFound(by);
   const touches = snap.groups.flatMap((g) => g.rows).filter((r) => r.kind === "touch");
   if (!touches.length) return false;
   const at = touches.findIndex((r) => r.id === ui.selected);
@@ -58,6 +61,17 @@ function stepCode(by: number): boolean {
   // After the log has drawn the set (and scrolled, if it changed).
   setTimeout(() => document.getElementById(`ev-${r.id}`)?.scrollIntoView({ block: "nearest" }));
   if (r.videoMs !== null && video.open) void video.seekTo(r.videoMs / 1000);
+  return true;
+}
+
+/** Picks the search's next or previous match (#25) and shows it in the video. */
+export function stepFound(by: 1 | -1): boolean {
+  const snap = ui.snapshot;
+  if (!snap) return false;
+  const order = snap.groups.flatMap((g) => g.rows).map((r) => r.id);
+  const id = stepMatch(ui.found, order, ui.selected, by);
+  if (id === null) return false;
+  pickCode(snap, id);
   return true;
 }
 
@@ -117,6 +131,9 @@ export function run(action: string): boolean {
       return stepCode(1);
     case "openChecks":
       ui.openChecks();
+      return true;
+    case "find":
+      ui.openFind();
       return true;
     case "modifyPicked":
     case "insertBeforePicked":

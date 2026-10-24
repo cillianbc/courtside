@@ -1,9 +1,13 @@
 <script lang="ts">
+  import { stepFound } from "../actions";
+  import * as backend from "../backend";
+  import { filterSummary, hasFields } from "../filter";
   import type { Group, IssueView, Row, Snapshot } from "../snapshot";
   import { showCode } from "../jump";
   import { withKey } from "../kbd";
   import { ui } from "../ui.svelte";
   import { video } from "../video.svelte";
+  import CodeFilter from "./CodeFilter.svelte";
   import CodeMenu from "./CodeMenu.svelte";
   import Icon from "./Icon.svelte";
   import Mark from "./Mark.svelte";
@@ -129,6 +133,40 @@
     return null;
   });
 
+  // Search (#25): the codes the filter finds are marked; Enter and
+  // Shift+Enter (or the previous/next play keys) step through them.
+  let findInput: HTMLInputElement | undefined = $state();
+  let findFields = $state(false);
+  $effect(() => {
+    if (!ui.finding) return;
+    void snap;
+    const f = $state.snapshot(ui.findFilter);
+    backend.findCodes(f).then(
+      (ids) => (ui.found = ids),
+      () => (ui.found = []),
+    );
+  });
+  $effect(() => {
+    void ui.findFocus;
+    if (ui.finding) findInput?.focus();
+  });
+  const foundSet = $derived(new Set(ui.found));
+  const asked = $derived(!!ui.findFilter.text || hasFields(ui.findFilter));
+  const foundAt = $derived(ui.selected ? ui.found.indexOf(ui.selected) : -1);
+  function hits(g: Group): number {
+    return ui.finding ? g.rows.filter((r) => foundSet.has(r.id)).length : 0;
+  }
+  function findKey(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      stepFound(e.shiftKey ? -1 : 1);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      ui.closeFind();
+      ui.focusCode += 1;
+    }
+  }
+
   let section: HTMLElement | undefined = $state();
   let menu = $state<{ x: number; y: number; row: Row; group: Group } | null>(null);
 </script>
@@ -181,6 +219,14 @@
     {/if}
     <span class="stream-tools">
       <button
+        class="btn icon"
+        type="button"
+        aria-label="Search the codes"
+        aria-pressed={ui.finding}
+        title={withKey("Search the codes and step through what it finds", "find")}
+        onclick={() => (ui.finding ? ui.closeFind() : ui.openFind())}><Icon name="find" /></button
+      >
+      <button
         class="btn"
         type="button"
         title="Play the codes as video clips, picked by player, skill, rotation or phase"
@@ -198,6 +244,65 @@
       >
     </span>
   </div>
+  {#if ui.finding}
+    <div class="find-bar" role="search" aria-label="Search the codes">
+      <input
+        bind:this={findInput}
+        bind:value={ui.findFilter.text}
+        type="text"
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="Find: D=, a12, *T"
+        aria-label="Code text to find"
+        title="Codes containing this text, as written. Enter: next, Shift+Enter: previous, Esc: close."
+        onkeydown={findKey}
+      />
+      <span class="find-count" aria-live="polite"
+        >{#if ui.found.length}{foundAt >= 0 ? `${foundAt + 1} of ` : ""}{ui.found
+            .length}{:else if asked}None{/if}</span
+      >
+      <button
+        class="btn icon"
+        type="button"
+        aria-label="Previous match"
+        title={withKey("Previous match", "codePrev")}
+        disabled={!ui.found.length}
+        onclick={() => stepFound(-1)}>↑</button
+      >
+      <button
+        class="btn icon"
+        type="button"
+        aria-label="Next match"
+        title={withKey("Next match", "codeNext")}
+        disabled={!ui.found.length}
+        onclick={() => stepFound(1)}>↓</button
+      >
+      <button
+        class="btn small"
+        type="button"
+        aria-expanded={findFields}
+        aria-pressed={hasFields(ui.findFilter)}
+        title={hasFields(ui.findFilter)
+          ? filterSummary(ui.findFilter, snap).slice(0, -1).join(" · ")
+          : "Find by team, player, skill, evaluation, rotation, phase or set"}
+        onclick={() => (findFields = !findFields)}>Filter</button
+      >
+      <button
+        class="btn icon"
+        type="button"
+        aria-label="Close the search"
+        onclick={() => ui.closeFind()}>×</button
+      >
+    </div>
+    {#if findFields}
+      <CodeFilter
+        {snap}
+        bind:filter={ui.findFilter}
+        withText={false}
+        ondone={() => (findFields = false)}
+      />
+    {/if}
+  {/if}
   <div class="tab-panel" role="tabpanel" bind:this={pane}>
     <div class="log" role="listbox" aria-label="Codes, set {shown}">
       {#each groups as g, i (key(g))}
@@ -234,6 +339,8 @@
                     : ""}</span
                 >
                 <span class="out {g.wonBy === 'home' ? 'home' : 'away'}">{teamName(g.wonBy)}</span>
+                {#if hits(g)}<span class="hits" title="Codes the search found here">{hits(g)}</span
+                  >{/if}
               </button>
             {:else}
               <span class="rally-toggle">
@@ -270,6 +377,7 @@
                 menu = { x: e.clientX, y: e.clientY, row: r, group: g };
               }}
               class:picked={ui.selected === r.id}
+              class:found={ui.finding && foundSet.has(r.id)}
               class="row"
               class:home={r.team === "home"}
               class:away={r.team === "visiting"}

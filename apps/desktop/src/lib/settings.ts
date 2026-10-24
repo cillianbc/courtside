@@ -98,6 +98,9 @@ export const ACTIONS: readonly { id: string; label: string; keys: string }[] = [
   { id: "insertAfterPicked", label: "Add codes after the picked code", keys: "Alt+A" },
   { id: "removePicked", label: "Remove the picked code", keys: "Alt+X" },
   { id: "openChecks", label: "Open Checks", keys: "Alt+C" },
+  // Search the code log (#25); while a search is on, the previous/next
+  // play keys step through what it found.
+  { id: "find", label: "Search the codes", keys: "Mod+F" },
   // Video transport. Alt so they work while typing a code.
   { id: "videoPlay", label: "Video: play or pause", keys: "Alt+K" },
   { id: "videoBack", label: "Video: back 5 seconds", keys: "Alt+J" },

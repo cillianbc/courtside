@@ -1,5 +1,6 @@
 import type { Snapshot } from "./snapshot";
 import { ui } from "./ui.svelte";
+import { video } from "./video.svelte";
 
 /** Shows a code in the stream: its set, its rally opened, scrolled to and flashed. */
 export function showCode(snap: Snapshot, eventId: string) {
@@ -14,4 +15,12 @@ export function showCode(snap: Snapshot, eventId: string) {
     void el.offsetWidth;
     el.classList.add("hl");
   });
+}
+
+/** Picks a code: shown in the stream, and in the video where it has a video time. */
+export function pickCode(snap: Snapshot, eventId: string) {
+  ui.selected = eventId;
+  showCode(snap, eventId);
+  const r = snap.groups.flatMap((g) => g.rows).find((x) => x.id === eventId);
+  if (r && r.videoMs !== null && video.open) void video.seekTo(r.videoMs / 1000);
 }

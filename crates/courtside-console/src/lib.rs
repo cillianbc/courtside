@@ -268,6 +268,27 @@ fn decided_by<'a>(game: &Match, codes: impl DoubleEndedIterator<Item = &'a Code>
     })
 }
 
+/// The green code (`$$&`) DataVolley and VolleyStation write for a rally
+/// that `winner` won and whose last touch is `last`, when that touch has no
+/// counterpart from the other team: the loser's `$$&H=` after the winner's
+/// ace or kill, the winner's `$$&H#` after the loser's serve, attack, set or
+/// freeball error. A dig, reception or block error already pairs with the
+/// winner's touch before it. The rule comes from the corpus (FORMAT-NOTES).
+fn green_for(last: &Touch, winner: Team) -> Option<Code> {
+    let text = match (last.team == winner, last.skill, last.evaluation()?) {
+        (true, Skill::Serve | Skill::Attack, '#') => format!("{}$$&H=", other(winner).as_char()),
+        (false, Skill::Serve | Skill::Attack | Skill::Set | Skill::Freeball, '=') => {
+            format!("{}$$&H#", winner.as_char())
+        }
+        _ => return None,
+    };
+    Some(Code::parse(&text))
+}
+
+fn is_green(e: &MatchEvent) -> bool {
+    matches!(e.code(), Some(Code::Touch(t)) if t.skill == Skill::Green)
+}
+
 /// Checks a six for `sheet`'s team; the setter's zone.
 fn check_six(sheet: &TeamSheet, court: &[u8; 6], setter: u8) -> Result<u8> {
     for (i, n) in court.iter().enumerate() {
@@ -428,11 +449,11 @@ fn touch_just_before(log: &EventLog, target: EventId) -> Option<(EventId, Touch)
 }
 
 /// The first touch walking back through `events` before a point code or
-/// set end.
+/// set end. Green codes aren't touches.
 fn last_touch<'a>(events: impl Iterator<Item = &'a &'a MatchEvent>) -> Option<Touch> {
     for e in events {
         match e.code() {
-            Some(Code::Touch(t)) => return Some(t.clone()),
+            Some(Code::Touch(t)) if t.skill != Skill::Green => return Some(t.clone()),
             Some(Code::Point { .. } | Code::SetEnd { .. }) => return None,
             _ => {}
         }
@@ -1014,9 +1035,14 @@ impl Current {
         while j > 0 && !matches!(visible[j - 1].kind(), EventKind::Point | EventKind::SetEnd) {
             j -= 1;
         }
+        // The console's own green code follows the ending, not the other
+        // way round (`regreen`).
         let decided = decided_by(
             &self.game,
-            visible[j..rally_end].iter().filter_map(MatchEvent::code),
+            visible[j..rally_end]
+                .iter()
+                .filter(|e| !(is_green(e) && e.producer == Producer::Repair))
+                .filter_map(MatchEvent::code),
         );
         let old: Vec<String> = visible[k..]
             .iter()
@@ -1049,6 +1075,82 @@ impl Current {
         if now == old {
             while self.game.log.len() > before {
                 self.game.log.undo();
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes the console's green code again for the rally ending at the
+    /// first point code from visible event `from` on (`green_for`), just
+    /// before that point code, with its last touch's times. A rally with a
+    /// green code the scout typed or imported is left alone.
+    fn regreen(&mut self, from: usize) -> std::result::Result<(), LogError> {
+        let visible: Vec<MatchEvent> = self.game.log.visible().into_iter().cloned().collect();
+        let Some(p) = (from..visible.len()).find(|&i| visible[i].kind() == EventKind::Point) else {
+            return Ok(());
+        };
+        let Some(Code::Point { team: winner, .. }) = visible[p].code() else {
+            return Ok(());
+        };
+        let mut j = p;
+        while j > 0 && !matches!(visible[j - 1].kind(), EventKind::Point | EventKind::SetEnd) {
+            j -= 1;
+        }
+        let rally = &visible[j..p];
+        if rally
+            .iter()
+            .any(|e| is_green(e) && e.producer != Producer::Repair)
+        {
+            return Ok(());
+        }
+        let last = rally.iter().rev().find_map(|e| {
+            touch_of(e)
+                .filter(|t| t.skill != Skill::Green)
+                .map(|t| (e, t))
+        });
+        let want = last.and_then(|(e, t)| Some((e, green_for(&t, *winner)?)));
+        let have: Vec<&MatchEvent> = rally.iter().filter(|e| is_green(e)).collect();
+        if let ([only], Some((_, code))) = (have.as_slice(), &want)
+            && only.code() == Some(code)
+            && only.id == visible[p - 1].id
+        {
+            return Ok(());
+        }
+        if have.is_empty() && want.is_none() {
+            return Ok(());
+        }
+        for e in have {
+            self.game
+                .log
+                .remove(&mut self.ids, e.id, Producer::Repair)?;
+        }
+        if let Some((touch, code)) = want {
+            let event = NewEvent {
+                body: Body::Code(code),
+                video_ms: touch.video_ms,
+                clock: touch.clock,
+                producer: Producer::Repair,
+            };
+            self.game
+                .log
+                .insert_before(&mut self.ids, visible[p].id, event)?;
+        }
+        Ok(())
+    }
+
+    /// Takes out a console green code from a rally still open: an edit
+    /// undid its ending.
+    fn drop_open_green(&mut self) -> std::result::Result<(), LogError> {
+        let visible: Vec<MatchEvent> = self.game.log.visible().into_iter().cloned().collect();
+        let open = visible
+            .iter()
+            .rposition(|e| matches!(e.kind(), EventKind::Point | EventKind::SetEnd))
+            .map_or(0, |p| p + 1);
+        for e in &visible[open..] {
+            if is_green(e) && e.producer == Producer::Repair {
+                self.game
+                    .log
+                    .remove(&mut self.ids, e.id, Producer::Repair)?;
             }
         }
         Ok(())
@@ -1345,6 +1447,7 @@ impl Session {
             return Err(Error::BadCode(why));
         }
         let before = c.game.log.len();
+        let first_new = c.game.log.visible().len();
         // The expanded codes, in order, with the token each came from.
         let codes: Vec<(Code, usize)> = preview
             .codes
@@ -1382,6 +1485,12 @@ impl Session {
             c.add(code, Producer::Keyboard, last);
         }
         c.close_rally(typed_point, decided, false, last);
+        if let Err(e) = c.regreen(first_new) {
+            while c.game.log.len() > before {
+                c.game.log.undo();
+            }
+            return Err(e.into());
+        }
         c.persist(season, before)?;
         self.snapshot()
     }
@@ -1816,6 +1925,8 @@ impl Session {
                 c.rescore_from(pos, score_before)?;
             }
             c.reclose(clock)?;
+            c.regreen(pos)?;
+            c.drop_open_green()?;
             c.rerotate(pos)
         };
         if let Err(e) = change() {
@@ -2101,7 +2212,10 @@ impl Session {
         let repair = if theirs {
             Ok(())
         } else {
-            c.reclose(clock).and_then(|()| c.rerotate(at))
+            c.reclose(clock)
+                .and_then(|()| c.regreen(at))
+                .and_then(|()| c.drop_open_green())
+                .and_then(|()| c.rerotate(at))
         };
         if let Err(e) = repair {
             while c.game.log.len() > before {
@@ -2124,6 +2238,13 @@ impl Session {
             post_ms: u64::from(c.video.post_roll_ms),
         };
         Ok(clips::build(&c.game, &c.teams, filter, roll))
+    }
+
+    /// The open match's codes a search in the code log finds, by event id
+    /// in match order (`clips::find`).
+    pub fn find_codes(&self, filter: &ClipFilter) -> Result<Vec<String>> {
+        let c = self.current.as_ref().ok_or(Error::NoMatch)?;
+        Ok(clips::find(&c.game, filter))
     }
 
     /// Remembers the video opened with the match (`None` forgets it).

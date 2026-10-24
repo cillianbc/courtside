@@ -6,8 +6,8 @@
 use courtside_store::Team as StoreTeam;
 use serde::{Deserialize, Serialize};
 use vb_engine::Match;
-use vb_engine::fold::{Phase, fold_events};
-use vb_grammar::{Code, Player, Skill, Team};
+use vb_engine::fold::{Phase, State, fold_events};
+use vb_grammar::{Code, Player, Skill, Team, Touch};
 
 use crate::readback;
 use crate::snapshot::{Pair, Side};
@@ -27,6 +27,36 @@ pub struct ClipFilter {
     pub rotation: Option<u8>,
     pub phase: Option<ClipPhase>,
     pub set: Option<u8>,
+    /// Text the code contains, as written (`D=`, `a12`); empty for all.
+    pub text: String,
+}
+
+impl ClipFilter {
+    /// Whether only `text` is set: a search over every code, not just
+    /// touches.
+    fn text_only(&self) -> bool {
+        *self
+            == ClipFilter {
+                text: self.text.clone(),
+                ..ClipFilter::default()
+            }
+    }
+
+    /// Whether the touch `t`, made in state `st`, is one the filter picks.
+    fn picks(&self, t: &Touch, st: &State) -> bool {
+        let evaluations: Vec<char> = self.evaluations.chars().collect();
+        self.team.is_none_or(|s| team_of(s) == t.team)
+            && self.player.is_none_or(|n| shirt(&t.player) == Some(n))
+            && self.skill.is_none_or(|k| t.skill.as_char() == k)
+            && (evaluations.is_empty() || t.evaluation().is_some_and(|v| evaluations.contains(&v)))
+            && self
+                .rotation
+                .is_none_or(|r| *st.setter_position.get(t.team) == Some(r))
+            && self
+                .phase
+                .is_none_or(|p| st.phase.map(ClipPhase::from) == Some(p))
+            && self.set.is_none_or(|s| st.set == s)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,7 +133,6 @@ pub fn build(game: &Match, teams: &(StoreTeam, StoreTeam), f: &ClipFilter, roll:
     let names = (teams.0.name.as_str(), teams.1.name.as_str());
     let events = game.log.visible();
     let folded = fold_events(game, &events);
-    let evaluations: Vec<char> = f.evaluations.chars().collect();
     let mut out = Clips::default();
     for (e, st) in events.iter().zip(&folded.states) {
         let Some(code @ Code::Touch(t)) = e.code() else {
@@ -112,23 +141,14 @@ pub fn build(game: &Match, teams: &(StoreTeam, StoreTeam), f: &ClipFilter, roll:
         if t.skill == Skill::Green {
             continue;
         }
-        let keep = f.team.is_none_or(|s| team_of(s) == t.team)
-            && f.player.is_none_or(|n| shirt(&t.player) == Some(n))
-            && f.skill.is_none_or(|k| t.skill.as_char() == k)
-            && (evaluations.is_empty() || t.evaluation().is_some_and(|v| evaluations.contains(&v)))
-            && f.rotation
-                .is_none_or(|r| *st.setter_position.get(t.team) == Some(r))
-            && f.phase
-                .is_none_or(|p| st.phase.map(ClipPhase::from) == Some(p))
-            && f.set.is_none_or(|s| st.set == s);
-        if !keep {
+        let text = code.to_string();
+        if !f.picks(t, st) || !text.contains(&f.text) {
             continue;
         }
         let Some(at) = e.video_ms else {
             out.without_video += 1;
             continue;
         };
-        let text = code.to_string();
         out.clips.push(Clip {
             id: e.id.0.to_string(),
             set: st.set,
@@ -145,4 +165,29 @@ pub fn build(game: &Match, teams: &(StoreTeam, StoreTeam), f: &ClipFilter, roll:
         });
     }
     out
+}
+
+/// The codes a search in the code log finds (#25), by event id in match
+/// order, with or without a video time. Text alone looks through every
+/// code (points, substitutions, timeouts); any other field, touches only.
+/// Green codes are never found by the touch fields.
+pub fn find(game: &Match, f: &ClipFilter) -> Vec<String> {
+    let events = game.log.visible();
+    let folded = fold_events(game, &events);
+    let any_code = f.text_only();
+    if any_code && f.text.is_empty() {
+        return Vec::new();
+    }
+    events
+        .iter()
+        .zip(&folded.states)
+        .filter(|(e, st)| match e.code() {
+            Some(code @ Code::Touch(t)) if t.skill != Skill::Green || any_code => {
+                (any_code || f.picks(t, st)) && code.to_string().contains(&f.text)
+            }
+            Some(code) => any_code && code.to_string().contains(&f.text),
+            None => false,
+        })
+        .map(|(e, _)| e.id.0.to_string())
+        .collect()
 }
