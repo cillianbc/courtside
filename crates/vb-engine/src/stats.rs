@@ -3,7 +3,7 @@
 //!
 //! "Efficiency" is not one number across tools: DataVolley and
 //! VolleyStation ship different positive/negative symbol sets per skill
-//! (docs/research). Both are here as [`SymbolSets`]; whatever reports a
+//! (courtside-research). Both are here as [`SymbolSets`]; whatever reports a
 //! number should name the set and the formula it used.
 
 use std::collections::BTreeMap;

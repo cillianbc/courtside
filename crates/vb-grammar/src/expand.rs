@@ -12,7 +12,7 @@
 //!   dig and `E` when someone else set or they want the set's details
 //!   (`4EK1`: a setter call fills type and evaluation like a combination
 //!   does);
-//! - VolleyStation's order (docs/research/VOLLEYSTATION.md §12): a call or
+//! - VolleyStation's order (courtside-research/VOLLEYSTATION.md §12): a call or
 //!   combination may stand in for the skill (`4K1`, `8X5#`), zones go
 //!   before the evaluation (`9AQ35#`) and the extended part after it, no
 //!   `~` (`8X5#T2`: a tip against two blockers); `~` or a combination or
@@ -25,7 +25,7 @@
 //!   (an attack pairs with a block unless `D` is typed), the type copied,
 //!   the zones shared (a block's zone mirrors the attack's, 4 ↔ 2), and
 //!   whichever evaluation is missing derived from the other one
-//!   (docs/research/DATAVOLLEY4.md §3, VOLLEYSTATION.md §5);
+//!   (courtside-research/DATAVOLLEY4.md §3, VOLLEYSTATION.md §5);
 //! - commands (`T`, `c6.7`, `z3`, `P5`, `p25:23`) work without the `*`;
 //!   substitution and point numbers are padded to two digits, a setter
 //!   number is kept as typed (DataVolley writes `aP2`).
@@ -413,7 +413,7 @@ fn complete(
 }
 
 /// Positions 7 on, from what was typed around the evaluation
-/// (docs/research/VOLLEYSTATION.md §12). Before it: a call or combination
+/// (courtside-research/VOLLEYSTATION.md §12). Before it: a call or combination
 /// (two characters), a set's target, one or two zones and an end subzone.
 /// One zone is the start zone, except on a set (DataVolley keeps a set's
 /// zone as its end zone) or after a combination (which gives the start).
@@ -479,7 +479,7 @@ fn layout(skill: Skill, t: &Typed, d: &Defaults) -> Result<String, String> {
 
 /// The extended part typed after the evaluation, as subtype, number of
 /// players and special (`~` where left out), with the values each skill
-/// takes (docs/research/DATAVOLLEY4.md §3); `None` if it isn't one.
+/// takes (courtside-research/DATAVOLLEY4.md §3); `None` if it isn't one.
 fn extended(skill: Skill, text: &str) -> Option<[char; 3]> {
     let (subtypes, players, specials) = match skill {
         Skill::Attack => ("HPT", "01234", "SOFXNCIZA"),
@@ -524,7 +524,7 @@ fn build(
 
 /// What the second half of a pair may be rated, given the first half's
 /// rating, in VolleyStation's rally-flow order (its shipped table, read
-/// from its code: docs/research/VOLLEYSTATION.md §5; GitHub #22). A serve
+/// from its code: courtside-research/VOLLEYSTATION.md §5; GitHub #22). A serve
 /// `-` lets the pass be `+` or `#`; the others allow one rating.
 fn second_allowed(first: Skill, second: Skill, ev: char) -> Option<&'static [char]> {
     Some(match (first, second, ev) {
@@ -786,7 +786,7 @@ pub fn follow_pair(old: &Touch, new: &Touch, partner: &Touch, edited_first: bool
 /// An attack's combination was corrected from `old` to `new`; `set` is the
 /// touch straight before it. When that is the same team's set, its target
 /// follows the new combination's, as DataVolley and VolleyStation re-derive
-/// it (docs/research/VOLLEYSTATION.md §8): only where the set had no target
+/// it (courtside-research/VOLLEYSTATION.md §8): only where the set had no target
 /// or still had the old combination's, so a target the scout typed stays.
 /// `None` when nothing changes.
 pub fn follow_combination(old: &Touch, new: &Touch, set: &Touch, d: &Defaults) -> Option<Touch> {
@@ -1019,7 +1019,7 @@ mod tests {
         );
     }
 
-    /// VolleyStation's order (docs/research/VOLLEYSTATION.md §12): zones
+    /// VolleyStation's order (courtside-research/VOLLEYSTATION.md §12): zones
     /// before the evaluation, the extended part after it, no `~`.
     #[test]
     fn volleystation_order() {

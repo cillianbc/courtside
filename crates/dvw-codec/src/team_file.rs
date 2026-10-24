@@ -1,6 +1,6 @@
 //! Team files: DataVolley's `.sq` (tab-separated, `DV-Team-2`, also read
 //! and written by VolleyStation) and VolleyStation's `.vst` (JSON). Layouts
-//! in docs/research/VOLLEYSTATION.md "Team files". Only reading for now.
+//! in courtside-research/VOLLEYSTATION.md "Team files". Only reading for now.
 
 use serde_json::Value;
 
@@ -400,7 +400,7 @@ pub fn write_vst(team: &TeamFile) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    // The made-up examples in docs/research/VOLLEYSTATION.md "Team files".
+    // The made-up examples in courtside-research/VOLLEYSTATION.md "Team files".
     fn datavolley_sq() -> Vec<u8> {
         let rows = [
             "DV-Team-2".to_owned(),

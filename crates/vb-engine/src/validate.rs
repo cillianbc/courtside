@@ -930,7 +930,7 @@ impl Validator<'_> {
                     _ => {}
                 }
                 // A blocked attack and a block point come together (both
-                // products check it, docs/research). Their other pairing
+                // products check it, courtside-research). Their other pairing
                 // check, "R/ means the opponent won", is only a hint: an
                 // overpass rally is often won by the receiving team (22 in
                 // the corpus, e.g. R/ then the server's attack error).

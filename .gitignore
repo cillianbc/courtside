@@ -11,8 +11,11 @@
 *.dvw
 *.vsm
 
-# Competitor installers used for docs/research (never commit)
+# Competitor installers used for courtside-research (never commit)
 datavolley4_setup.exe
 VolleyStation-Pro-*.exe
 VolleyStation-Pro-*.dmg
 /apps/desktop/src-tauri/libmpv/
+# Research notes moved to the private repo cillianbc/courtside-research
+# (checked out beside this one); match files kept here stay local.
+/docs/research/
