@@ -105,6 +105,24 @@ pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
     Some(guard)
 }
 
+/// `COURTSIDE_SENTRY_TEST=1`: sends one test event at startup, for this
+/// run only (the saved answer isn't touched), to check a build's DSN.
+pub fn send_test_event() {
+    if std::env::var_os("COURTSIDE_SENTRY_TEST").is_none() {
+        return;
+    }
+    if DSN.is_none() {
+        log::warn!("sentry test: this build has no SENTRY_DSN");
+        return;
+    }
+    CONSENT.store(true, Ordering::Relaxed);
+    let id = sentry::capture_message("Courtside crash-report test", sentry::Level::Info);
+    let sent = sentry::Hub::current()
+        .client()
+        .is_some_and(|c| c.flush(Some(std::time::Duration::from_secs(5))));
+    log::info!("sentry test: event {id}, flushed {sent}");
+}
+
 /// Sets this computer's answer at startup.
 pub fn set_consent(p: Privacy) {
     CONSENT.store(p.crash_reports, Ordering::Relaxed);

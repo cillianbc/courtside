@@ -685,6 +685,7 @@ fn main() {
         .manage(Video::default())
         .setup(|app| {
             diagnostics::set_consent(diagnostics::load_privacy(app.handle()));
+            diagnostics::send_test_event();
             log::info!("Courtside {} starting", env!("CARGO_PKG_VERSION"));
             video_smoke(app.handle());
             Ok(())
