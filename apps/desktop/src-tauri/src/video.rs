@@ -7,7 +7,7 @@
 use serde::Serialize;
 
 /// The panel's place in the window, in CSS pixels from the top left.
-#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
 pub struct Bounds {
     pub x: f64,
     pub y: f64,
@@ -51,6 +51,10 @@ mod player {
         mpv: Option<Mpv>,
         surface: Option<Surface>,
         path: Option<String>,
+        /// The last placement (bounds, shown, scale): the panel sends its
+        /// place often, and moving the view redraws it (on Windows it also
+        /// raises the window), so an unchanged one is skipped.
+        placed: Option<(Bounds, bool, f64)>,
     }
 
     // SAFETY: the native view (a raw pointer or handle) is only used on the
@@ -90,6 +94,25 @@ mod player {
                     init.set_option("hr-seek", "yes")?;
                     init.set_option("osc", "no")?;
                     init.set_option("load-scripts", "no")?;
+                    // mpv's built-in scripts load despite load-scripts
+                    // (threads, wakeups). Names vary by mpv version: one it
+                    // doesn't know is skipped.
+                    for script in [
+                        "load-stats-overlay",
+                        "load-console",
+                        "load-osd-console",
+                        "load-select",
+                        "load-positioning",
+                        "load-commands",
+                        "load-context-menu",
+                        "load-auto-profiles",
+                    ] {
+                        let _ = init.set_option(script, "no");
+                    }
+                    // Keys and the mouse stay with the window (the command
+                    // line), never mpv's own.
+                    init.set_option("input-vo-keyboard", "no")?;
+                    init.set_option("input-cursor", "no")?;
                     init.set_option("ytdl", "no")?;
                     init.set_option("input-default-bindings", "no")?;
                     // Development: mpv's own log, to see what it chose.
@@ -108,16 +131,24 @@ mod player {
             mpv.set_property("pause", true)
                 .map_err(|e| format!("mpv: {e}"))?;
             self.path = Some(path.to_owned());
+            self.placed = None;
             self.place(bounds, true)
         }
 
         /// Keeps the view on the panel; `visible` false hides it (a dialog
         /// or another screen over the panel).
         pub fn place(&mut self, bounds: Bounds, visible: bool) -> Result<(), String> {
-            match &self.surface {
-                Some(s) => s.place(bounds, visible && self.path.is_some()),
-                None => Ok(()),
+            let Some(s) = &self.surface else {
+                return Ok(());
+            };
+            let shown = visible && self.path.is_some();
+            let key = (bounds, shown, s.scale());
+            if self.placed == Some(key) {
+                return Ok(());
             }
+            s.place(bounds, shown)?;
+            self.placed = Some(key);
+            Ok(())
         }
 
         /// An mpv command, as in input.conf (`seek -5 relative+exact`,
@@ -165,6 +196,7 @@ mod player {
             }
             self.mpv = None;
             self.path = None;
+            self.placed = None;
             match self.surface.take() {
                 Some(s) => s.close(),
                 None => Ok(()),
@@ -608,6 +640,12 @@ mod surface {
             self.render.detach();
         }
 
+        /// The window's backing scale (Retina 2): a move to another screen
+        /// changes it.
+        pub fn scale(&self) -> f64 {
+            self.view.window().map_or(1.0, |w| w.backingScaleFactor())
+        }
+
         pub fn place(&self, bounds: Bounds, visible: bool) -> Result<(), String> {
             main_thread()?;
             // SAFETY: main thread; the superview is the window's content view.
@@ -641,16 +679,21 @@ mod surface {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, HWND_TOP, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE, SetWindowPos,
-        ShowWindow, WINDOW_EX_STYLE, WS_CHILD, WS_CLIPSIBLINGS,
+        ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WS_CHILD, WS_CLIPSIBLINGS, WS_DISABLED,
     };
     use windows::core::w;
 
     /// A child window of the Tauri window, kept above the webview's. Win32
-    /// works in physical pixels: bounds are scaled by the window's factor.
+    /// works in physical pixels: bounds are scaled by the window's factor,
+    /// read at each placement (a move to a monitor with another scale).
     pub struct Surface {
         hwnd: HWND,
-        scale: f64,
+        window: tauri::WebviewWindow,
     }
+
+    /// A STATIC control's style that paints it black (`SS_BLACKRECT`): no
+    /// grey before mpv's first frame.
+    const SS_BLACKRECT: WINDOW_STYLE = WINDOW_STYLE(0x0004);
 
     fn px(v: f64, scale: f64) -> i32 {
         (v * scale).round() as i32
@@ -662,12 +705,14 @@ mod surface {
             let scale = window.scale_factor().map_err(|e| e.to_string())?;
             // SAFETY: `parent` is the live Tauri window; a STATIC control
             // needs no window class of our own. Main thread, which owns it.
+            // Disabled: clicks on the video never take the keyboard from the
+            // command line.
             let hwnd = unsafe {
                 CreateWindowExW(
                     WINDOW_EX_STYLE(0),
                     w!("STATIC"),
                     w!(""),
-                    WS_CHILD | WS_CLIPSIBLINGS,
+                    WS_CHILD | WS_CLIPSIBLINGS | WS_DISABLED | SS_BLACKRECT,
                     px(bounds.x, scale),
                     px(bounds.y, scale),
                     px(bounds.width, scale),
@@ -679,7 +724,14 @@ mod surface {
                 )
             }
             .map_err(|e| format!("can't make the video view: {e}"))?;
-            Ok(Surface { hwnd, scale })
+            Ok(Surface {
+                hwnd,
+                window: window.clone(),
+            })
+        }
+
+        pub fn scale(&self) -> f64 {
+            self.window.scale_factor().unwrap_or(1.0)
         }
 
         /// What mpv's `wid` option takes: the HWND.
@@ -695,7 +747,7 @@ mod surface {
         pub fn detach(&self) {}
 
         pub fn place(&self, b: Bounds, visible: bool) -> Result<(), String> {
-            let s = self.scale;
+            let s = self.scale();
             // SAFETY: our own child window, alive until `close`. On top of
             // the webview's window every time, which may have come forward.
             unsafe {
@@ -740,7 +792,7 @@ mod surface {
         xlib: Xlib,
         display: *mut Display,
         window: c_ulong,
-        scale: f64,
+        tauri: tauri::WebviewWindow,
     }
 
     fn px(v: f64, scale: f64) -> i32 {
@@ -752,14 +804,14 @@ mod surface {
     }
 
     impl Surface {
-        pub fn new(window: &tauri::WebviewWindow, b: Bounds) -> Result<Self, String> {
-            let gtk = window.gtk_window().map_err(|e| e.to_string())?;
+        pub fn new(window_handle: &tauri::WebviewWindow, b: Bounds) -> Result<Self, String> {
+            let gtk = window_handle.gtk_window().map_err(|e| e.to_string())?;
             let gdk = gtk.window().ok_or("the window isn't shown yet")?;
             let parent = gdk.downcast::<gdkx11::X11Window>().map_err(|_| {
                 "Video needs X11: start Courtside with GDK_BACKEND=x11 under Wayland.".to_owned()
             })?;
             let parent = parent.xid();
-            let scale = window.scale_factor().map_err(|e| e.to_string())?;
+            let scale = window_handle.scale_factor().map_err(|e| e.to_string())?;
             let xlib = Xlib::open().map_err(|e| format!("can't load libX11: {e}"))?;
             // SAFETY: a display connection of our own, closed in `close`;
             // `parent` is the live Tauri window's X window.
@@ -785,7 +837,7 @@ mod surface {
                     xlib,
                     display,
                     window,
-                    scale,
+                    tauri: window_handle.clone(),
                 })
             }
         }
@@ -802,8 +854,12 @@ mod surface {
 
         pub fn detach(&self) {}
 
+        pub fn scale(&self) -> f64 {
+            self.tauri.scale_factor().unwrap_or(1.0)
+        }
+
         pub fn place(&self, b: Bounds, visible: bool) -> Result<(), String> {
-            let (x, s) = (&self.xlib, self.scale);
+            let (x, s) = (&self.xlib, self.scale());
             // SAFETY: our own connection and window, alive until `close`.
             unsafe {
                 (x.XMoveResizeWindow)(

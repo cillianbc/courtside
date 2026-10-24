@@ -73,7 +73,8 @@ function freshClips(matchId: string | null): ClipsState {
 }
 
 class Ui {
-  snapshot = $state<Snapshot | null>(null);
+  /** Replaced whole by each change, never edited: not deeply reactive. */
+  snapshot = $state.raw<Snapshot | null>(null);
   /** Away team drawn first (left / bottom). */
   swapped = $state(false);
   /** Court drawn from the end line instead of the side. */

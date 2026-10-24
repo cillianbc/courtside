@@ -11,6 +11,10 @@
   // panel tells it where the screen is and drives playback.
   let screen: HTMLDivElement | undefined = $state();
   const player = $derived(video.player);
+  // What placement and the timeline depend on: not the player state, which
+  // is a new object at every poll (5 a second).
+  const hasVideo = $derived(!!video.player?.path);
+  const duration = $derived(video.player?.duration ?? null);
 
   const VIDEO = [
     { name: "Video", extensions: ["mp4", "mov", "m4v", "mkv", "avi", "mts", "m2ts", "webm", "ts"] },
@@ -25,22 +29,25 @@
 
   // The panel can move without changing size (the layout above it
   // shifts, the page scrolls), which no resize event reports: while a
-  // video is open, check its place every frame and send it when it moves.
-  let frame = 0;
+  // video is open, check its place ten times a second and send it when it
+  // moves. Nothing runs without a video.
   let last = "";
-  function follow() {
-    const b = bounds();
-    const key = `${b.x},${b.y},${b.width},${b.height}`;
-    if (player?.path && key !== last) {
-      last = key;
-      place();
-    }
-    frame = requestAnimationFrame(follow);
-  }
+  $effect(() => {
+    if (!hasVideo) return;
+    const timer = setInterval(() => {
+      const b = bounds();
+      const key = `${b.x},${b.y},${b.width},${b.height}`;
+      if (key !== last) {
+        last = key;
+        place();
+      }
+    }, 100);
+    return () => clearInterval(timer);
+  });
   // Hidden while a menu or dialog is open over the window.
   $effect(() => {
     void ui.covering;
-    if (player?.path) place();
+    if (hasVideo) place();
   });
 
   // The match's video (from its file, or opened with it before).
@@ -88,7 +95,6 @@
   let poll: ReturnType<typeof setInterval> | undefined;
   let observer: ResizeObserver | undefined;
   onMount(() => {
-    frame = requestAnimationFrame(follow);
     observer = new ResizeObserver(place);
     if (screen) observer.observe(screen);
     window.addEventListener("resize", place);
@@ -113,7 +119,6 @@
     );
   });
   onDestroy(() => {
-    cancelAnimationFrame(frame);
     observer?.disconnect();
     window.removeEventListener("resize", place);
     clearInterval(poll);
@@ -129,14 +134,15 @@
   // their video times. Positions are percent of the video's length.
   const timeline = $derived.by(() => {
     const snap = ui.snapshot;
-    const d = player?.duration;
+    const d = duration;
     if (!snap || !d) return null;
     const at = (ms: number) => Math.max(0, Math.min(100, (ms / 1000 / d) * 100));
     const rallies: { from: number; to: number; side: "home" | "away" }[] = [];
-    const ticks: number[] = [];
+    // Every code's tick in one path: thousands of elements otherwise.
+    let ticks = "";
     for (const g of snap.groups) {
       const times = g.rows.filter((r) => r.videoMs !== null).map((r) => r.videoMs ?? 0);
-      for (const t of times) ticks.push(at(t));
+      for (const t of times) ticks += `M${at(t).toFixed(2)} 15h0.12v4h-0.12z`;
       if (g.closed && g.wonBy && times.length) {
         rallies.push({
           from: at(Math.min(...times)),
@@ -255,9 +261,7 @@
               height="6"
             />
           {/each}
-          {#each timeline.ticks as t, i (i)}
-            <rect class="code-tick" x={t} y="15" width="0.12" height="4" />
-          {/each}
+          <path class="code-tick" d={timeline.ticks} />
           {#each timeline.faults as f, i (i)}
             <rect class="fault-tick" x={f - 0.2} y="1" width="0.4" height="6" />
           {/each}

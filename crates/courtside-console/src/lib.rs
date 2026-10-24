@@ -114,6 +114,9 @@ struct Current {
     video: courtside_store::Video,
     /// The match video's path (saved with the match).
     video_path: Option<String>,
+    /// Whether the match was over at the last snapshot. Every command ends
+    /// with one, so a commit reads this instead of building another.
+    match_over: std::cell::Cell<Option<bool>>,
 }
 
 /// Each event's video time once the match's first serve is at
@@ -1362,6 +1365,7 @@ impl Session {
             confirm_set_end: false,
             video: courtside_store::Video::default(),
             video_path: season.match_video(id)?,
+            match_over: std::cell::Cell::new(None),
         };
         apply_rules(&mut c, &settings);
         self.current = Some(c);
@@ -1395,6 +1399,7 @@ impl Session {
         let mut snap = snapshot::build(&c.id.to_string(), &c.game, &c.teams);
         snap.video_path.clone_from(&c.video_path);
         combination_zones(&mut snap, &c.game, &c.defaults.combinations);
+        c.match_over.set(Some(snap.match_over));
         Ok(snap)
     }
 
@@ -1425,7 +1430,8 @@ impl Session {
         clock: Option<ClockTime>,
         video: &[Option<u64>],
     ) -> Result<Snapshot> {
-        if self.snapshot()?.match_over {
+        let over = self.current.as_ref().and_then(|c| c.match_over.get());
+        if over.map_or_else(|| self.snapshot().map(|s| s.match_over), Ok)? {
             return Err(Error::BadCode(
                 "The match is over: codes can be modified, or start a golden set.".into(),
             ));
