@@ -397,8 +397,9 @@ T2;Away;0;;;;\n\
     /// so for those this only checks that the engine runs and every issue
     /// has a file line.
     /// File-level findings in corpus files checked by hand and right
-    /// (FORMAT-NOTES "Encodings", CORPUS.md intake 2026-10-19): (path
-    /// under testdata, start of the message). Any other is a problem.
+    /// (FORMAT-NOTES "Encodings", CORPUS.md intake 2026-10-19): (start of
+    /// the path under testdata, start of the message). Any other is a
+    /// problem. A path is cut short where the file name has players' names.
     const KNOWN: &[(&str, &str)] = &[
         // The day/month order really is ambiguous in these.
         ("corpus-file", "match date"),
@@ -412,10 +413,7 @@ T2;Away;0;;;;\n\
             "code page 1",
         ),
         ("corpus-file", "code page 1"),
-        (
-            "dvw/datavolley3/corpus-file",
-            "code page 1",
-        ),
+        ("dvw/datavolley3/corpus-file", "code page 1"),
         ("corpus-file", "code page 1"),
         (
             "corpus-file",
@@ -467,7 +465,7 @@ T2;Away;0;;;;\n\
                     for i in validate(&path, &std::fs::read(&path).unwrap()) {
                         let known = KNOWN
                             .iter()
-                            .any(|(p, m)| *p == rel && i.message.starts_with(m));
+                            .any(|(p, m)| rel.starts_with(p) && i.message.starts_with(m));
                         if (i.rule.is_none() || i.line.is_none()) && !known {
                             problems.push(format!("{}:{i}", path.display()));
                         }

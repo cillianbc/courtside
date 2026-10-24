@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "courtside-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "courtside-console"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "courtside-ffi",
  "courtside-store",
@@ -715,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "courtside-desktop"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "courtside-console",
  "gdkx11",
@@ -744,7 +744,7 @@ dependencies = [
 
 [[package]]
 name = "courtside-ffi"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "dvw-codec",
  "serde_json",
@@ -756,7 +756,7 @@ dependencies = [
 
 [[package]]
 name = "courtside-store"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "dvw-codec",
  "encoding_rs",
@@ -1109,7 +1109,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "dvw-codec"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "csv",
  "encoding_rs",
@@ -5164,7 +5164,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vb-engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "csv",
  "dvw-codec",
@@ -5178,7 +5178,7 @@ dependencies = [
 
 [[package]]
 name = "vb-grammar"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "csv",
  "dvw-codec",
