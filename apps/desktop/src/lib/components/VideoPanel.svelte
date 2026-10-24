@@ -95,7 +95,9 @@
     poll = setInterval(() => {
       if (player?.path)
         void backend.videoState().then(
-          (s) => s && (video.player = s),
+          (s) => {
+            if (s) video.player = s;
+          },
           () => {},
         );
     }, 200);
