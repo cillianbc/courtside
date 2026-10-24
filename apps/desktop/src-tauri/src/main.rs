@@ -13,7 +13,9 @@ use courtside_console::{
     TeamImportView,
 };
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
+mod diagnostics;
 mod video;
 
 type Video = Mutex<video::Player>;
@@ -56,7 +58,7 @@ fn remember(app: &AppHandle, state: &State<'_, Shared>) {
     if let Some(file) = resume_file(app)
         && let Err(e) = point.save(&file)
     {
-        eprintln!("can't write {}: {e}", file.display());
+        log::warn!("can't write {}: {e}", file.display());
     }
 }
 
@@ -148,7 +150,7 @@ fn keys_get(app: AppHandle, state: State<'_, Shared>) -> Reply<Keys> {
     };
     let keys = Keys::from_season(&settings);
     if let Err(e) = keys.save(&file) {
-        eprintln!("{e}");
+        log::warn!("{e}");
     }
     Ok(keys)
 }
@@ -156,6 +158,92 @@ fn keys_get(app: AppHandle, state: State<'_, Shared>) -> Reply<Keys> {
 #[tauri::command]
 fn keys_save(app: AppHandle, keys: Keys) -> Reply<()> {
     keys.save(&keys_file(&app)?).map_err(|e| e.to_string())
+}
+
+/// This computer's choice about crash reports, and whether this build can
+/// send them.
+#[tauri::command]
+fn privacy_get(app: AppHandle) -> diagnostics::PrivacyView {
+    diagnostics::view(diagnostics::load_privacy(&app))
+}
+
+#[tauri::command]
+fn privacy_set(app: AppHandle, crash_reports: bool) -> Reply<diagnostics::PrivacyView> {
+    let p = diagnostics::Privacy {
+        crash_reports,
+        asked: true,
+    };
+    diagnostics::save_privacy(&app, p)?;
+    Ok(diagnostics::view(p))
+}
+
+/// An error in the window: logged, and reported when the scout agreed.
+/// `actions`: the console actions before it, oldest first.
+#[tauri::command]
+fn report_js_error(message: String, stack: String, actions: Vec<String>) {
+    diagnostics::js_error(&message, &stack, &actions);
+}
+
+/// "Report a problem": writes the report folder (with the match when
+/// `include_match`), shows it, and opens an email to us. Returns the
+/// folder.
+#[tauri::command]
+fn report_problem(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    note: String,
+    include_match: bool,
+    actions: Vec<String>,
+) -> Reply<String> {
+    let game = with(&state, |s| s.snapshot()).ok().map(|snap| {
+        let mut issues = std::collections::BTreeMap::new();
+        for i in &snap.issues {
+            *issues
+                .entry(format!("{} · {}", i.severity, i.rule))
+                .or_insert(0) += 1;
+        }
+        diagnostics::MatchSummary {
+            set: snap.set,
+            score: (snap.score.home, snap.score.visiting),
+            codes: snap.groups.iter().map(|g| g.rows.len()).sum(),
+            issues,
+        }
+    });
+    let with_match = include_match && game.is_some();
+    let report = diagnostics::Report {
+        note: &note,
+        actions: &actions,
+        game,
+        crash_reports: diagnostics::load_privacy(&app).crash_reports,
+        now_ms: now_ms(),
+    };
+    let base = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(|e| e.to_string())?;
+    let logs = app.path().app_log_dir().ok();
+    let (folder, text) = diagnostics::write_report(
+        &base,
+        logs.as_deref(),
+        &report,
+        |path| with(&state, |s| s.export_dvw(path, false)),
+        with_match,
+    )?;
+    log::info!("problem report written");
+    let opener = app.opener();
+    if let Err(e) = opener.reveal_item_in_dir(folder.join("report.txt")) {
+        log::warn!("can't show the report folder: {e}");
+    }
+    opener
+        .open_url(diagnostics::mail_link(&folder, &text), None::<&str>)
+        .map_err(|e| {
+            format!(
+                "The report is in {}, but the mail app didn't open: {e}",
+                folder.display()
+            )
+        })?;
+    Ok(folder.display().to_string())
 }
 
 #[tauri::command]
@@ -508,7 +596,7 @@ fn video_smoke(app: &AppHandle) {
         let step = |what: &'static str, f: fn(&AppHandle, &str)| {
             let (app2, path2) = (app.clone(), path.clone());
             let _ = app.run_on_main_thread(move || f(&app2, &path2));
-            eprintln!("video smoke: {what}");
+            log::info!("video smoke: {what}");
             std::thread::sleep(std::time::Duration::from_secs(2));
         };
         std::thread::sleep(std::time::Duration::from_secs(3));
@@ -528,13 +616,13 @@ fn video_smoke(app: &AppHandle) {
                 p.open(&window, path, bounds)?;
                 p.set_paused(false)
             });
-            eprintln!("video smoke: opened {opened:?}");
+            log::info!("video smoke: opened {opened:?}");
         });
         step("state", |app, _| {
             if let Some(state) = app.try_state::<Video>()
                 && let Ok(p) = state.lock()
             {
-                eprintln!("video smoke: {:?}", p.state());
+                log::info!("video smoke: {:?}", p.state());
             }
         });
         // Closing frees mpv's render context before mpv; opening again
@@ -543,7 +631,7 @@ fn video_smoke(app: &AppHandle) {
             if let Some(state) = app.try_state::<Video>()
                 && let Ok(mut p) = state.lock()
             {
-                eprintln!("video smoke: closed {:?}", p.close());
+                log::info!("video smoke: closed {:?}", p.close());
             }
         });
         step("reopen", |app, path| {
@@ -562,24 +650,42 @@ fn video_smoke(app: &AppHandle) {
                 p.open(&window, path, bounds)?;
                 p.set_paused(false)
             });
-            eprintln!("video smoke: reopened {opened:?}");
+            log::info!("video smoke: reopened {opened:?}");
         });
         step("state", |app, _| {
             if let Some(state) = app.try_state::<Video>()
                 && let Ok(p) = state.lock()
             {
-                eprintln!("video smoke: {:?}", p.state());
+                log::info!("video smoke: {:?}", p.state());
             }
         });
     });
 }
 
 fn main() {
+    // Sentry's panic hook first, then the log's (diagnostics.rs).
+    let _sentry = diagnostics::init_sentry();
+    diagnostics::log_panics();
+    let log = tauri_plugin_log::Builder::new()
+        .targets([
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                file_name: Some(diagnostics::LOG_NAME.into()),
+            }),
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stderr),
+        ])
+        .level(log::LevelFilter::Info)
+        .max_file_size(2_000_000)
+        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+        .build();
     let result = tauri::Builder::default()
+        .plugin(log)
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Shared::new(Session::new()))
         .manage(Video::default())
         .setup(|app| {
+            diagnostics::set_consent(diagnostics::load_privacy(app.handle()));
+            log::info!("Courtside {} starting", env!("CARGO_PKG_VERSION"));
             video_smoke(app.handle());
             Ok(())
         })
@@ -625,6 +731,10 @@ fn main() {
             video_sync,
             clips,
             find_codes,
+            privacy_get,
+            privacy_set,
+            report_js_error,
+            report_problem,
             match_video_set,
             video_place,
             video_command,

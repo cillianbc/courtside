@@ -90,6 +90,8 @@
     {#if list}
       <button class="btn" type="button" onclick={importFile}>Import .dvw</button>
     {/if}
+    <button class="btn" type="button" onclick={() => (ui.reporting = true)}>Report a problem</button
+    >
   </div>
   {#if error}<p class="error">{error}</p>{/if}
   {#if list}

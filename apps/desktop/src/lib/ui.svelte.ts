@@ -103,6 +103,8 @@ class Ui {
    * closed, for the match `matchId` (another match starts afresh).
    */
   clips = $state<ClipsState>(freshClips(null));
+  /** "Report a problem" is open. */
+  reporting = $state(false);
   /** Set whose codes the stream shows; `null` follows the set in progress. */
   shownSet = $state<number | null>(null);
   code = $state("");

@@ -4,6 +4,8 @@
   import ChecksPanel from "./lib/components/ChecksPanel.svelte";
   import CodeStream from "./lib/components/CodeStream.svelte";
   import CommandBar from "./lib/components/CommandBar.svelte";
+  import CrashConsent from "./lib/components/CrashConsent.svelte";
+  import ReportDialog from "./lib/components/ReportDialog.svelte";
   import Court from "./lib/components/Court.svelte";
   import LineupScreen from "./lib/components/LineupScreen.svelte";
   import PlayCourt from "./lib/components/PlayCourt.svelte";
@@ -11,11 +13,15 @@
   import TopBar from "./lib/components/TopBar.svelte";
   import VideoPanel from "./lib/components/VideoPanel.svelte";
   import { run } from "./lib/actions";
+  import { catchWindowErrors } from "./lib/diagnostics";
   import { actionFor, keyString, usableWhileTyping } from "./lib/settings";
   import { applyTeamColours } from "./lib/teams";
   import { ui } from "./lib/ui.svelte";
 
   let loaded = $state(false);
+  // Asked once per computer, when this build can send crash reports.
+  let askConsent = $state(false);
+  catchWindowErrors();
 
   // The open match's team colours, on the colour tokens (v6 T13).
   $effect(() => {
@@ -53,6 +59,10 @@
     }
     await ui.loadKeymap();
     loaded = true;
+    backend.privacy().then(
+      (p) => (askConsent = p.available && !p.asked),
+      () => {},
+    );
   });
 </script>
 
@@ -86,4 +96,10 @@
   </div>
 {:else if loaded}
   <StartScreen />
+{/if}
+{#if ui.reporting}
+  <ReportDialog onclose={() => (ui.reporting = false)} />
+{/if}
+{#if askConsent}
+  <CrashConsent onclose={() => (askConsent = false)} />
 {/if}

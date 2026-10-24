@@ -17,9 +17,14 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 courtside-console.workspace = true
+log = "0.4.34"
+sentry = { version = "0.46.2", default-features = false, features = ["backtrace", "contexts", "panic", "reqwest", "rustls"] }
 serde.workspace = true
+serde_json.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-log = "2.9.2"
+tauri-plugin-opener = "2.5.5"
 
 # Video: libmpv drawn into a native view over the video panel
 # (docs/adr/0004). The platform crates are the versions Tauri uses, so the

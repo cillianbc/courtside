@@ -1848,6 +1848,46 @@ td.mono {
   padding: 16px;
   width: min(900px, calc(100vw - 32px));
 }
+.report-dialog {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+  color: var(--fg);
+  padding: 16px;
+  width: min(520px, calc(100vw - 32px));
+}
+.report-dialog::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+.report-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+.report-dialog p {
+  margin: 0 0 8px;
+}
+.report-dialog .field {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.report-dialog textarea {
+  font: inherit;
+  color: var(--fg);
+  background: var(--sunk);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-control);
+  padding: 6px 8px;
+  resize: vertical;
+}
+.report-dialog .bad {
+  color: var(--err);
+}
+.report-dialog .actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
 .roster-dialog::backdrop {
   background: rgb(0 0 0 / 0.4);
 }

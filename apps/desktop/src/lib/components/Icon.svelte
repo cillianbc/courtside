@@ -27,7 +27,8 @@
     | "sync"
     | "clips"
     | "open"
-    | "find";
+    | "find"
+    | "report";
   let { name }: { name: IconName } = $props();
 </script>
 
@@ -64,6 +65,8 @@
     <path d="M3 7a5 5 0 0 1 9-2M13 9a5 5 0 0 1-9 2M12 2v3H9M4 14v-3h3" />
   {:else if name === "clips"}
     <rect x="2" y="3" width="12" height="10" rx="1" /><path d="M2 6h12M5 3l1 3M9 3l1 3" />
+  {:else if name === "report"}
+    <path d="M2.5 3h11v8h-6l-3 2.5V11h-2Z" /><path d="M8 5v2.5M8 9.3v.01" />
   {:else if name === "find"}
     <circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3.5 3.5" />
   {:else if name === "open"}

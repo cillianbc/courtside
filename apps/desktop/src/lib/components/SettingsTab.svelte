@@ -23,6 +23,20 @@
   let keys = $state<Keys>({ keymap: [], keyText: [] });
   let error = $state("");
   let note = $state("");
+  let privacy = $state<backend.Privacy | null>(null);
+  onMount(() => {
+    backend.privacy().then(
+      (p) => (privacy = p),
+      () => {},
+    );
+  });
+  async function setCrashReports(on: boolean) {
+    try {
+      privacy = await backend.setPrivacy(on);
+    } catch (e) {
+      error = String(e);
+    }
+  }
 
   onMount(() => {
     // Keys first: the key editors copy theirs when the page shows.
@@ -308,6 +322,25 @@
       types # and [ types +).
     </p>
     <KeyTextEditor bind:keyText={keys.keyText} keymap={effectiveKeymap(keys.keymap)} />
+
+    <h2>Crash reports</h2>
+    <p class="sub-note">
+      This computer, saved at once. A crash report says what failed and where in Courtside's code,
+      with the app version and your system; never your codes, matches, players' names or file names.
+      To tell us about anything else, use Report a problem on the start screen or the match's top
+      bar.
+    </p>
+    {#if privacy?.available}
+      <label class="inline"
+        ><input
+          type="checkbox"
+          checked={privacy.crashReports}
+          onchange={(e) => void setCrashReports(e.currentTarget.checked)}
+        /> Send crash reports</label
+      >
+    {:else}
+      <p class="sub-note">This copy of Courtside doesn't send crash reports.</p>
+    {/if}
 
     {#if error}<p class="error">{error}</p>{/if}
     {#if note}<p class="sub-note">{note}</p>{/if}

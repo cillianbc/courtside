@@ -2,11 +2,21 @@
 // backend (docs/adr/0001). In a plain browser (`pnpm dev`) it serves the
 // made-up fixture instead, so the layout can be worked on without Tauri.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { fixture } from "./fixture";
 import type { Keys, Settings } from "./settings";
 import type { ClipFilter, Clips, MatchItem, Preview, Side, Snapshot } from "./snapshot";
 import type { PlayerDetail, PlayerListItem, TeamDetail, TeamForm, TeamImportView } from "./teams";
+import { noteAction } from "./trail";
+
+// Polled or sent while typing: too many to say what the scout did.
+const QUIET = new Set(["video_state", "video_place", "preview", "snapshot", "report_js_error"]);
+
+/** A backend command, noted for problem reports by name. */
+function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!QUIET.has(cmd)) noteAction(cmd);
+  return tauriInvoke<T>(cmd, args);
+}
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -317,4 +327,42 @@ export async function keys(): Promise<Keys | null> {
 
 export async function saveKeys(keys: Keys): Promise<void> {
   await invoke("keys_save", { keys });
+}
+
+/** This computer's choice about crash reports; `available`: the build can send them. */
+export interface Privacy {
+  crashReports: boolean;
+  asked: boolean;
+  available: boolean;
+}
+
+export async function privacy(): Promise<Privacy> {
+  if (!inTauri) return { crashReports: false, asked: true, available: false };
+  return invoke<Privacy>("privacy_get");
+}
+
+export async function setPrivacy(crashReports: boolean): Promise<Privacy> {
+  return invoke<Privacy>("privacy_set", { crashReports });
+}
+
+export async function reportJsError(
+  message: string,
+  stack: string,
+  actions: string[],
+): Promise<void> {
+  if (!inTauri) return;
+  return invoke("report_js_error", { message, stack, actions });
+}
+
+/**
+ * Writes a problem report folder (with the match when `includeMatch`),
+ * shows it and opens an email; the folder's path.
+ */
+export async function reportProblem(
+  note: string,
+  includeMatch: boolean,
+  actions: string[],
+): Promise<string> {
+  if (!inTauri) throw new Error("Reports need the desktop app.");
+  return invoke<string>("report_problem", { note, includeMatch, actions });
 }

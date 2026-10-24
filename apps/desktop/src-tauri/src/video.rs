@@ -380,9 +380,10 @@ mod surface {
                 // Noted once per size, so the log shows when it happens.
                 let key = (u64::from(w.unsigned_abs()) << 32) | u64::from(h.unsigned_abs());
                 if self.noted.swap(key, Ordering::Relaxed) != key {
-                    eprintln!(
+                    log::info!(
                         "courtside video: viewport {}x{}, layer {w}x{h}; drawing at the layer's",
-                        viewport[2], viewport[3]
+                        viewport[2],
+                        viewport[3]
                     );
                 }
                 // SAFETY: a plain GL call on the current context.

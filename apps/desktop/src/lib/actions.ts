@@ -5,6 +5,7 @@ import * as backend from "./backend";
 import { rotationCode, timeoutCode } from "./codes";
 import { stepMatch } from "./filter";
 import { pickCode } from "./jump";
+import { noteAction } from "./trail";
 import type { Side } from "./snapshot";
 import { ui } from "./ui.svelte";
 import { JUMP, LONG_JUMP, video } from "./video.svelte";
@@ -79,6 +80,7 @@ export function stepFound(by: 1 | -1): boolean {
 export function run(action: string): boolean {
   const snap = ui.snapshot;
   if (!snap) return false;
+  noteAction(`key:${action}`);
   switch (action) {
     case "undo":
       void ui.undo();

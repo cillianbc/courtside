@@ -82,6 +82,13 @@
       disabled={!backend.inTauri}
       onclick={exportDvw}><Icon name="export" />Export</button
     >
+    <button
+      class="btn icon"
+      type="button"
+      aria-label="Report a problem"
+      title="Report a problem: writes a report to email us"
+      onclick={() => (ui.reporting = true)}><Icon name="report" /></button
+    >
     <div class="seg icons" role="group" aria-label="Theme">
       {#each themes as [id, icon, label] (id)}
         <button
