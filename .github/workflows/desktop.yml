@@ -53,8 +53,9 @@ jobs:
           cache-dependency-path: apps/desktop/pnpm-lock.yaml
       - uses: ilammy/msvc-dev-cmd@v1
       # libmpv for Windows: shinchiro's mpv-winbuild-cmake development
-      # package (libmpv-2.dll, a .def). The import library is made from the
-      # .def; the DLL goes beside the app (the --config on the build).
+      # package (libmpv-2.dll and headers). MSVC's import library is made
+      # from the DLL's export list; the DLL goes beside the app (the
+      # --config on the build).
       - name: libmpv
         shell: pwsh
         env:
@@ -64,10 +65,14 @@ jobs:
             --jq '.assets[] | select(.name | test("^mpv-dev-x86_64-[0-9]")) | .name' | Select-Object -First 1
           gh release download --repo shinchiro/mpv-winbuild-cmake --pattern $asset --dir mpv
           7z x "mpv/$asset" -ompv -y | Out-Null
-          $def = Get-ChildItem mpv -Recurse -Filter *.def | Select-Object -First 1
           $dll = Get-ChildItem mpv -Recurse -Filter 'libmpv*.dll' | Select-Object -First 1
-          if (-not $def -or -not $dll) { Get-ChildItem mpv -Recurse | Select-Object FullName; exit 1 }
-          lib /nologo /def:$($def.FullName) /name:$($dll.Name) /out:mpv/mpv.lib /machine:x64
+          if (-not $dll) { Get-ChildItem mpv -Recurse | Select-Object FullName; exit 1 }
+          $names = dumpbin /nologo /exports $dll.FullName |
+            Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]{8}\s+(\S+)' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value }
+          if ($names.Count -lt 50) { "only $($names.Count) exports found"; exit 1 }
+          (@("LIBRARY $($dll.BaseName)", "EXPORTS") + $names) | Set-Content mpv/mpv.def
+          lib /nologo /def:mpv/mpv.def /out:mpv/mpv.lib /machine:x64
           New-Item -ItemType Directory -Force apps/desktop/src-tauri/libmpv | Out-Null
           Copy-Item $dll.FullName apps/desktop/src-tauri/libmpv/libmpv-2.dll
           "MPV_LIB_DIR=$PWD\mpv" | Out-File -FilePath $env:GITHUB_ENV -Append
