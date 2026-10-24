@@ -99,6 +99,8 @@ pub enum IssueKind {
     SecondServe,
     ServeWithoutReception,
     ReceptionWithoutServe,
+    /// A pass rated against its serve (`S+` then `R+`).
+    PassDoesNotFitServe,
     Overpass,
     BlockedWithoutBlockPoint,
     BlockPointWithoutBlockedAttack,
@@ -172,6 +174,23 @@ fn zone_of(st: &State, team: Team, n: u8) -> Option<usize> {
 }
 
 /// The setter position one rotation on from `p` (1 → 6 → 5 …).
+/// Whether a pass rated `r` can follow a serve rated `s`: DataVolley's and
+/// VolleyStation's default tables agree (`S#`–`R=`, `S/`–`R/`, `S-`–`R#`/`R+`,
+/// `S+`–`R-`, `S!`–`R!`), and many DataVolley 4 files in the corpus pair
+/// `S+`–`R!` and `S!`–`R+` instead (FORMAT-NOTES), so either goes. A rating
+/// outside the usual symbols isn't judged here.
+fn pass_fits_serve(s: char, r: char) -> bool {
+    let fits: &[char] = match s {
+        '#' => &['='],
+        '/' => &['/'],
+        '-' => &['#', '+'],
+        '+' => &['-', '!'],
+        '!' => &['!', '+'],
+        _ => return true,
+    };
+    fits.contains(&r) || !"#/-+!=".contains(r)
+}
+
 fn rotated(p: u8) -> u8 {
     if p == 1 { 6 } else { p - 1 }
 }
@@ -889,6 +908,24 @@ impl Validator<'_> {
                                 "reception without a serve from the other team".into(),
                             );
                         }
+                        if let Some((_, p)) = prev
+                            && p.skill == Skill::Serve
+                            && p.team != t.team
+                            && let (Some(s), Some(r)) = (p.evaluation(), t.evaluation())
+                            && !pass_fits_serve(s, r)
+                        {
+                            self.push(
+                                *i,
+                                Severity::Warning,
+                                Rule::ServeReception,
+                                IssueKind::PassDoesNotFitServe,
+                                format!(
+                                    "{} doesn't fit the serve {} before it; check one of the two",
+                                    Code::Touch(t.clone()),
+                                    Code::Touch(p.clone())
+                                ),
+                            );
+                        }
                     }
                     _ => {}
                 }
@@ -1258,7 +1295,7 @@ mod tests {
     fn substitutions_and_back_row() {
         assert_eq!(
             with_lineup(&[
-                "*c13:05", "*c05:07", "*c11:13", "*c01:12", "*08SH-", "a16RH-", "a18AH+", "*01BH-",
+                "*c13:05", "*c05:07", "*c11:13", "*c01:12", "*08SH-", "a16RH+", "a18AH+", "*01BH-",
                 "*08DH+",
             ]),
             [
@@ -1308,6 +1345,20 @@ mod tests {
     }
 
     #[test]
+    fn a_pass_rated_against_its_serve_is_a_warning() {
+        assert_eq!(
+            with_lineup(&[
+                "*08SH+", "a16RH+", "a18AH=", "*p01:00", // VolleyStation flags this
+                "*08SH+", "a16RH!", "a18AH=", "*p02:00", // a DataVolley convention
+                "*08SH-", "a16RH#", "a18AH=", "*p03:00",
+            ]),
+            [
+                "5 ServeReception: a16RH+ doesn't fit the serve *08SH+ before it; check one of the two"
+            ]
+        );
+    }
+
+    #[test]
     fn blocked_attack_and_block_point_pair_up() {
         assert_eq!(
             with_lineup(&[
@@ -1324,7 +1375,7 @@ mod tests {
 
     #[test]
     fn overpass_won_by_the_receiver_is_a_hint() {
-        let issues = with_lineup(&["*08SH-", "a16RH/", "*13AH=", "ap00:01"]);
+        let issues = with_lineup(&["*08SH/", "a16RH/", "*13AH=", "ap00:01"]);
         assert_eq!(
             issues,
             [
@@ -1336,7 +1387,7 @@ mod tests {
             let mut ids = IdGen::new(0);
             for c in LINEUP
                 .iter()
-                .chain(&["*08SH-", "a16RH/", "*13AH=", "ap00:01"])
+                .chain(&["*08SH/", "a16RH/", "*13AH=", "ap00:01"])
             {
                 m.log
                     .append(&mut ids, NewEvent::code(Code::parse(c), Producer::Keyboard));
