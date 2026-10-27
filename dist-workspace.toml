@@ -29,3 +29,6 @@ source-tarball = false
 tap = "cillianbc/homebrew-tap"
 formula = "courtside"
 publish-jobs = ["homebrew"]
+# release.yml is hand-edited to skip the desktop app's app-v* tags; dist
+# generate keeps it as it is
+allow-dirty = ["ci"]

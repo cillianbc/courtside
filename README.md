@@ -4,7 +4,7 @@ Volleyball scouting and video analysis for Windows, macOS and Linux.
 
 Courtside is a desktop app for coding volleyball matches live or from video. It reads and writes DataVolley `.dvw` files, so the files it makes open in DataVolley 4 and VolleyStation Pro, and your existing matches open in Courtside. It's free software under the [GNU AGPL v3](LICENSE).
 
-> **Status: early.** The coding console is being tested by scouts in real matches. There's no public app release yet. The command-line tool is released and stable.
+> **Status: preview.** The coding console is being tested by scouts in real matches; [preview 0.3.0](https://github.com/cillianbc/courtside/releases/tag/app-v0.3.0) is out for testing. The command-line tool is released and stable.
 
 **User guide:** [courtside-2.gitbook.io/courtside-docs](https://courtside-2.gitbook.io/courtside-docs): installing, coding a match, video and clips, files, and the command-line tool.
 
@@ -18,7 +18,7 @@ Courtside is a desktop app for coding volleyball matches live or from video. It 
 
 ## Download
 
-**Desktop app.** Preview builds will be published on this repository's [Releases page](https://github.com/cillianbc/courtside/releases): a `.dmg` for macOS (Apple silicon, macOS 14 or later) and an installer for Windows, with video playback included and nothing else to install. [Installing](https://courtside-2.gitbook.io/courtside-docs/getting-started/install) covers the one-time security prompt on each system.
+**Desktop app (preview).** [Download the latest preview](https://github.com/cillianbc/courtside/releases/tag/app-v0.3.0): a `.dmg` for macOS (Apple silicon, macOS 14 or later) and an installer for Windows 10 and 11, with video playback included and nothing else to install. [Installing](https://courtside-2.gitbook.io/courtside-docs/getting-started/install) covers the one-time security prompt on each system.
 
 **Command-line tool** (`courtside validate | convert | stats`). It checks `.dvw` and `.vsm` files for errors, converts matches to JSON for R, Python or spreadsheets, and prints match statistics. [Latest release](https://github.com/cillianbc/courtside-cli/releases/latest).
 
