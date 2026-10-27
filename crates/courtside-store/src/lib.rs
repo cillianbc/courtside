@@ -18,8 +18,8 @@ pub use settings::{
     WinningRow,
 };
 pub use teams::{
-    Player, PlayerInput, SeasonPlayer, Team, TeamImport, TeamInput, suggest_player_code,
-    suggest_team_code,
+    Person, Player, PlayerInput, SeasonPlayer, Staff, Team, TeamImport, TeamInput, Venue,
+    colour_from_dvw, colour_to_dvw, suggest_player_code, suggest_team_code,
 };
 
 use std::path::Path;
@@ -35,7 +35,7 @@ use vb_grammar::Code;
 use vb_grammar::Team as Side;
 
 /// Schema version, kept in SQLite's `user_version`.
-const VERSION: u32 = 9;
+const VERSION: u32 = 10;
 
 const SCHEMA: &str = "
 CREATE TABLE season (
@@ -97,6 +97,37 @@ CREATE TABLE event (
     minutes INTEGER,
     PRIMARY KEY (match_id, seq)
 );
+";
+
+/// Version 10 (issue #49): a team's short code, staff by first and last
+/// name (`coach` and `assistant` become the last names), home venue and kit
+/// colours; players' weight and attack reach; each match's venue. New
+/// seasons run it too, after the version 9 tables above, so the two paths
+/// can't drift apart.
+const V10_SQL: &str = "
+ALTER TABLE team RENAME COLUMN coach TO coach_last;
+ALTER TABLE team RENAME COLUMN assistant TO assistant_last;
+ALTER TABLE team ADD COLUMN short_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE team ADD COLUMN coach_first TEXT NOT NULL DEFAULT '';
+ALTER TABLE team ADD COLUMN assistant_first TEXT NOT NULL DEFAULT '';
+ALTER TABLE team ADD COLUMN assistant2_last TEXT NOT NULL DEFAULT '';
+ALTER TABLE team ADD COLUMN assistant2_first TEXT NOT NULL DEFAULT '';
+ALTER TABLE team ADD COLUMN physio_last TEXT NOT NULL DEFAULT '';
+ALTER TABLE team ADD COLUMN physio_first TEXT NOT NULL DEFAULT '';
+ALTER TABLE team ADD COLUMN doctor_last TEXT NOT NULL DEFAULT '';
+ALTER TABLE team ADD COLUMN doctor_first TEXT NOT NULL DEFAULT '';
+-- Home hall and city: a new match's venue when the team is at home.
+ALTER TABLE team ADD COLUMN hall TEXT NOT NULL DEFAULT '';
+ALTER TABLE team ADD COLUMN city TEXT NOT NULL DEFAULT '';
+-- Kit colours as #rrggbb, '' when not given; the shirt colour is the .dvw
+-- [3TEAMS] colour. Not the screen colour (colour), which is a preset.
+ALTER TABLE team ADD COLUMN shirt_colour TEXT NOT NULL DEFAULT '';
+ALTER TABLE team ADD COLUMN libero_colour TEXT NOT NULL DEFAULT '';
+ALTER TABLE player ADD COLUMN weight_kg INTEGER;
+ALTER TABLE player ADD COLUMN reach_cm INTEGER;
+-- Where the match is played: [3MORE] arena and city.
+ALTER TABLE match ADD COLUMN hall TEXT NOT NULL DEFAULT '';
+ALTER TABLE match ADD COLUMN city TEXT NOT NULL DEFAULT '';
 ";
 
 const PLAYER_TABLE_SQL: &str = "
@@ -225,6 +256,7 @@ impl Season {
         conn.execute_batch(SCHEMA)?;
         conn.execute_batch(PLAYER_TABLE_SQL)?;
         conn.execute_batch(MATCH_PLAYER_TABLE_SQL)?;
+        conn.execute_batch(V10_SQL)?;
         conn.execute(
             "INSERT INTO season (id, name, created_ms) VALUES (1, ?1, ?2)",
             params![name, ms(now_ms)],
@@ -240,7 +272,7 @@ impl Season {
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         match version {
             VERSION => {}
-            1..=8 => {
+            1..=9 => {
                 if version < 2 {
                     migrate_1_to_2(&conn)?;
                 }
@@ -262,7 +294,10 @@ impl Season {
                 if version < 8 {
                     migrate_7_to_8(&conn)?;
                 }
-                migrate_8_to_9(&conn)?;
+                if version < 9 {
+                    migrate_8_to_9(&conn)?;
+                }
+                migrate_9_to_10(&conn)?;
             }
             _ => return Err(Error::Version(version)),
         }
@@ -310,17 +345,37 @@ impl Season {
             let team_id = match existing {
                 Some(t) => t,
                 None => {
-                    let t = next_id(&tx, now_ms)?.to_string();
-                    tx.execute(
-                        "INSERT INTO team (id, name, coach, assistant) VALUES (?1, ?2, ?3, ?4)",
-                        params![
-                            t,
-                            name,
-                            team.map(|t| t.coach()).unwrap_or_default(),
-                            team.map(|t| t.assistant()).unwrap_or_default()
-                        ],
-                    )?;
-                    t
+                    let person =
+                        |s: Option<String>| Person::from_last_first(&s.unwrap_or_default());
+                    // The file's team id as the code, when no team has it.
+                    let file_code = team.map_or("", |t| t.id().trim());
+                    let holder: Option<String> = if file_code.is_empty() {
+                        None
+                    } else {
+                        tx.query_row("SELECT id FROM team WHERE code = ?1", [file_code], |r| {
+                            r.get(0)
+                        })
+                        .optional()?
+                    };
+                    let input = TeamInput {
+                        name: name.clone(),
+                        code: if holder.is_none() {
+                            file_code.to_owned()
+                        } else {
+                            String::new()
+                        },
+                        staff: Staff {
+                            coach: person(team.map(|t| t.coach())),
+                            assistant: person(team.map(|t| t.assistant())),
+                            ..Staff::default()
+                        },
+                        shirt_colour: team
+                            .and_then(|t| t.shirt_colour())
+                            .and_then(colour_from_dvw)
+                            .unwrap_or_default(),
+                        ..TeamInput::default()
+                    };
+                    teams::team_create_in(&tx, &input, now_ms)?
                 }
             };
             let mut rows = Vec::new();
@@ -346,6 +401,8 @@ impl Season {
                     foreign: p.foreign().unwrap_or(false),
                     birth_date: None,
                     height_cm: None,
+                    weight_kg: None,
+                    reach_cm: None,
                 };
                 let (player_id, code, _) = teams::find_or_add_player(&tx, &team_id, &row, now_ms)?;
                 rows.push((player_id, code, row));
@@ -354,8 +411,9 @@ impl Season {
             team_ids.push(team_id);
         }
         tx.execute(
-            "INSERT INTO match (id, home_team_id, visiting_team_id, date, source_name, source_dvw, created_ms, video_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO match (id, home_team_id, visiting_team_id, date, source_name, source_dvw,
+                 created_ms, video_path, hall, city)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 id.to_string(),
                 team_ids[0],
@@ -369,6 +427,8 @@ impl Season {
                     .first()
                     .map(|v| v.path().trim())
                     .filter(|p| !p.is_empty()),
+                dvw.more.arena().trim(),
+                dvw.more.city().trim(),
             ],
         )?;
         for (side, rows) in (0u8..).zip(&rosters) {
@@ -416,11 +476,13 @@ impl Season {
 
     /// A match coded in the console, between two of the season's teams.
     /// It has no source file: its `.dvw` headers come from the team tables.
+    /// `venue` (hall, city): `None` takes the home team's.
     pub fn create_match(
         &mut self,
         home_team_id: &str,
         visiting_team_id: &str,
         date: Option<&str>,
+        venue: Option<&Venue>,
         now_ms: u64,
     ) -> Result<MatchId> {
         if home_team_id == visiting_team_id {
@@ -428,18 +490,25 @@ impl Season {
         }
         let tables = serde_json::to_string(&self.settings()?.tables)
             .map_err(|e| Error::Invalid(e.to_string()))?;
+        let venue = match venue {
+            Some(v) => v.clone(),
+            None => self.team(home_team_id)?.venue(),
+        };
         let tx = self.conn.transaction()?;
         let id = MatchId(next_id(&tx, now_ms)?);
         tx.execute(
-            "INSERT INTO match (id, home_team_id, visiting_team_id, date, created_ms, tables)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO match (id, home_team_id, visiting_team_id, date, created_ms, tables,
+                 hall, city)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 id.to_string(),
                 home_team_id,
                 visiting_team_id,
                 date,
                 ms(now_ms),
-                tables
+                tables,
+                venue.hall.trim(),
+                venue.city.trim()
             ],
         )?;
         teams::copy_rosters(&tx, id, home_team_id, visiting_team_id)?;
@@ -447,9 +516,40 @@ impl Season {
         Ok(id)
     }
 
+    /// Where a match is played.
+    pub fn match_venue(&self, id: MatchId) -> Result<Venue> {
+        self.conn
+            .query_row(
+                "SELECT hall, city FROM match WHERE id = ?1",
+                [id.to_string()],
+                |r| {
+                    Ok(Venue {
+                        hall: r.get(0)?,
+                        city: r.get(1)?,
+                    })
+                },
+            )
+            .optional()?
+            .ok_or(Error::NoMatch(id))
+    }
+
+    /// Sets where a match is played. An imported match's export keeps its
+    /// file's `[3MORE]`; a match coded here writes this.
+    pub fn set_match_venue(&mut self, id: MatchId, venue: &Venue) -> Result<()> {
+        let n = self.conn.execute(
+            "UPDATE match SET hall = ?2, city = ?3 WHERE id = ?1",
+            params![id.to_string(), venue.hall.trim(), venue.city.trim()],
+        )?;
+        if n == 0 {
+            return Err(Error::NoMatch(id));
+        }
+        Ok(())
+    }
+
     /// The `.dvw` a match with no source file starts from.
     fn blank_template(&self, id: MatchId) -> Result<Vec<u8>> {
         let (home, visiting) = self.match_teams(id)?;
+        let venue = self.match_venue(id)?;
         let (date, created): (Option<String>, i64) = self.conn.query_row(
             "SELECT date, created_ms FROM match WHERE id = ?1",
             [id.to_string()],
@@ -461,6 +561,7 @@ impl Season {
             &home,
             &visiting,
             date.as_deref(),
+            &venue,
             &tables,
             created,
         ))
@@ -832,6 +933,16 @@ fn migrate_8_to_9(conn: &Connection) -> Result<()> {
          PRAGMA user_version = 9;
          COMMIT;",
     )?;
+    Ok(())
+}
+
+fn migrate_9_to_10(conn: &Connection) -> Result<()> {
+    conn.execute_batch(&format!(
+        "BEGIN;
+         {V10_SQL}
+         PRAGMA user_version = 10;
+         COMMIT;"
+    ))?;
     Ok(())
 }
 

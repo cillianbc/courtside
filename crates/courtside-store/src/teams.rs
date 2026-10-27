@@ -8,6 +8,7 @@
 
 use std::collections::HashSet;
 
+pub use dvw_codec::team_file::{Person, Staff};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::{Error, MatchId, Result, Season, next_id};
@@ -16,11 +17,19 @@ use crate::{Error, MatchId, Result, Season, next_id};
 pub struct Team {
     pub id: String,
     pub name: String,
-    /// Short code, unique in the season when set; `[3TEAMS]` id column.
+    /// Unique in the season when set; `[3TEAMS]` id column.
     pub code: String,
-    pub coach: String,
-    pub assistant: String,
-    /// A colour preset's key; empty for the default.
+    /// Up to five characters: `.sq` abbreviation, `.vst` `shortCode`.
+    pub short_code: String,
+    pub staff: Staff,
+    /// Home hall and city: a new match's venue when the team is at home.
+    pub hall: String,
+    pub city: String,
+    /// Kit colours, `#rrggbb` or empty. The shirt colour is the `.dvw`
+    /// `[3TEAMS]` colour.
+    pub shirt_colour: String,
+    pub libero_colour: String,
+    /// The screen colour: a preset's key; empty for the default.
     pub colour: String,
     pub players: Vec<Player>,
     /// Matches the team plays in.
@@ -44,17 +53,23 @@ pub struct Player {
     /// ISO `YYYY-MM-DD`.
     pub birth_date: Option<String>,
     pub height_cm: Option<u16>,
+    pub weight_kg: Option<u16>,
+    /// Attack reach.
+    pub reach_cm: Option<u16>,
 }
 
-/// A team's details as entered.
+/// A team's details as entered (see [`Team`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TeamInput {
     pub name: String,
     /// Empty: made from the name.
     pub code: String,
-    pub coach: String,
-    pub assistant: String,
-    /// A colour preset's key; empty for the default.
+    pub short_code: String,
+    pub staff: Staff,
+    pub hall: String,
+    pub city: String,
+    pub shirt_colour: String,
+    pub libero_colour: String,
     pub colour: String,
 }
 
@@ -74,6 +89,8 @@ pub struct PlayerInput {
     pub foreign: bool,
     pub birth_date: Option<String>,
     pub height_cm: Option<u16>,
+    pub weight_kg: Option<u16>,
+    pub reach_cm: Option<u16>,
 }
 
 /// A player of the season with their team, for the players list.
@@ -87,7 +104,10 @@ pub struct SeasonPlayer {
 }
 
 const PLAYER_COLUMNS: &str = "id, number, code, last_name, first_name, nickname, role, libero, \
-     captain, foreign_player, birth_date, height_cm";
+     captain, foreign_player, birth_date, height_cm, weight_kg, reach_cm";
+
+/// `player_row`'s width.
+const PLAYER_WIDTH: usize = 14;
 
 fn player_row(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<Player> {
     Ok(Player {
@@ -103,7 +123,91 @@ fn player_row(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<Player> {
         foreign: r.get(at + 9)?,
         birth_date: r.get(at + 10)?,
         height_cm: r.get(at + 11)?,
+        weight_kg: r.get(at + 12)?,
+        reach_cm: r.get(at + 13)?,
     })
+}
+
+/// Team columns in [`team_row`]'s order.
+const TEAM_COLUMNS: &str = "t.id, t.name, t.code, t.short_code, t.coach_last, t.coach_first, \
+     t.assistant_last, t.assistant_first, t.assistant2_last, t.assistant2_first, t.physio_last, \
+     t.physio_first, t.doctor_last, t.doctor_first, t.hall, t.city, t.shirt_colour, \
+     t.libero_colour, t.colour";
+
+fn team_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Team> {
+    let person = |at: usize| -> rusqlite::Result<Person> {
+        Ok(Person {
+            last_name: r.get(at)?,
+            first_name: r.get(at + 1)?,
+        })
+    };
+    Ok(Team {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        code: r.get(2)?,
+        short_code: r.get(3)?,
+        staff: Staff {
+            coach: person(4)?,
+            assistant: person(6)?,
+            assistant2: person(8)?,
+            physio: person(10)?,
+            doctor: person(12)?,
+        },
+        hall: r.get(14)?,
+        city: r.get(15)?,
+        shirt_colour: r.get(16)?,
+        libero_colour: r.get(17)?,
+        colour: r.get(18)?,
+        players: Vec::new(),
+        matches: r.get::<_, i64>(19)?.try_into().unwrap_or(0),
+    })
+}
+
+/// `#rrggbb` (any case) as given, else empty.
+fn kit_colour(s: &str) -> Result<String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Ok(String::new());
+    }
+    let hex = s.strip_prefix('#').unwrap_or(s);
+    if hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        Ok(format!("#{}", hex.to_ascii_lowercase()))
+    } else {
+        Err(invalid(format!("{s} isn't a colour (#rrggbb)")))
+    }
+}
+
+/// A `#rrggbb` colour as the Windows colour number `.dvw` files hold
+/// (`0x00bbggrr`: red is 255).
+pub fn colour_to_dvw(hex: &str) -> Option<u32> {
+    let v = u32::from_str_radix(hex.strip_prefix('#')?, 16).ok()?;
+    let (r, g, b) = (v >> 16, (v >> 8) & 0xff, v & 0xff);
+    Some(r | (g << 8) | (b << 16))
+}
+
+/// A `.dvw` colour number as `#rrggbb`.
+pub fn colour_from_dvw(n: u32) -> Option<String> {
+    (n <= 0x00ff_ffff).then(|| {
+        let (r, g, b) = (n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff);
+        format!("#{r:02x}{g:02x}{b:02x}")
+    })
+}
+
+/// Where a match is played: `.dvw` `[3MORE]` arena and city.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Venue {
+    pub hall: String,
+    pub city: String,
+}
+
+impl Team {
+    /// The team's home venue.
+    pub fn venue(&self) -> Venue {
+        Venue {
+            hall: self.hall.clone(),
+            city: self.city.clone(),
+        }
+    }
 }
 
 /// The code a player gets when none is entered: the first three letters
@@ -173,24 +277,13 @@ impl Season {
     pub fn teams(&self) -> Result<Vec<Team>> {
         let mut teams: Vec<Team> = self
             .conn
-            .prepare(
-                "SELECT t.id, t.name, t.code, t.coach, t.assistant, t.colour,
+            .prepare(&format!(
+                "SELECT {TEAM_COLUMNS},
                         (SELECT COUNT(*) FROM match m
                          WHERE m.home_team_id = t.id OR m.visiting_team_id = t.id)
-                 FROM team t ORDER BY t.name",
-            )?
-            .query_map([], |r| {
-                Ok(Team {
-                    id: r.get(0)?,
-                    name: r.get(1)?,
-                    code: r.get(2)?,
-                    coach: r.get(3)?,
-                    assistant: r.get(4)?,
-                    colour: r.get(5)?,
-                    players: Vec::new(),
-                    matches: r.get::<_, i64>(6)?.try_into().unwrap_or(0),
-                })
-            })?
+                 FROM team t ORDER BY t.name"
+            ))?
+            .query_map([], team_row)?
             .collect::<rusqlite::Result<_>>()?;
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {PLAYER_COLUMNS} FROM player WHERE team_id = ?1 ORDER BY number"
@@ -296,9 +389,9 @@ impl Season {
         let rows = stmt.query_map([], |r| {
             Ok(SeasonPlayer {
                 player: player_row(r, 0)?,
-                team_id: r.get(12)?,
-                team_name: r.get(13)?,
-                matches: r.get::<_, i64>(14)?.try_into().unwrap_or(0),
+                team_id: r.get(PLAYER_WIDTH)?,
+                team_name: r.get(PLAYER_WIDTH + 1)?,
+                matches: r.get::<_, i64>(PLAYER_WIDTH + 2)?.try_into().unwrap_or(0),
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -420,7 +513,7 @@ impl Season {
     pub fn match_roster(&self, id: MatchId) -> Result<(Vec<Player>, Vec<Player>)> {
         let mut stmt = self.conn.prepare(
             "SELECT player_id, number, code, last_name, first_name, nickname, role, libero,
-                    captain, foreign_player, NULL, NULL
+                    captain, foreign_player, NULL, NULL, NULL, NULL
              FROM match_player WHERE match_id = ?1 AND side = ?2 ORDER BY number",
         )?;
         let mut side = |s: u8| -> Result<Vec<Player>> {
@@ -471,35 +564,71 @@ impl Season {
     }
 }
 
-fn team_create_in(tx: &Transaction<'_>, input: &TeamInput, now_ms: u64) -> Result<String> {
+pub(crate) fn team_create_in(
+    tx: &Transaction<'_>,
+    input: &TeamInput,
+    now_ms: u64,
+) -> Result<String> {
     let id = next_id(tx, now_ms)?.to_string();
-    let code = team_code(tx, input, &id)?;
+    // The row first, then every column as an update sets them.
     tx.execute(
-        "INSERT INTO team (id, name, code, coach, assistant, colour) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            id,
-            input.name.trim(),
-            code,
-            input.coach.trim(),
-            input.assistant.trim(),
-            input.colour.trim()
-        ],
+        "INSERT INTO team (id, name, coach_last, assistant_last) VALUES (?1, ?2, '', '')",
+        params![id, input.name.trim()],
     )
     .map_err(|e| unique_name(e, &input.name))?;
+    team_update_in(tx, &id, input)?;
     Ok(id)
 }
 
 fn team_update_in(tx: &Transaction<'_>, id: &str, input: &TeamInput) -> Result<()> {
     let code = team_code(tx, input, id)?;
+    let short_code: String = input.short_code.trim().chars().take(5).collect();
+    let (shirt, libero) = (
+        kit_colour(&input.shirt_colour)?,
+        kit_colour(&input.libero_colour)?,
+    );
+    let st = &input.staff;
+    let names = |p: &Person| {
+        (
+            p.last_name.trim().to_owned(),
+            p.first_name.trim().to_owned(),
+        )
+    };
+    let [c, a, a2, ph, d] = [
+        &st.coach,
+        &st.assistant,
+        &st.assistant2,
+        &st.physio,
+        &st.doctor,
+    ]
+    .map(names);
     let n = tx
         .execute(
-            "UPDATE team SET name = ?2, code = ?3, coach = ?4, assistant = ?5, colour = ?6 WHERE id = ?1",
+            "UPDATE team SET name = ?2, code = ?3, short_code = ?4, coach_last = ?5,
+                 coach_first = ?6, assistant_last = ?7, assistant_first = ?8,
+                 assistant2_last = ?9, assistant2_first = ?10, physio_last = ?11,
+                 physio_first = ?12, doctor_last = ?13, doctor_first = ?14, hall = ?15,
+                 city = ?16, shirt_colour = ?17, libero_colour = ?18, colour = ?19
+             WHERE id = ?1",
             params![
                 id,
                 input.name.trim(),
                 code,
-                input.coach.trim(),
-                input.assistant.trim(),
+                short_code,
+                c.0,
+                c.1,
+                a.0,
+                a.1,
+                a2.0,
+                a2.1,
+                ph.0,
+                ph.1,
+                d.0,
+                d.1,
+                input.hall.trim(),
+                input.city.trim(),
+                shirt,
+                libero,
                 input.colour.trim()
             ],
         )
@@ -557,14 +686,17 @@ fn roster_in(tx: &Transaction<'_>, team_id: &str, rows: &[PlayerInput], now_ms: 
             r.foreign,
             r.birth_date.as_deref().filter(|d| !d.is_empty()),
             r.height_cm,
+            r.weight_kg,
+            r.reach_cm,
         ];
         match &r.id {
             Some(id) => {
                 let n = tx.execute(
                     "UPDATE player SET team_id = ?1, number = ?2, code = ?3, last_name = ?4,
                              first_name = ?5, nickname = ?6, role = ?7, libero = ?8, captain = ?9,
-                             foreign_player = ?10, birth_date = ?11, height_cm = ?12
-                         WHERE id = ?13 AND team_id = ?1",
+                             foreign_player = ?10, birth_date = ?11, height_cm = ?12,
+                             weight_kg = ?13, reach_cm = ?14
+                         WHERE id = ?15 AND team_id = ?1",
                     rusqlite::params_from_iter(
                         values.iter().copied().chain([id as &dyn rusqlite::ToSql]),
                     ),
@@ -578,8 +710,9 @@ fn roster_in(tx: &Transaction<'_>, team_id: &str, rows: &[PlayerInput], now_ms: 
                 tx.execute(
                     "INSERT INTO player (team_id, number, code, last_name, first_name,
                                  nickname, role, libero, captain, foreign_player, birth_date,
-                                 height_cm, id)
-                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                                 height_cm, weight_kg, reach_cm, id)
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                                 ?14, ?15)",
                     rusqlite::params_from_iter(
                         values.iter().copied().chain([&id as &dyn rusqlite::ToSql]),
                     ),
@@ -758,10 +891,15 @@ pub(crate) fn find_or_add_player(
             r.foreign
         ],
     )?;
-    if r.birth_date.is_some() || r.height_cm.is_some() {
+    if r.birth_date.is_some()
+        || r.height_cm.is_some()
+        || r.weight_kg.is_some()
+        || r.reach_cm.is_some()
+    {
         tx.execute(
-            "UPDATE player SET birth_date = ?2, height_cm = ?3 WHERE id = ?1",
-            params![id, r.birth_date, r.height_cm],
+            "UPDATE player SET birth_date = ?2, height_cm = ?3, weight_kg = ?4, reach_cm = ?5
+             WHERE id = ?1",
+            params![id, r.birth_date, r.height_cm, r.weight_kg, r.reach_cm],
         )?;
     }
     Ok((id, code, true))
@@ -787,11 +925,15 @@ impl Season {
         use dvw_codec::team_file::{TeamFile, TeamFilePlayer, write_sq, write_vst};
         let t = self.team(team_id)?;
         let file = TeamFile {
-            short_code: t.code.chars().take(5).collect(),
+            short_code: if t.short_code.is_empty() {
+                t.code.chars().take(5).collect()
+            } else {
+                t.short_code
+            },
             code: t.code,
             name: t.name,
-            coach: t.coach,
-            assistant: t.assistant,
+            staff: t.staff,
+            home_court: t.hall,
             players: t
                 .players
                 .into_iter()
@@ -807,6 +949,8 @@ impl Season {
                     foreign: p.foreign,
                     birth_date: p.birth_date,
                     height_cm: p.height_cm,
+                    weight_kg: p.weight_kg,
+                    reach_cm: p.reach_cm,
                 })
                 .collect(),
         };
@@ -867,9 +1011,10 @@ impl Season {
                     &TeamInput {
                         name: name.clone(),
                         code,
-                        coach: file.coach.clone(),
-                        assistant: file.assistant.clone(),
-                        colour: String::new(),
+                        short_code: file.short_code.clone(),
+                        staff: file.staff.clone(),
+                        hall: file.home_court.clone(),
+                        ..TeamInput::default()
                     },
                     now_ms,
                 )?
@@ -890,6 +1035,8 @@ impl Season {
                 foreign: p.foreign,
                 birth_date: p.birth_date.clone(),
                 height_cm: p.height_cm,
+                weight_kg: p.weight_kg,
+                reach_cm: p.reach_cm,
             };
             if find_or_add_player(&tx, &team_id, &row, now_ms)?.2 {
                 added += 1;
@@ -923,6 +1070,16 @@ mod tests {
         );
         assert_eq!(suggest_player_code("Ó Sé", "", 7, &taken), "ÓSÉ");
         assert_eq!(suggest_player_code("", "", 12, &taken), "P12");
+    }
+
+    #[test]
+    fn kit_colours_as_dvw_numbers() {
+        assert_eq!(colour_to_dvw("#ff0000"), Some(255));
+        assert_eq!(colour_to_dvw("#0b63f4"), Some(16_016_139));
+        assert_eq!(colour_from_dvw(32768).as_deref(), Some("#008000"));
+        assert_eq!(colour_from_dvw(16_777_215).as_deref(), Some("#ffffff"));
+        assert_eq!(kit_colour(" #ABCDEF ").ok().as_deref(), Some("#abcdef"));
+        assert!(kit_colour("red").is_err());
     }
 
     #[test]

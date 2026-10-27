@@ -1,7 +1,7 @@
 <script lang="ts">
   import { open, save } from "@tauri-apps/plugin-dialog";
   import * as backend from "../backend";
-  import { describeImport, type TeamDetail } from "../teams";
+  import { describeImport, personName, type TeamDetail } from "../teams";
   import MergeTeams from "./MergeTeams.svelte";
   import TeamEditor from "./TeamEditor.svelte";
 
@@ -55,7 +55,7 @@
     }
   }
 
-  async function done(changed: boolean) {
+  async function done(changed: boolean | TeamDetail | null) {
     view = { kind: "list" };
     if (changed) await onchange();
   }
@@ -107,7 +107,7 @@
               >
             </td>
             <td class="mono">{t.code}</td>
-            <td>{t.coach}</td>
+            <td>{personName(t.staff.coach)}</td>
             <td class="num">{t.players.length}</td>
             <td class="num">{t.matches}</td>
             <td class="row-tools">

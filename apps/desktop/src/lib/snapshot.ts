@@ -19,6 +19,8 @@ export interface PlayerView {
 }
 
 export interface TeamView {
+  /** The season team's id (for the team editor). */
+  id: string;
   /** The team's colour preset ([`TEAM_COLOURS`] in teams.ts); empty for the default. */
   colour: string;
   name: string;

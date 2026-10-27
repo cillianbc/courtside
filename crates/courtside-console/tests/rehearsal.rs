@@ -45,6 +45,8 @@ fn roster(base: u8) -> Vec<PlayerDetail> {
             foreign: false,
             birth_date: None,
             height_cm: Some(190),
+            weight_kg: None,
+            reach_cm: None,
         })
         .collect()
 }
@@ -176,7 +178,13 @@ fn a_whole_match_coded_live() {
         .expect("season");
     let form = |name: &str| TeamForm {
         name: name.into(),
-        coach: "Coach Name".into(),
+        staff: courtside_console::StaffView {
+            coach: courtside_console::PersonView {
+                last_name: "Coach".into(),
+                first_name: "Name".into(),
+            },
+            ..Default::default()
+        },
         ..TeamForm::default()
     };
     let home = session
@@ -186,7 +194,7 @@ fn a_whole_match_coded_live() {
         .save_team(None, &form("Northgate"), &roster(21), 3)
         .expect("away");
     session
-        .new_match(&home.id, &away.id, Some("2026-10-20"), 4)
+        .new_match(&home.id, &away.id, Some("2026-10-20"), None, 4)
         .expect("match");
 
     let mut rng = Rng(20_261_020);

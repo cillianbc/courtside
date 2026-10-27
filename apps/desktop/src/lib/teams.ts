@@ -16,26 +16,89 @@ export interface PlayerDetail {
   foreign: boolean;
   birthDate: string | null;
   heightCm: number | null;
+  weightKg: number | null;
+  /** Attack reach. */
+  reachCm: number | null;
 }
 
-export interface TeamDetail {
+export interface PersonView {
+  lastName: string;
+  firstName: string;
+}
+
+/** A team's staff (VolleyStation's roles; .dvw and .sq hold the first two). */
+export interface StaffView {
+  coach: PersonView;
+  assistant: PersonView;
+  assistant2: PersonView;
+  physio: PersonView;
+  doctor: PersonView;
+}
+
+export interface VenueView {
+  hall: string;
+  city: string;
+}
+
+export interface TeamDetail extends TeamForm {
   id: string;
-  name: string;
-  code: string;
-  coach: string;
-  assistant: string;
-  /** A colour preset's key ([`TEAM_COLOURS`]); empty for the default. */
-  colour: string;
   matches: number;
   players: PlayerDetail[];
 }
 
 export interface TeamForm {
   name: string;
+  /** Empty: made from the name when saving. */
   code: string;
-  coach: string;
-  assistant: string;
+  /** Up to five characters (.sq and .vst). */
+  shortCode: string;
+  staff: StaffView;
+  /** Home hall and city: a new match's venue when the team is at home. */
+  hall: string;
+  city: string;
+  /** Kit colours, `#rrggbb` or empty; the shirt colour goes in the .dvw. */
+  shirtColour: string;
+  liberoColour: string;
+  /** The screen colour: a preset's key ([`TEAM_COLOURS`]); empty for the default. */
   colour: string;
+}
+
+export const STAFF_ROLES: readonly { key: keyof StaffView; label: string; note?: string }[] = [
+  { key: "coach", label: "Head coach", note: "In the .dvw and .sq" },
+  { key: "assistant", label: "Assistant coach", note: "In the .dvw and .sq" },
+  { key: "assistant2", label: "Second assistant" },
+  { key: "physio", label: "Physio" },
+  { key: "doctor", label: "Doctor" },
+];
+
+const noOne = (): PersonView => ({ lastName: "", firstName: "" });
+
+/** The editor's starting form: a copy of `team`, or an empty team. */
+export function teamForm(team: TeamDetail | null): TeamForm {
+  return {
+    name: team?.name ?? "",
+    code: team?.code ?? "",
+    shortCode: team?.shortCode ?? "",
+    staff: team
+      ? structuredClone(team.staff)
+      : {
+          coach: noOne(),
+          assistant: noOne(),
+          assistant2: noOne(),
+          physio: noOne(),
+          doctor: noOne(),
+        },
+    hall: team?.hall ?? "",
+    city: team?.city ?? "",
+    shirtColour: team?.shirtColour ?? "",
+    liberoColour: team?.liberoColour ?? "",
+    colour: team?.colour ?? "",
+  };
+}
+
+/** "First Last", as people are named on screen. */
+export function personName(p: PersonView): string {
+  return [p.firstName.trim(), p.lastName.trim()].filter(Boolean).join(" ");
 }
 
 /**
@@ -113,6 +176,8 @@ export function blankPlayer(number: number): PlayerDetail {
     foreign: false,
     birthDate: null,
     heightCm: null,
+    weightKg: null,
+    reachCm: null,
   };
 }
 

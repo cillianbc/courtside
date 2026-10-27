@@ -16,6 +16,15 @@
   let home = $state("");
   let visiting = $state("");
   let date = $state(new Date().toISOString().slice(0, 10));
+  // The venue starts as the home team's (issue #49) and can be changed.
+  let hall = $state("");
+  let city = $state("");
+  function pickHome(id: string) {
+    home = id;
+    const t = teams.find((t) => t.id === id);
+    hall = t?.hall ?? "";
+    city = t?.city ?? "";
+  }
 
   const SEASON = [{ name: "Courtside season", extensions: ["courtside"] }];
 
@@ -76,7 +85,7 @@
         error = "Pick two different teams.";
         return;
       }
-      ui.snapshot = await backend.newMatch(home, visiting, date || null);
+      ui.snapshot = await backend.newMatch(home, visiting, date || null, { hall, city });
       await ui.loadKeymap();
     });
   };
@@ -124,7 +133,7 @@
         <div class="pick">
           <label
             >Home
-            <select bind:value={home}>
+            <select value={home} onchange={(e) => pickHome(e.currentTarget.value)}>
               <option value="">–</option>
               {#each teams as t (t.id)}<option value={t.id}>{t.name} ({t.players.length})</option
                 >{/each}
@@ -139,6 +148,8 @@
             </select>
           </label>
           <label>Date <input type="date" bind:value={date} /></label>
+          <label>Hall <input bind:value={hall} placeholder="home team's" /></label>
+          <label>City <input bind:value={city} /></label>
           <button class="btn primary" type="submit">Start coding</button>
         </div>
       </form>

@@ -61,6 +61,8 @@
           <th title="Foreign player">Fgn</th>
           <th>Born</th>
           <th title="Height in cm">cm</th>
+          <th title="Weight in kg">kg</th>
+          <th title="Attack reach in cm">Reach</th>
         {/if}
         <th><span class="sr-only">Remove</span></th>
       </tr>
@@ -134,6 +136,28 @@
                 onchange={(e) =>
                   (r.heightCm = e.currentTarget.value ? Number(e.currentTarget.value) : null)}
                 aria-label="Height in cm"
+              />
+            </td>
+            <td class="num">
+              <input
+                type="number"
+                min="30"
+                max="200"
+                value={r.weightKg ?? ""}
+                onchange={(e) =>
+                  (r.weightKg = e.currentTarget.value ? Number(e.currentTarget.value) : null)}
+                aria-label="Weight in kg"
+              />
+            </td>
+            <td class="num">
+              <input
+                type="number"
+                min="150"
+                max="450"
+                value={r.reachCm ?? ""}
+                onchange={(e) =>
+                  (r.reachCm = e.currentTarget.value ? Number(e.currentTarget.value) : null)}
+                aria-label="Attack reach in cm"
               />
             </td>
           {/if}

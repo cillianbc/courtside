@@ -28,6 +28,8 @@ fn read(row: &Row) -> Player {
         foreign: row.foreign().unwrap_or(false),
         birth_date: None,
         height_cm: None,
+        weight_kg: None,
+        reach_cm: None,
     }
 }
 

@@ -18,7 +18,10 @@ fn team(season: &mut Season, name: &str) -> String {
         .create_team(
             &TeamInput {
                 name: name.into(),
-                coach: "Coach".into(),
+                staff: courtside_store::Staff {
+                    coach: courtside_store::Person::from_last_first("Coach"),
+                    ..Default::default()
+                },
                 ..TeamInput::default()
             },
             1,
@@ -168,7 +171,7 @@ fn a_match_keeps_its_roster_when_the_team_changes() {
     six(&mut season, &a, 1);
     six(&mut season, &b, 11);
     let m = season
-        .create_match(&a, &b, Some("2026-10-15"), 5)
+        .create_match(&a, &b, Some("2026-10-15"), None, 5)
         .expect("match");
     // A new player joins the team after the match.
     let mut rows: Vec<PlayerInput> = season
@@ -240,7 +243,9 @@ fn merging_teams_and_players() {
     six(&mut season, &old, 1);
     six(&mut season, &new, 1);
     six(&mut season, &other, 11);
-    let m = season.create_match(&old, &other, None, 5).expect("match");
+    let m = season
+        .create_match(&old, &other, None, None, 5)
+        .expect("match");
 
     let old_players = season.team(&old).expect("old").players;
     let new_players = season.team(&new).expect("new").players;
@@ -330,8 +335,13 @@ fn team_files_add_a_team_or_fill_in_its_roster() {
     assert_eq!((first.players_added, first.players_kept), (2, 0));
     let t = season.team(&first.team_id).expect("team");
     assert_eq!(
-        (t.name.as_str(), t.code.as_str(), t.coach.as_str()),
-        ("Harbour City", "HCV", "Marlow Dennis")
+        (
+            t.name.as_str(),
+            t.code.as_str(),
+            t.staff.coach.last_name.as_str(),
+            t.staff.coach.first_name.as_str()
+        ),
+        ("Harbour City", "HCV", "Marlow", "Dennis")
     );
     assert!(
         t.players
@@ -407,14 +417,14 @@ fn settings_are_saved_and_each_match_keeps_the_tables_it_started_with() {
     let b = team(&mut season, "Northgate");
     six(&mut season, &a, 1);
     six(&mut season, &b, 11);
-    let first = season.create_match(&a, &b, None, 5).expect("match");
+    let first = season.create_match(&a, &b, None, None, 5).expect("match");
 
     settings.typing.evaluations[0] = '-';
     settings.tables.combinations.retain(|c| c.code != "X5");
     settings.tables.winning[3].lose = "=".into(); // attack: only = loses
     season.save_settings(&settings).expect("save");
     assert_eq!(season.settings().expect("load"), settings);
-    let second = season.create_match(&a, &b, None, 6).expect("match");
+    let second = season.create_match(&a, &b, None, None, 6).expect("match");
 
     let export =
         |m| String::from_utf8_lossy(&season.export_dvw(m, false).expect("export")).into_owned();
@@ -435,5 +445,82 @@ fn settings_are_saved_and_each_match_keeps_the_tables_it_started_with() {
             .outcome(vb_grammar::Skill::Attack, '/')
             .is_none(),
         "the engine uses the match's winning symbols"
+    );
+}
+
+/// Issue #49: a team's staff, shirt colour and home venue reach a new
+/// match's `.dvw`, and importing that file brings them back.
+#[test]
+fn team_details_reach_the_export_and_back() {
+    use courtside_store::{Person, Staff, Venue};
+    let person = |last: &str, first: &str| Person {
+        last_name: last.into(),
+        first_name: first.into(),
+    };
+    let mut season = Season::in_memory("s", 1).expect("season");
+    let a = season
+        .create_team(
+            &TeamInput {
+                name: "Harbour City".into(),
+                code: "HC".into(),
+                short_code: "HARBOUR".into(),
+                staff: Staff {
+                    coach: person("Marlow", "Dennis"),
+                    assistant: person("Okafor", "Tess"),
+                    physio: person("Vance", "Ida"),
+                    ..Staff::default()
+                },
+                hall: "Quayside Arena".into(),
+                city: "Harbourtown".into(),
+                shirt_colour: "#FF0000".into(),
+                libero_colour: "#ffffff".into(),
+                ..TeamInput::default()
+            },
+            1,
+        )
+        .expect("team");
+    let t = season.team(&a).expect("team");
+    assert_eq!(
+        (t.short_code.as_str(), t.shirt_colour.as_str()),
+        ("HARBO", "#ff0000"),
+        "five characters; colours kept as #rrggbb"
+    );
+    let b = team(&mut season, "Northgate");
+    six(&mut season, &a, 1);
+    six(&mut season, &b, 11);
+
+    let m = season.create_match(&a, &b, None, None, 5).expect("match");
+    assert_eq!(season.match_venue(m).expect("venue"), t.venue());
+    let export = |season: &Season| season.export_dvw(m, false).expect("export");
+    let text = String::from_utf8_lossy(&export(&season)).into_owned();
+    assert!(text.contains(";Marlow Dennis;Okafor Tess;255;"), "{text}");
+    assert!(
+        text.contains("[3MORE]\r\n;;;Harbourtown;Quayside Arena;;\r\n"),
+        "{text}"
+    );
+
+    let away = Venue {
+        hall: "North Hall".into(),
+        city: "Northgate".into(),
+    };
+    season.set_match_venue(m, &away).expect("venue");
+    let bytes = export(&season);
+    let mut other = Season::in_memory("t", 1).expect("season");
+    let id = other.import_dvw("m.dvw", &bytes, 10).expect("import");
+    assert_eq!(other.match_venue(id).expect("venue"), away);
+    let back = other
+        .teams()
+        .expect("teams")
+        .into_iter()
+        .find(|t| t.name == "Harbour City")
+        .expect("team");
+    assert_eq!(
+        (
+            back.code.as_str(),
+            back.staff.coach.clone(),
+            back.staff.assistant.last_name.as_str(),
+            back.shirt_colour.as_str()
+        ),
+        ("HC", person("Marlow", "Dennis"), "Okafor", "#ff0000")
     );
 }

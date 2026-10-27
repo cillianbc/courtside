@@ -26,7 +26,10 @@ use vb_grammar::{Code, Skill, Touch};
 pub use clips::{ClipFilter, Clips};
 pub use courtside_store::{Error as StoreError, MatchId, SKILLS, Settings};
 pub use keys::Keys;
-pub use manage::{PlayerDetail, PlayerListItem, TeamDetail, TeamForm, TeamImportView};
+pub use manage::{
+    PersonView, PlayerDetail, PlayerListItem, StaffView, TeamDetail, TeamForm, TeamImportView,
+    VenueView,
+};
 pub use readback::Preview;
 pub use resume::Resume;
 pub use snapshot::{MatchItem, Snapshot};
@@ -1319,18 +1322,37 @@ impl Session {
     }
 
     /// Creates a match between two of the season's teams (by id), to be
-    /// coded here, and opens it. `date` is ISO `YYYY-MM-DD`.
+    /// coded here, and opens it. `date` is ISO `YYYY-MM-DD`; `venue`
+    /// `None` takes the home team's.
     pub fn new_match(
         &mut self,
         home_team_id: &str,
         visiting_team_id: &str,
         date: Option<&str>,
+        venue: Option<&VenueView>,
         now_ms: u64,
     ) -> Result<Snapshot> {
-        let id = self
-            .season_mut()?
-            .create_match(home_team_id, visiting_team_id, date, now_ms)?;
+        let venue = venue.map(courtside_store::Venue::from);
+        let id = self.season_mut()?.create_match(
+            home_team_id,
+            visiting_team_id,
+            date,
+            venue.as_ref(),
+            now_ms,
+        )?;
         self.open_match(id, now_ms)
+    }
+
+    /// Where the open match is played.
+    pub fn match_venue(&self) -> Result<VenueView> {
+        let c = self.current.as_ref().ok_or(Error::NoMatch)?;
+        Ok(self.season()?.match_venue(c.id)?.into())
+    }
+
+    /// Sets where the open match is played.
+    pub fn set_match_venue(&mut self, venue: &VenueView) -> Result<()> {
+        let id = self.current.as_ref().ok_or(Error::NoMatch)?.id;
+        Ok(self.season_mut()?.set_match_venue(id, &venue.into())?)
     }
 
     /// Imports a `.dvw` file into the open season (without opening it).

@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use courtside_console::{
     ClipFilter, Clips, ClockTime, FixPreview, Keys, MatchId, MatchItem, PlayerDetail,
     PlayerListItem, Preview, Resume, Session, Settings, Snapshot, Team, TeamDetail, TeamForm,
-    TeamImportView,
+    TeamImportView, VenueView,
 };
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -288,6 +288,7 @@ fn match_roster_save(
 }
 
 /// Creates a match between two of the season's teams and opens it.
+/// `venue` `None` takes the home team's.
 #[tauri::command]
 fn match_new(
     app: AppHandle,
@@ -295,12 +296,24 @@ fn match_new(
     home: String,
     visiting: String,
     date: Option<String>,
+    venue: Option<VenueView>,
 ) -> Reply<Snapshot> {
     let snap = with(&state, |s| {
-        s.new_match(&home, &visiting, date.as_deref(), now_ms())
+        s.new_match(&home, &visiting, date.as_deref(), venue.as_ref(), now_ms())
     })?;
     remember(&app, &state);
     Ok(snap)
+}
+
+/// Where the open match is played.
+#[tauri::command]
+fn match_venue(state: State<'_, Shared>) -> Reply<VenueView> {
+    with(&state, |s| s.match_venue())
+}
+
+#[tauri::command]
+fn match_venue_save(state: State<'_, Shared>, venue: VenueView) -> Reply<()> {
+    with(&state, |s| s.set_match_venue(&venue))
 }
 
 /// Reopens the season and match open last, after a restart or crash.
@@ -730,6 +743,8 @@ fn main() {
             match_roster,
             match_roster_save,
             match_new,
+            match_venue,
+            match_venue_save,
             resume,
             matches,
             match_import,

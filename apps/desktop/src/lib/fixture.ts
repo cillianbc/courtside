@@ -2,6 +2,7 @@
 // unit tests. Teams, players and codes are invented.
 
 import { cellAt } from "./court";
+import type { TeamDetail } from "./teams";
 import type { Group, Row, Side, Snapshot } from "./snapshot";
 
 const NAMES: Record<Side, Record<number, string>> = {
@@ -122,8 +123,13 @@ export function fixture(): Snapshot {
   return {
     matchId: "fixture",
     teams: {
-      home: { name: "Harbour City VC", colour: "", players: players("home") },
-      visiting: { name: "Northgate Volley", colour: "", players: players("visiting") },
+      home: { id: "home-team", name: "Harbour City VC", colour: "", players: players("home") },
+      visiting: {
+        id: "visiting-team",
+        name: "Northgate Volley",
+        colour: "",
+        players: players("visiting"),
+      },
     },
     set: 2,
     score: { home: 14, visiting: 12 },
@@ -168,4 +174,49 @@ export function fixture(): Snapshot {
     events: 412,
     videoPath: null,
   };
+}
+
+/** The fixture match's teams as the team editor sees them (made up). */
+export function fixtureTeams(): TeamDetail[] {
+  const snap = fixture();
+  const person = (lastName: string, firstName: string) => ({ lastName, firstName });
+  const noOne = () => person("", "");
+  return (["home", "visiting"] as const).map((side, i) => {
+    const t = snap.teams[side];
+    return {
+      id: t.id,
+      name: t.name,
+      code: i === 0 ? "HCV" : "NGV",
+      shortCode: "",
+      staff: {
+        coach: i === 0 ? person("Marlow", "Dennis") : person("Brand", "Ilse"),
+        assistant: i === 0 ? person("Okafor", "Tess") : noOne(),
+        assistant2: noOne(),
+        physio: noOne(),
+        doctor: noOne(),
+      },
+      hall: i === 0 ? "Quayside Arena" : "",
+      city: i === 0 ? "Harbourtown" : "",
+      shirtColour: i === 0 ? "#1d4fa0" : "",
+      liberoColour: "",
+      colour: t.colour,
+      matches: 1,
+      players: t.players.map((p) => ({
+        id: `${side}-${p.number}`,
+        number: p.number,
+        code: p.code,
+        lastName: p.name,
+        firstName: "",
+        nickname: "",
+        role: p.role,
+        libero: p.libero,
+        captain: p.captain,
+        foreign: false,
+        birthDate: null,
+        heightCm: null,
+        weightKg: null,
+        reachCm: null,
+      })),
+    };
+  });
 }

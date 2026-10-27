@@ -112,6 +112,8 @@ pub struct StartingView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TeamView {
+    /// The season team's id (for the team editor).
+    pub id: String,
     pub name: String,
     /// The team's colour preset; empty for the default.
     pub colour: String,
@@ -235,6 +237,7 @@ fn kind_name(k: EventKind) -> &'static str {
 
 fn team_view(t: &StoreTeam) -> TeamView {
     TeamView {
+        id: t.id.clone(),
         name: t.name.clone(),
         colour: t.colour.clone(),
         players: t

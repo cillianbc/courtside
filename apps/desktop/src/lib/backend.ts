@@ -3,10 +3,17 @@
 // made-up fixture instead, so the layout can be worked on without Tauri.
 
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { fixture } from "./fixture";
+import { fixture, fixtureTeams } from "./fixture";
 import type { Keys, Settings } from "./settings";
 import type { ClipFilter, Clips, MatchItem, Preview, Side, Snapshot } from "./snapshot";
-import type { PlayerDetail, PlayerListItem, TeamDetail, TeamForm, TeamImportView } from "./teams";
+import type {
+  PlayerDetail,
+  PlayerListItem,
+  TeamDetail,
+  TeamForm,
+  TeamImportView,
+  VenueView,
+} from "./teams";
 import { noteAction } from "./trail";
 
 // Polled or sent while typing: too many to say what the scout did.
@@ -32,6 +39,7 @@ export async function resume(): Promise<Snapshot | null> {
 }
 
 export async function teams(): Promise<TeamDetail[]> {
+  if (!inTauri) return fixtureTeams();
   return invoke<TeamDetail[]>("teams");
 }
 
@@ -85,12 +93,23 @@ export async function saveMatchRoster(home: boolean, players: PlayerDetail[]): P
 }
 
 /** Creates a match between two of the season's teams (by id) and opens it. */
+/** A new match coded here; `venue` null takes the home team's. */
 export async function newMatch(
   home: string,
   visiting: string,
   date: string | null,
+  venue: VenueView | null,
 ): Promise<Snapshot> {
-  return invoke<Snapshot>("match_new", { home, visiting, date });
+  return invoke<Snapshot>("match_new", { home, visiting, date, venue });
+}
+
+/** Where the open match is played. */
+export async function matchVenue(): Promise<VenueView> {
+  return invoke<VenueView>("match_venue");
+}
+
+export async function saveMatchVenue(venue: VenueView): Promise<void> {
+  return invoke<void>("match_venue_save", { venue });
 }
 
 export async function createSeason(path: string, name: string): Promise<void> {

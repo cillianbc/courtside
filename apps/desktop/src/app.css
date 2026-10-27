@@ -1840,6 +1840,8 @@ td.mono {
   color: var(--fg);
   padding: 16px;
   width: min(900px, calc(100vw - 32px));
+  /* The global margin reset would pin a modal to the top left. */
+  margin: auto;
 }
 .report-dialog {
   border: 1px solid var(--line);
@@ -1848,6 +1850,8 @@ td.mono {
   color: var(--fg);
   padding: 16px;
   width: min(520px, calc(100vw - 32px));
+  /* The global margin reset would pin a modal to the top left. */
+  margin: auto;
 }
 .report-dialog::backdrop {
   background: rgb(0 0 0 / 0.4);
@@ -2868,6 +2872,92 @@ button.flag {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
+/* Team editor sections (issue #49): staff, home venue, kit. */
+.team-section {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  display: grid;
+  gap: 6px;
+}
+.team-section legend {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.team-editor .role,
+.lu-venue .role {
+  font-size: 13px;
+  color: var(--fg);
+}
+.staff-grid {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) 1fr 1fr;
+  gap: 4px 8px;
+  align-items: center;
+}
+.staff-grid .col-head {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.staff-grid input,
+.lu-venue input {
+  font: inherit;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--line);
+  background: var(--sunk);
+  color: var(--fg);
+  min-width: 0;
+}
+.kits {
+  display: grid;
+  gap: 6px;
+}
+.kit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.kit .role {
+  min-width: 110px;
+}
+.kit input[type="color"] {
+  width: 36px;
+  height: 28px;
+  padding: 0 2px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-control);
+  background: var(--sunk);
+  cursor: pointer;
+}
+.team-dialog {
+  width: min(1100px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+}
+.team-dialog .team-editor {
+  border: 0;
+  padding: 0;
+}
+.lu-venue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.lu-venue label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .sw .chip {
   display: grid;
   grid-template-columns: 1fr 1fr;

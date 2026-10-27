@@ -591,6 +591,7 @@ fn a_new_match_codes_and_exports() {
             &id("Northgate"),
             &id("Harbour City"),
             Some("2026-10-15"),
+            None,
             5_000,
         )
         .expect("new match");
@@ -709,12 +710,20 @@ fn from_an_empty_season_to_an_exported_match() {
                 foreign: false,
                 birth_date: None,
                 height_cm: Some(190),
+                weight_kg: None,
+                reach_cm: None,
             })
             .collect()
     };
     let form = |name: &str| TeamForm {
         name: name.into(),
-        coach: "Coach Name".into(),
+        staff: courtside_console::StaffView {
+            coach: courtside_console::PersonView {
+                last_name: "Coach".into(),
+                first_name: "Name".into(),
+            },
+            ..Default::default()
+        },
         ..TeamForm::default()
     };
     let home = session
@@ -728,7 +737,7 @@ fn from_an_empty_season_to_an_exported_match() {
     assert!(away.players[6].libero, "role libero makes a libero");
 
     let snap = session
-        .new_match(&home.id, &away.id, Some("2026-10-20"), 4)
+        .new_match(&home.id, &away.id, Some("2026-10-20"), None, 4)
         .expect("match");
     assert_eq!(snap.teams.home.players.len(), 7);
     assert_eq!(snap.teams.home.players[0].role, Some(5));

@@ -5,10 +5,11 @@
 
 use dvw_codec::date::Date;
 
-use crate::{Tables, Team};
+use crate::{Tables, Team, Venue, colour_to_dvw};
 
 /// The template for a match between `home` and `visiting` on `date`
-/// (ISO `YYYY-MM-DD`, if known), as `.dvw` bytes (code page 1252, CRLF).
+/// (ISO `YYYY-MM-DD`, if known) at `venue`, as `.dvw` bytes (code page
+/// 1252, CRLF).
 /// `tables`: the winning symbols, combinations and setter calls the match
 /// was created with. `created_ms`: when the match was created (Unix ms),
 /// written as the file's creation and last-change time.
@@ -16,6 +17,7 @@ pub fn blank(
     home: &Team,
     visiting: &Team,
     date: Option<&str>,
+    venue: &Venue,
     tables: &Tables,
     created_ms: u64,
 ) -> Vec<u8> {
@@ -51,7 +53,8 @@ pub fn blank(
         team_line(1, home),
         team_line(2, visiting),
         "[3MORE]".into(),
-        ";;;;;;".into(),
+        // referees; spectators; receipts; city; arena; scout
+        format!(";;;{};{};;", field(&venue.city), field(&venue.hall)),
         "[3COMMENTS]".into(),
         "[3SET]".into(),
     ]);
@@ -116,17 +119,19 @@ fn stamp(ms: u64) -> String {
 }
 
 fn team_line(n: u8, t: &Team) -> String {
-    // id; name; sets won; coach; assistant; shirt colour
+    // id; name; sets won; coach and assistant as "Last First"; shirt
+    // colour as a Windows colour number
     let id = if t.code.is_empty() {
         n.to_string()
     } else {
         field(&t.code)
     };
     format!(
-        "{id};{};0;{};{};;",
+        "{id};{};0;{};{};{};",
         field(&t.name),
-        field(&t.coach),
-        field(&t.assistant)
+        field(&t.staff.coach.last_first()),
+        field(&t.staff.assistant.last_first()),
+        colour_to_dvw(&t.shirt_colour).map_or(String::new(), |c| c.to_string())
     )
 }
 

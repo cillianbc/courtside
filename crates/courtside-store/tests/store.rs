@@ -161,10 +161,85 @@ fn starting_sixes_are_stored() {
     assert_eq!(log.all().last().map(|e| &e.body), Some(&six));
 }
 
+/// Takes a season file back to the version 9 layout (issue #49's
+/// columns gone, the staff columns named as before).
+fn undo_v10(conn: &rusqlite::Connection) {
+    let mut sql = String::from(
+        "ALTER TABLE team RENAME COLUMN coach_last TO coach;
+         ALTER TABLE team RENAME COLUMN assistant_last TO assistant;",
+    );
+    for col in [
+        "short_code",
+        "coach_first",
+        "assistant_first",
+        "assistant2_last",
+        "assistant2_first",
+        "physio_last",
+        "physio_first",
+        "doctor_last",
+        "doctor_first",
+        "hall",
+        "city",
+        "shirt_colour",
+        "libero_colour",
+    ] {
+        sql.push_str(&format!("ALTER TABLE team DROP COLUMN {col};"));
+    }
+    sql.push_str(
+        "ALTER TABLE player DROP COLUMN weight_kg;
+         ALTER TABLE player DROP COLUMN reach_cm;
+         ALTER TABLE match DROP COLUMN hall;
+         ALTER TABLE match DROP COLUMN city;
+         PRAGMA user_version = 9;",
+    );
+    conn.execute_batch(&sql).expect("undo v10");
+}
+
+/// Version 10 (issue #49): a version 9 file keeps its coaches' names, whole,
+/// as last names, so its exports don't change; the new details start empty.
+#[test]
+fn version_9_files_get_team_details() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("season.courtside");
+    {
+        Season::create(&path, "2026/27", 1).expect("create");
+        let conn = rusqlite::Connection::open(&path).expect("sqlite");
+        undo_v10(&conn);
+        conn.execute_batch(
+            "INSERT INTO team (id, name, code, coach, assistant)
+             VALUES ('t1', 'Harbour City', 'HCV', 'Dennis Marlow', '');
+             INSERT INTO player (id, team_id, number, code, last_name, first_name, libero)
+             VALUES ('p1', 't1', 4, 'HCV-ARD', 'Ardent', 'Jonah', 0);",
+        )
+        .expect("v9 rows");
+    }
+    let mut season = Season::open(&path).expect("migrated");
+    let t = season.team("t1").expect("team");
+    assert_eq!(t.staff.coach.last_name, "Dennis Marlow");
+    assert_eq!(t.staff.coach.last_first(), "Dennis Marlow");
+    assert_eq!((t.short_code.as_str(), t.hall.as_str()), ("", ""));
+    assert_eq!(t.players[0].weight_kg, None);
+    let mut input = courtside_store::TeamInput {
+        name: t.name.clone(),
+        code: t.code.clone(),
+        staff: t.staff.clone(),
+        hall: "Quayside Arena".into(),
+        ..Default::default()
+    };
+    input.staff.physio.last_name = "Vance".into();
+    season.update_team("t1", &input).expect("update");
+    let t = season.team("t1").expect("team");
+    assert_eq!(
+        (t.hall.as_str(), t.staff.physio.last_name.as_str()),
+        ("Quayside Arena", "Vance")
+    );
+}
+
 /// Turns a season file back into the version 2 layout: no settings,
 /// teams without codes, players keyed by team and number, no match
 /// rosters.
 fn downgrade_to_v2(conn: &rusqlite::Connection) {
+    undo_v10(conn);
     conn.execute_batch(
         "ALTER TABLE team DROP COLUMN colour;
          ALTER TABLE match DROP COLUMN tables;
@@ -201,6 +276,7 @@ fn version_6_files_get_play_positions() {
     };
     {
         let conn = rusqlite::Connection::open(&path).expect("sqlite");
+        undo_v10(&conn);
         conn.execute_batch(
             "ALTER TABLE team DROP COLUMN colour;
              ALTER TABLE event DROP COLUMN minutes;
@@ -239,6 +315,7 @@ fn version_7_files_get_set_minutes() {
     };
     {
         let conn = rusqlite::Connection::open(&path).expect("sqlite");
+        undo_v10(&conn);
         conn.execute_batch(
             "ALTER TABLE team DROP COLUMN colour;
              ALTER TABLE event DROP COLUMN minutes;
@@ -268,6 +345,7 @@ fn version_8_files_get_team_colours() {
     }
     {
         let conn = rusqlite::Connection::open(&path).expect("sqlite");
+        undo_v10(&conn);
         conn.execute_batch(
             "ALTER TABLE team DROP COLUMN colour;
              PRAGMA user_version = 8;",
@@ -280,9 +358,9 @@ fn version_8_files_get_team_colours() {
     let input = courtside_store::TeamInput {
         name: team.name.clone(),
         code: team.code.clone(),
-        coach: team.coach.clone(),
-        assistant: team.assistant.clone(),
+        staff: team.staff.clone(),
         colour: "navy".into(),
+        ..Default::default()
     };
     season.update_team(&team.id, &input).expect("update");
     assert_eq!(season.team(&team.id).expect("team").colour, "navy");
@@ -299,7 +377,7 @@ fn version_1_files_are_migrated() {
             .expect("import");
         let teams = season.teams().expect("teams");
         let coded = season
-            .create_match(&teams[0].id, &teams[1].id, None, 1_500)
+            .create_match(&teams[0].id, &teams[1].id, None, None, 1_500)
             .expect("coded here");
         (id, coded)
     };

@@ -3,11 +3,13 @@
      modify a set's sixes. Zones are laid out as each team faces the net. -->
 <script lang="ts">
   import SetterBadge from "./SetterBadge.svelte";
-  import { untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import * as backend from "../backend";
   import { startOf, type Side, type Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
+  import type { VenueView } from "../teams";
   import MatchRosterDialog from "./MatchRosterDialog.svelte";
+  import TeamDialog from "./TeamDialog.svelte";
   import SideTag from "./SideTag.svelte";
 
   let { snap, set }: { snap: Snapshot; set: number } = $props();
@@ -27,6 +29,25 @@
   );
   let note = $state("");
   let rosterFor = $state<Side | null>(null);
+  let teamFor = $state<Side | null>(null);
+  // Where the match is played, saved as each field is left.
+  let venue = $state<VenueView>({ hall: "", city: "" });
+  let venueNote = $state("");
+  onMount(() => {
+    if (backend.inTauri)
+      backend.matchVenue().then(
+        (v) => (venue = v),
+        () => {},
+      );
+  });
+  async function saveVenue() {
+    try {
+      await backend.saveMatchVenue($state.snapshot(venue));
+      venueNote = "Saved.";
+    } catch (e) {
+      venueNote = String(e);
+    }
+  }
   let busy = $state(false);
 
   function fromStart(side: Side): Draft {
@@ -145,6 +166,7 @@
           <button class="link" type="button" onclick={() => (rosterFor = side)}
             >Edit team sheet</button
           >
+          <button class="link" type="button" onclick={() => (teamFor = side)}>Team details</button>
         </div>
         <div class="lu-court">
           <div class="net-cap">net</div>
@@ -194,6 +216,12 @@
       </div>
     {/each}
   </div>
+  <div class="lu-venue pick">
+    <span class="role">Venue</span>
+    <label>Hall <input bind:value={venue.hall} onchange={saveVenue} /></label>
+    <label>City <input bind:value={venue.city} onchange={saveVenue} /></label>
+    <span class="sub-note">{venueNote}</span>
+  </div>
   <div class="lu-actions">
     <span class="sub-note" class:bad={note !== ""}
       >{note ||
@@ -215,6 +243,10 @@
     >
   </div>
 </section>
+
+{#if teamFor}
+  <TeamDialog teamId={snap.teams[teamFor].id} onclose={() => (teamFor = null)} />
+{/if}
 
 {#if rosterFor}
   <MatchRosterDialog
