@@ -2905,6 +2905,22 @@ button.flag {
   background: var(--sunk);
   color: var(--fg);
 }
+.vis-search {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.vis-search input {
+  font: inherit;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--line);
+  background: var(--sunk);
+  color: var(--fg);
+}
 .sheet-diffs {
   margin: 0;
   padding-left: 18px;

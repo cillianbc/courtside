@@ -15,6 +15,7 @@ import type {
   VenueView,
 } from "./teams";
 import type { SheetCheck, SheetChoice, SheetPreview } from "./scoresheet";
+import type { VisMatch, VisTournament } from "./vis";
 import { noteAction } from "./trail";
 
 // Polled or sent while typing: too many to say what the scout did.
@@ -409,4 +410,29 @@ export async function removeScoresheet(): Promise<Snapshot> {
 /** Where the open match and its scoresheet disagree; null without one. */
 export async function scoresheetCheck(): Promise<SheetCheck | null> {
   return invoke<SheetCheck | null>("scoresheet_check");
+}
+
+/** FIVB VIS tournaments (public, no login). */
+export async function visTournaments(): Promise<VisTournament[]> {
+  return invoke<VisTournament[]>("vis_tournaments");
+}
+
+export async function visMatches(tournament: number): Promise<VisMatch[]> {
+  return invoke<VisMatch[]>("vis_matches", { tournament });
+}
+
+/** A VIS match with its registered players, against the season. */
+export async function visPreview(
+  tournament: VisTournament,
+  visMatch: VisMatch,
+): Promise<SheetPreview> {
+  return invoke<SheetPreview>("vis_preview", { tournament, visMatch });
+}
+
+export async function matchFromVis(
+  tournament: VisTournament,
+  visMatch: VisMatch,
+  choice: SheetChoice,
+): Promise<Snapshot> {
+  return invoke<Snapshot>("match_from_vis", { tournament, visMatch, choice });
 }

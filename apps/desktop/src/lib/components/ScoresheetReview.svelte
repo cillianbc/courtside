@@ -4,17 +4,23 @@
   team is, or adds it.
 -->
 <script lang="ts">
-  import * as backend from "../backend";
+  import type { Snapshot } from "../snapshot";
   import { scoreText, teamPlan, type SheetChoice, type SheetPreview } from "../scoresheet";
   import type { TeamDetail } from "../teams";
   import { ui } from "../ui.svelte";
 
   let {
-    path,
     preview,
     teams,
+    create,
     onclose,
-  }: { path: string; preview: SheetPreview; teams: TeamDetail[]; onclose: () => void } = $props();
+  }: {
+    preview: SheetPreview;
+    teams: TeamDetail[];
+    /** Makes the match (from the PDF, or from VIS). */
+    create: (choice: SheetChoice) => Promise<Snapshot>;
+    onclose: () => void;
+  } = $props();
 
   // svelte-ignore state_referenced_locally
   let chosen = $state<[string | null, string | null]>([
@@ -29,8 +35,10 @@
     sheet.teams.map((st, i) => ({ i: i as 0 | 1, st, m: preview.teams[i as 0 | 1] })),
   );
   const sides = ["Home", "Away"] as const;
+  // VIS has the teams and players but no sets yet.
+  const fromVis = $derived(sheet.source.startsWith("FIVB VIS"));
 
-  async function create() {
+  async function confirm() {
     error = "";
     if (chosen[0] !== null && chosen[0] === chosen[1]) {
       error = "Pick two different teams.";
@@ -39,7 +47,7 @@
     busy = true;
     try {
       const choice: SheetChoice = { teamIds: [chosen[0], chosen[1]] };
-      ui.snapshot = await backend.matchFromScoresheet(path, choice);
+      ui.snapshot = await create(choice);
       await ui.loadKeymap();
     } catch (e) {
       error = String(e);
@@ -50,7 +58,7 @@
 </script>
 
 <section class="panel sheet-review" aria-label="Scoresheet">
-  <h2>New match from a scoresheet</h2>
+  <h2>New match from {fromVis ? "FIVB VIS" : "a scoresheet"}</h2>
   <p class="sub-note">
     {[sheet.competition, sheet.matchNumber && `match ${sheet.matchNumber}`]
       .filter(Boolean)
@@ -83,35 +91,43 @@
     {/each}
   </div>
 
-  <table class="list">
-    <thead>
-      <tr
-        ><th>Set</th><th>{sheet.teams[0].name}</th><th>{sheet.teams[1].name}</th><th
-          >Serves first</th
-        ><th class="num">Score</th><th class="num">Substitutions</th></tr
-      >
-    </thead>
-    <tbody>
-      {#each sheet.sets as s (s.number)}
-        <tr>
-          <td class="num">{s.number}</td>
-          <td class="mono">{s.lineups[0].join(" ")}</td>
-          <td class="mono">{s.lineups[1].join(" ")}</td>
-          <td>{s.servedFirst === null ? "–" : (sheet.teams[s.servedFirst]?.name ?? "–")}</td>
-          <td class="num">{scoreText(s.score)}</td>
-          <td class="num">{s.substitutions.length}</td>
-        </tr>
-      {/each}
-    </tbody>
-  </table>
-  <p class="sub-note">
-    Each set's six fills the lineup screen when the set starts. Once coded, the match can be checked
-    against the sheet's substitutions and scores.
-    {#if sheet.referees.length}Referees: {sheet.referees.join(", ")}.{/if}
-  </p>
+  {#if sheet.sets.length}
+    <table class="list">
+      <thead>
+        <tr
+          ><th>Set</th><th>{sheet.teams[0].name}</th><th>{sheet.teams[1].name}</th><th
+            >Serves first</th
+          ><th class="num">Score</th><th class="num">Substitutions</th></tr
+        >
+      </thead>
+      <tbody>
+        {#each sheet.sets as s (s.number)}
+          <tr>
+            <td class="num">{s.number}</td>
+            <td class="mono">{s.lineups[0].join(" ")}</td>
+            <td class="mono">{s.lineups[1].join(" ")}</td>
+            <td>{s.servedFirst === null ? "–" : (sheet.teams[s.servedFirst]?.name ?? "–")}</td>
+            <td class="num">{scoreText(s.score)}</td>
+            <td class="num">{s.substitutions.length}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+    <p class="sub-note">
+      Each set's six fills the lineup screen when the set starts. Once coded, the match can be
+      checked against the sheet's substitutions and scores.
+      {#if sheet.referees.length}Referees: {sheet.referees.join(", ")}.{/if}
+    </p>
+  {:else}
+    <p class="sub-note">
+      {sheet.teams[0].players.length} and {sheet.teams[1].players.length} registered players with shirt
+      numbers{fromVis ? " in FIVB VIS" : ""}. The lineups are entered as each set starts.
+    </p>
+  {/if}
   {#if error}<p class="error">{error}</p>{/if}
   <div class="actions">
-    <button class="btn primary" type="button" disabled={busy} onclick={create}>Create match</button>
+    <button class="btn primary" type="button" disabled={busy} onclick={confirm}>Create match</button
+    >
     <button class="btn" type="button" onclick={onclose}>Cancel</button>
   </div>
 </section>

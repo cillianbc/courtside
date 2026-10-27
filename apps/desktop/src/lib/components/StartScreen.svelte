@@ -5,7 +5,9 @@
   import type { MatchItem } from "../snapshot";
   import type { TeamDetail } from "../teams";
   import { ui } from "../ui.svelte";
-  import type { SheetPreview } from "../scoresheet";
+  import type { SheetChoice, SheetPreview } from "../scoresheet";
+  import type { Snapshot } from "../snapshot";
+  import VisPicker from "./VisPicker.svelte";
   import PlayersTab from "./PlayersTab.svelte";
   import ScoresheetReview from "./ScoresheetReview.svelte";
   import SettingsTab from "./SettingsTab.svelte";
@@ -29,13 +31,21 @@
   }
 
   const SEASON = [{ name: "Courtside season", extensions: ["courtside"] }];
-  let sheetReview = $state<{ path: string; preview: SheetPreview } | null>(null);
+  // A match from a scoresheet or from VIS, under review before it's made.
+  let sheetReview = $state.raw<{
+    preview: SheetPreview;
+    create: (choice: SheetChoice) => Promise<Snapshot>;
+  } | null>(null);
+  let pickingVis = $state(false);
 
   const fromScoresheet = () =>
     run(async () => {
       const path = await open({ filters: [{ name: "Scoresheet (PDF)", extensions: ["pdf"] }] });
       if (typeof path !== "string") return;
-      sheetReview = { path, preview: await backend.readScoresheet(path) };
+      sheetReview = {
+        preview: await backend.readScoresheet(path),
+        create: (choice) => backend.matchFromScoresheet(path, choice),
+      };
     });
 
   async function refresh() {
@@ -134,16 +144,26 @@
     <SettingsTab />
   {:else if list && sheetReview}
     <ScoresheetReview
-      path={sheetReview.path}
       preview={sheetReview.preview}
+      create={sheetReview.create}
       {teams}
       onclose={() => (sheetReview = null)}
+    />
+  {:else if list && pickingVis}
+    <VisPicker
+      onpick={(preview, create) => {
+        pickingVis = false;
+        sheetReview = { preview, create };
+      }}
+      oncancel={() => (pickingVis = false)}
     />
   {:else if list}
     <h2>New match</h2>
     <p class="sub-note">
       <button class="btn" type="button" onclick={fromScoresheet}>From a scoresheet…</button>
-      Teams, rosters, venue and each set's lineups from the match's scoresheet (PDF).
+      <button class="btn" type="button" onclick={() => (pickingVis = true)}>From FIVB VIS…</button>
+      Teams, rosters and venue from the match's scoresheet (PDF, with each set's lineups) or from FIVB
+      VIS (registered players).
     </p>
     {#if teams.length < 2}
       <p class="empty-note">

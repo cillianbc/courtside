@@ -344,6 +344,82 @@ fn match_import(app: AppHandle, state: State<'_, Shared>, path: PathBuf) -> Repl
     Ok(snap)
 }
 
+/// One public FIVB VIS request (no login); the body as text.
+async fn vis(request: String) -> Reply<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent(concat!("Courtside/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let reply = client
+        .post(vb_vis::ENDPOINT)
+        .header("Accept", "application/json")
+        .header("Content-Type", "text/xml")
+        .body(request)
+        .send()
+        .await
+        .map_err(|e| format!("can't reach FIVB VIS: {e}"))?;
+    if !reply.status().is_success() {
+        return Err(format!("FIVB VIS answered {}", reply.status()));
+    }
+    reply.text().await.map_err(|e| e.to_string())
+}
+
+/// FIVB VIS tournaments.
+#[tauri::command]
+async fn vis_tournaments() -> Reply<Vec<vb_vis::Tournament>> {
+    vb_vis::parse_tournaments(&vis(vb_vis::tournaments_request()).await?).map_err(|e| e.to_string())
+}
+
+/// A VIS tournament's matches.
+#[tauri::command]
+async fn vis_matches(tournament: u32) -> Reply<Vec<vb_vis::VisMatch>> {
+    vb_vis::parse_matches(&vis(vb_vis::matches_request(tournament)).await?)
+        .map_err(|e| e.to_string())
+}
+
+/// A VIS match as a sheet: both teams' registered players fetched.
+async fn vis_sheet(
+    tournament: &vb_vis::Tournament,
+    m: &vb_vis::VisMatch,
+) -> Reply<vb_scoresheet::Scoresheet> {
+    let mut players = Vec::new();
+    for t in &m.teams {
+        let body = vis(vb_vis::players_request(t.no)).await?;
+        players.push(vb_vis::parse_players(&body).map_err(|e| e.to_string())?);
+    }
+    let [home, away] = [&players[0], &players[1]];
+    Ok(vb_vis::sheet(tournament, m, [home, away]))
+}
+
+/// A VIS match against the season, for review.
+#[tauri::command]
+async fn vis_preview(
+    state: State<'_, Shared>,
+    tournament: vb_vis::Tournament,
+    vis_match: vb_vis::VisMatch,
+) -> Reply<SheetPreview> {
+    let sheet = vis_sheet(&tournament, &vis_match).await?;
+    with(&state, |s| s.preview_sheet(sheet))
+}
+
+/// Creates a match from VIS and opens it.
+#[tauri::command]
+async fn match_from_vis(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    tournament: vb_vis::Tournament,
+    vis_match: vb_vis::VisMatch,
+    choice: SheetChoice,
+) -> Reply<Snapshot> {
+    let sheet = vis_sheet(&tournament, &vis_match).await?;
+    let snap = with(&state, |s| {
+        s.new_match_from_sheet(&sheet, &choice, now_ms())
+    })?;
+    remember(&app, &state);
+    Ok(snap)
+}
+
 /// Reads a scoresheet PDF for review before a match is made from it.
 #[tauri::command]
 fn scoresheet_read(state: State<'_, Shared>, path: PathBuf) -> Reply<SheetPreview> {
@@ -788,6 +864,10 @@ fn main() {
             scoresheet_attach,
             scoresheet_remove,
             scoresheet_check,
+            vis_tournaments,
+            vis_matches,
+            vis_preview,
+            match_from_vis,
             resume,
             matches,
             match_import,

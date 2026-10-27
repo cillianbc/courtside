@@ -73,6 +73,18 @@ pub struct SheetPlayer {
     pub id: String,
     pub libero: bool,
     pub captain: bool,
+    /// Measures and birth date, when the source has them (VIS does; a
+    /// printed sheet doesn't).
+    #[serde(default)]
+    pub height_cm: Option<u16>,
+    #[serde(default)]
+    pub weight_kg: Option<u16>,
+    /// Spike reach.
+    #[serde(default)]
+    pub reach_cm: Option<u16>,
+    /// ISO `YYYY-MM-DD`.
+    #[serde(default)]
+    pub birth_date: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

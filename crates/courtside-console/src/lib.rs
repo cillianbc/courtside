@@ -1369,6 +1369,11 @@ impl Session {
         Ok(vb_scoresheet::read_pdf(&bytes)?)
     }
 
+    /// A sheet already read (from VIS, say) against the season's teams.
+    pub fn preview_sheet(&self, sheet: vb_scoresheet::Scoresheet) -> Result<SheetPreview> {
+        Ok(sheet::preview(sheet, &self.season()?.teams()?))
+    }
+
     /// Reads a scoresheet PDF and matches its teams and players to the
     /// season's, for the scout to review (issue #57).
     pub fn read_scoresheet(&self, path: &Path) -> Result<SheetPreview> {
@@ -2501,6 +2506,10 @@ fn add_sheet_players(
             role: p.libero.then_some(1),
             libero: p.libero,
             captain: p.captain,
+            birth_date: p.birth_date.clone(),
+            height_cm: p.height_cm,
+            weight_kg: p.weight_kg,
+            reach_cm: p.reach_cm,
             ..courtside_store::PlayerInput::default()
         });
     }

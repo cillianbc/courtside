@@ -5,6 +5,7 @@ members = [
     "crates/vb-grammar",
     "crates/vb-engine",
     "crates/vb-scoresheet",
+    "crates/vb-vis",
     "crates/courtside-store",
     "crates/courtside-console",
     "crates/courtside-ffi",
@@ -26,6 +27,7 @@ dvw-codec = { path = "crates/dvw-codec" }
 vb-grammar = { path = "crates/vb-grammar" }
 vb-engine = { path = "crates/vb-engine" }
 vb-scoresheet = { path = "crates/vb-scoresheet" }
+vb-vis = { path = "crates/vb-vis" }
 courtside-ffi = { path = "crates/courtside-ffi" }
 courtside-store = { path = "crates/courtside-store" }
 courtside-console = { path = "crates/courtside-console" }

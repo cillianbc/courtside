@@ -776,6 +776,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-open-gl",
  "objc2-quartz-core",
+ "reqwest 0.12.28",
  "sentry",
  "serde",
  "serde_json",
@@ -784,6 +785,8 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-log",
  "tauri-plugin-opener",
+ "vb-scoresheet",
+ "vb-vis",
  "windows",
  "x11-dl",
 ]
@@ -5346,6 +5349,16 @@ dependencies = [
  "lopdf",
  "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "vb-vis"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "vb-scoresheet",
 ]
 
 [[package]]

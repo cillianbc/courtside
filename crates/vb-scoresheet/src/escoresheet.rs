@@ -303,6 +303,7 @@ fn rosters(s: &Sheet<'_>, names: &[String; 2], teams: &mut [SheetTeam; 2]) {
             id,
             libero,
             captain: s.circled(num),
+            ..SheetPlayer::default()
         };
         let list = &mut teams[t].players;
         match list.iter_mut().find(|p| p.number == number) {

@@ -1,0 +1,19 @@
+[package]
+name = "vb-vis"
+description = "The FIVB VIS web service's public requests: tournaments, matches and registered players"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+vb-scoresheet.workspace = true
+
+[lints]
+workspace = true
