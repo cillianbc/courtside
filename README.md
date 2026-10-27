@@ -6,6 +6,8 @@ Courtside is a desktop app for coding volleyball matches live or from video. It 
 
 > **Status: early.** The coding console is being tested by scouts in real matches. There's no public app release yet. The command-line tool is released and stable.
 
+**User guide:** [courtside-2.gitbook.io/courtside-docs](https://courtside-2.gitbook.io/courtside-docs): installing, coding a match, video and clips, files, and the command-line tool.
+
 ## What it does
 
 - **Live coding from the keyboard.** Type codes the way DataVolley or VolleyStation scouts do: shorthand and dot codes are filled in, the serve comes from the rotation, the setter's set is added for you, and every code is read back in plain words as you type.
@@ -16,7 +18,7 @@ Courtside is a desktop app for coding volleyball matches live or from video. It 
 
 ## Download
 
-**Desktop app.** Preview builds will be published on this repository's [Releases page](https://github.com/cillianbc/courtside/releases): a `.dmg` for macOS (Apple silicon, macOS 14 or later) and an installer for Windows, with video playback included and nothing else to install.
+**Desktop app.** Preview builds will be published on this repository's [Releases page](https://github.com/cillianbc/courtside/releases): a `.dmg` for macOS (Apple silicon, macOS 14 or later) and an installer for Windows, with video playback included and nothing else to install. [Installing](https://courtside-2.gitbook.io/courtside-docs/getting-started/install) covers the one-time security prompt on each system.
 
 **Command-line tool** (`courtside validate | convert | stats`). It checks `.dvw` and `.vsm` files for errors, converts matches to JSON for R, Python or spreadsheets, and prints match statistics. [Latest release](https://github.com/cillianbc/courtside-cli/releases/latest).
 
@@ -62,7 +64,7 @@ Design decisions are in [`docs/adr`](docs/adr). The file-format findings, each c
 
 ## Feedback and contributing
 
-Issues are welcome: [open one](https://github.com/cillianbc/courtside/issues). Match files contain real players' names, so please don't attach them to public issues. Describe the problem, or use **Report a problem** in the app, which emails the Courtside team directly.
+Issues are welcome: [open one](https://github.com/cillianbc/courtside/issues). Match files contain real players' names, so please don't attach them to public issues. Describe the problem, or use [Report a problem](https://courtside-2.gitbook.io/courtside-docs/troubleshooting/reporting-a-problem) in the app, which emails the Courtside team directly.
 
 ## Licence
 
