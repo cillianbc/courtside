@@ -41,21 +41,53 @@ if [ -n "$leaks" ]; then
   exit 1
 fi
 
-# Where the bundled libraries come from (GPL/LGPL: their source is
-# Homebrew's formulae at these versions).
+# Third-party notices (GPL/LGPL: their source must be available). Each
+# bundled library's Homebrew formula, version, licence and source tarball,
+# the licence files the formulae install, and a written offer
+# (docs/THIRD-PARTY.md).
 licences="$app/Contents/Resources/third-party"
 mkdir -p "$licences"
-{
-  echo "Courtside bundles these libraries for video playback (libmpv and what it loads)."
-  echo "They are built by Homebrew; each one's source and licence is at https://formulae.brew.sh/formula/<name>."
-  echo
-  for f in "$frameworks"/*.dylib; do
-    real=$(readlink -f "$(brew --prefix)/lib/$(basename "$f")" 2>/dev/null || true)
-    formula=$(echo "$real" | sed -nE 's|.*/Cellar/([^/]+)/([^/]+)/.*|\1 \2|p')
-    echo "$(basename "$f"): ${formula:-unknown}"
+formulas=$(for f in "$frameworks"/*.dylib; do
+  readlink -f "$(brew --prefix)/lib/$(basename "$f")" 2>/dev/null |
+    sed -nE 's|.*/Cellar/([^/]+)/.*|\1|p'
+done | sort -u)
+# shellcheck disable=SC2086
+brew info --json=v2 --formula $formulas | python3 -I -c '
+import json, sys
+d = json.load(sys.stdin)
+print("Courtside: third-party libraries bundled for video playback")
+print("=" * 58)
+print()
+print("Courtside (AGPL-3.0-only) plays video with libmpv, which loads the libraries")
+print("below. They are unmodified Homebrew builds. Each one is listed with its licence")
+print("and the exact source it was built from. The licence texts are in this folder.")
+print()
+print("Written offer: for three years from the release of this copy of Courtside, the")
+print("Courtside project will provide the complete corresponding source code of these")
+print("libraries on request, at no more than the cost of providing it. Write to the")
+print("address in https://github.com/cillianbc/courtside/blob/main/docs/THIRD-PARTY.md.")
+print()
+for f in sorted(d["formulae"], key=lambda f: f["name"]):
+    installed = f.get("installed") or [{}]
+    v = installed[0].get("version") or f["versions"]["stable"]
+    print("%s %s" % (f["name"], v))
+    if v.split("_")[0] != f["versions"]["stable"]:
+        # The formula moved on since this was installed: its source URL is
+        # for another version. Release builds install fresh (CI).
+        sys.stderr.write("notices: %s %s installed, formula at %s: brew upgrade\n"
+                         % (f["name"], v, f["versions"]["stable"]))
+        print("  note:    built from %s; the source below is for %s"
+              % (v, f["versions"]["stable"]))
+    print("  licence: %s" % (f.get("license") or "see the source"))
+    print("  source:  %s" % f["urls"]["stable"]["url"])
+    print("  formula: https://formulae.brew.sh/formula/%s" % f["name"])
+' >"$licences/THIRD-PARTY-NOTICES.txt"
+for formula in $formulas; do
+  for lic in "$(brew --prefix "$formula")"/{COPYING,LICENSE,LICENCE}*; do
+    [ -f "$lic" ] && cp "$lic" "$licences/$formula-$(basename "$lic")"
   done
-} >"$licences/LIBRARIES.txt"
-cp "$(brew --prefix mpv)/LICENSE.GPL" "$licences/mpv-LICENSE.GPL"
+done
+cp "$root/LICENSE" "$licences/Courtside-LICENSE"
 
 # Every changed binary needs a signature on Apple silicon: ad-hoc, inside
 # out.

@@ -75,8 +75,36 @@ jobs:
           lib /nologo /def:mpv/mpv.def /out:mpv/mpv.lib /machine:x64
           New-Item -ItemType Directory -Force apps/desktop/src-tauri/libmpv | Out-Null
           Copy-Item $dll.FullName apps/desktop/src-tauri/libmpv/libmpv-2.dll
+          # Third-party notices (GPL: the source must be available): which
+          # build is inside, where its source is, the written offer, and
+          # mpv's and FFmpeg's licences (docs/THIRD-PARTY.md).
+          $tag = gh release view --repo shinchiro/mpv-winbuild-cmake --json tagName --jq .tagName
+          $mpv = if ($asset -match 'git-([0-9a-f]+)') { $Matches[1] } else { 'unknown' }
+          $notice = apps/desktop/src-tauri/libmpv/third-party
+          New-Item -ItemType Directory -Force $notice | Out-Null
+          @(
+            "Courtside: third-party software bundled for video playback",
+            "",
+            "Courtside (AGPL-3.0-only) plays video with libmpv-2.dll, an unmodified build",
+            "from shinchiro/mpv-winbuild-cmake. It contains mpv (GPL-2.0-or-later) and",
+            "FFmpeg and its libraries (GPL-3.0-or-later as built), statically linked.",
+            "",
+            "Build:      $asset",
+            "Release:    https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/$tag",
+            "Recipe:     https://github.com/shinchiro/mpv-winbuild-cmake (the build scripts and",
+            "            the exact versions of every library, at that release)",
+            "mpv source: https://github.com/mpv-player/mpv/commit/$mpv",
+            "",
+            "Written offer: for three years from the release of this copy of Courtside, the",
+            "Courtside project will provide the complete corresponding source code of this",
+            "build on request, at no more than the cost of providing it. Write to the",
+            "address in https://github.com/cillianbc/courtside/blob/main/docs/THIRD-PARTY.md."
+          ) | Set-Content "$notice/THIRD-PARTY-NOTICES.txt"
+          Invoke-WebRequest https://raw.githubusercontent.com/mpv-player/mpv/master/LICENSE.GPL -OutFile "$notice/mpv-LICENSE.GPL"
+          Invoke-WebRequest https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/COPYING.GPLv3 -OutFile "$notice/ffmpeg-COPYING.GPLv3"
+          Copy-Item LICENSE "$notice/Courtside-LICENSE"
           # A file, not inline JSON: PowerShell drops the quotes it passes on.
-          '{"bundle":{"resources":{"libmpv/libmpv-2.dll":"libmpv-2.dll"}}}' |
+          '{"bundle":{"resources":{"libmpv/libmpv-2.dll":"libmpv-2.dll","libmpv/third-party/*":"third-party/"}}}' |
             Set-Content apps/desktop/src-tauri/libmpv/windows.conf.json
           "MPV_LIB_DIR=$PWD\mpv" | Out-File -FilePath $env:GITHUB_ENV -Append
           "libmpv: $asset" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
