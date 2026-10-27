@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use vb_grammar::{Code, Player, Skill, Team};
 
 use crate::event::{EventId, EventKind, MatchEvent};
-use crate::fold::{Folded, Score, State, fold_events};
+use crate::fold::{Folded, Rally, Score, State, fold_events};
 use crate::model::{Match, Outcome};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -68,6 +68,9 @@ pub enum IssueKind {
     // Rule::Score
     PointAfterSetWon,
     WrongScore,
+    /// A score the scout corrected: point codes after `$$&` codes alone
+    /// that don't add one point (VolleyStation writes a correction so).
+    ScoreCorrected,
     SetEndNotWon,
     /// Much more video than usual between a point and the next serve.
     LongGapBeforeServe,
@@ -414,9 +417,28 @@ impl Validator<'_> {
     }
 
     fn score(&mut self) {
+        // The point codes of correction rallies.
+        let corrected: HashSet<usize> = (self.f.rallies.iter().zip(self.corrections()))
+            .filter_map(|(r, c)| c.then_some(r.last))
+            .collect();
         for i in 0..self.events.len() {
             let st = &self.f.states[i];
             match self.events[i].code() {
+                Some(Code::Point { .. }) if corrected.contains(&i) => {
+                    let before = self.score_before(i);
+                    if st.score != before {
+                        self.push(
+                            i,
+                            Severity::Info,
+                            Rule::Score,
+                            IssueKind::ScoreCorrected,
+                            format!(
+                                "score corrected from {}:{} to {}:{}",
+                                before.home, before.visiting, st.score.home, st.score.visiting
+                            ),
+                        );
+                    }
+                }
                 Some(Code::Point { team, .. }) => {
                     let before = self.score_before(i);
                     if self.won(st.set, before) {
@@ -476,6 +498,54 @@ impl Validator<'_> {
         }
     }
 
+    /// Per rally, whether it is part of a score correction: a run of
+    /// rallies made only of `$$&` codes and a point code (in one set), at
+    /// least one of which doesn't add exactly one point to its team. A
+    /// single such rally adding one point is a point without a play.
+    fn corrections(&self) -> Vec<bool> {
+        let rallies = &self.f.rallies;
+        let green_only = |r: &Rally| {
+            let mut greens = 0;
+            for i in r.first..=r.last {
+                match self.events[i].code() {
+                    Some(Code::Touch(t)) if t.skill == Skill::Green => greens += 1,
+                    Some(Code::Touch(_)) => return false,
+                    _ => {}
+                }
+            }
+            greens > 0
+        };
+        let plain = |r: &Rally| {
+            let mut expected = r.score_before;
+            match r.won_by {
+                Some(Team::Home) => expected.home += 1,
+                Some(Team::Visiting) => expected.visiting += 1,
+                None => return false,
+            }
+            r.score_after == expected
+        };
+        let mut out = vec![false; rallies.len()];
+        let mut k = 0;
+        while k < rallies.len() {
+            if !green_only(&rallies[k]) {
+                k += 1;
+                continue;
+            }
+            let mut end = k + 1;
+            while end < rallies.len()
+                && rallies[end].set == rallies[k].set
+                && green_only(&rallies[end])
+            {
+                end += 1;
+            }
+            if rallies[k..end].iter().any(|r| !plain(r)) {
+                out[k..end].fill(true);
+            }
+            k = end;
+        }
+        out
+    }
+
     fn first_serve(&self, r: usize) -> Option<usize> {
         let rally = &self.f.rallies[r];
         (rally.first..=rally.last).find(
@@ -485,8 +555,14 @@ impl Validator<'_> {
 
     fn rotation(&mut self) {
         let rallies = self.f.rallies.clone();
+        let corrections = self.corrections();
         for (k, pair) in rallies.windows(2).enumerate() {
             let (r, next) = (&pair[0], &pair[1]);
+            // A correction can change who serves next: nothing to check
+            // across it.
+            if corrections[k] || corrections[k + 1] {
+                continue;
+            }
             let (Some(winner), Some(server)) = (r.won_by, r.serving) else {
                 continue;
             };
@@ -1280,6 +1356,32 @@ mod tests {
                 "8 Rotation: visiting won a side-out but didn't rotate",
                 "8 Rotation: home server 12 is in zone 2, not zone 1",
             ]
+        );
+    }
+
+    /// VolleyStation writes a score correction as `$$&` codes and a point
+    /// code per point changed, the score going down or jumping: noted, not
+    /// an error, and the serving order isn't checked across it.
+    #[test]
+    fn score_corrections_are_noted() {
+        assert_eq!(
+            with_lineup(&[
+                "*08SH-", "a16RH#", "a18AH#", "ap00:01", // side-out
+                "az1", "a11SH=", "*p01:01", // serve error
+                "*$$&H=", "a$$&H#", "ap01:00", // visiting's point taken back
+                "*z6", "*12SH=", "ap01:01",
+            ]),
+            ["13 Score: score corrected from 1:1 to 1:0"]
+        );
+        // One point without a play adds one point: nothing to note. Two
+        // in a row that skip a point are still an error.
+        assert_eq!(
+            with_lineup(&["*$$&H#", "a$$&H=", "*p01:00"]),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            with_lineup(&["*08SH-", "a16RH#", "a18AH#", "ap00:02"]),
+            ["7 Score: point to visiting: score 0:0 → 0:2, expected 0:1"]
         );
     }
 
