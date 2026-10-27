@@ -35,7 +35,7 @@ use vb_grammar::Code;
 use vb_grammar::Team as Side;
 
 /// Schema version, kept in SQLite's `user_version`.
-const VERSION: u32 = 10;
+const VERSION: u32 = 11;
 
 const SCHEMA: &str = "
 CREATE TABLE season (
@@ -129,6 +129,10 @@ ALTER TABLE player ADD COLUMN reach_cm INTEGER;
 ALTER TABLE match ADD COLUMN hall TEXT NOT NULL DEFAULT '';
 ALTER TABLE match ADD COLUMN city TEXT NOT NULL DEFAULT '';
 ";
+
+/// Version 11 (issue #57): the match's scoresheet, as read (JSON of
+/// `vb_scoresheet::Scoresheet`).
+const V11_SQL: &str = "ALTER TABLE match ADD COLUMN scoresheet TEXT;";
 
 const PLAYER_TABLE_SQL: &str = "
 CREATE TABLE player (
@@ -257,6 +261,7 @@ impl Season {
         conn.execute_batch(PLAYER_TABLE_SQL)?;
         conn.execute_batch(MATCH_PLAYER_TABLE_SQL)?;
         conn.execute_batch(V10_SQL)?;
+        conn.execute_batch(V11_SQL)?;
         conn.execute(
             "INSERT INTO season (id, name, created_ms) VALUES (1, ?1, ?2)",
             params![name, ms(now_ms)],
@@ -272,7 +277,7 @@ impl Season {
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         match version {
             VERSION => {}
-            1..=9 => {
+            1..=10 => {
                 if version < 2 {
                     migrate_1_to_2(&conn)?;
                 }
@@ -297,7 +302,10 @@ impl Season {
                 if version < 9 {
                     migrate_8_to_9(&conn)?;
                 }
-                migrate_9_to_10(&conn)?;
+                if version < 10 {
+                    migrate_9_to_10(&conn)?;
+                }
+                migrate_10_to_11(&conn)?;
             }
             _ => return Err(Error::Version(version)),
         }
@@ -546,10 +554,47 @@ impl Season {
         Ok(())
     }
 
+    /// The match's scoresheet, if one was attached.
+    pub fn match_scoresheet(&self, id: MatchId) -> Result<Option<vb_scoresheet::Scoresheet>> {
+        let json: Option<Option<String>> = self
+            .conn
+            .query_row(
+                "SELECT scoresheet FROM match WHERE id = ?1",
+                [id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let json = json.ok_or(Error::NoMatch(id))?;
+        json.map(|j| serde_json::from_str(&j).map_err(|e| Error::Invalid(e.to_string())))
+            .transpose()
+    }
+
+    /// Attaches a scoresheet to a match (replacing one attached before), or
+    /// takes it off (`None`).
+    pub fn set_match_scoresheet(
+        &mut self,
+        id: MatchId,
+        sheet: Option<&vb_scoresheet::Scoresheet>,
+    ) -> Result<()> {
+        let json = sheet
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let n = self.conn.execute(
+            "UPDATE match SET scoresheet = ?2 WHERE id = ?1",
+            params![id.to_string(), json],
+        )?;
+        if n == 0 {
+            return Err(Error::NoMatch(id));
+        }
+        Ok(())
+    }
+
     /// The `.dvw` a match with no source file starts from.
     fn blank_template(&self, id: MatchId) -> Result<Vec<u8>> {
         let (home, visiting) = self.match_teams(id)?;
         let venue = self.match_venue(id)?;
+        let sheet = self.match_scoresheet(id)?;
         let (date, created): (Option<String>, i64) = self.conn.query_row(
             "SELECT date, created_ms FROM match WHERE id = ?1",
             [id.to_string()],
@@ -562,6 +607,7 @@ impl Season {
             &visiting,
             date.as_deref(),
             &venue,
+            sheet.as_ref(),
             &tables,
             created,
         ))
@@ -941,6 +987,16 @@ fn migrate_9_to_10(conn: &Connection) -> Result<()> {
         "BEGIN;
          {V10_SQL}
          PRAGMA user_version = 10;
+         COMMIT;"
+    ))?;
+    Ok(())
+}
+
+fn migrate_10_to_11(conn: &Connection) -> Result<()> {
+    conn.execute_batch(&format!(
+        "BEGIN;
+         {V11_SQL}
+         PRAGMA user_version = 11;
          COMMIT;"
     ))?;
     Ok(())

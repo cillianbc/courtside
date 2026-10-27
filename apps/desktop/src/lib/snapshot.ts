@@ -1,5 +1,7 @@
 // Mirrors crates/courtside-console/src/snapshot.rs (camelCase JSON).
 
+import type { SheetSummary } from "./scoresheet";
+
 export type Side = "home" | "visiting";
 export type Severity = "info" | "warning" | "error";
 
@@ -138,6 +140,8 @@ export interface Snapshot {
   events: number;
   /** The match video's path: from the imported file or opened with it. */
   videoPath: string | null;
+  /** The attached scoresheet's sixes and scores, set by set (issue #57). */
+  sheet: SheetSummary | null;
 }
 
 export interface MatchItem {

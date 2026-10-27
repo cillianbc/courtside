@@ -5,7 +5,9 @@
   import type { MatchItem } from "../snapshot";
   import type { TeamDetail } from "../teams";
   import { ui } from "../ui.svelte";
+  import type { SheetPreview } from "../scoresheet";
   import PlayersTab from "./PlayersTab.svelte";
+  import ScoresheetReview from "./ScoresheetReview.svelte";
   import SettingsTab from "./SettingsTab.svelte";
   import TeamsTab from "./TeamsTab.svelte";
 
@@ -27,6 +29,14 @@
   }
 
   const SEASON = [{ name: "Courtside season", extensions: ["courtside"] }];
+  let sheetReview = $state<{ path: string; preview: SheetPreview } | null>(null);
+
+  const fromScoresheet = () =>
+    run(async () => {
+      const path = await open({ filters: [{ name: "Scoresheet (PDF)", extensions: ["pdf"] }] });
+      if (typeof path !== "string") return;
+      sheetReview = { path, preview: await backend.readScoresheet(path) };
+    });
 
   async function refresh() {
     list = await backend.matches();
@@ -122,8 +132,19 @@
     <PlayersTab />
   {:else if list && tab === "settings"}
     <SettingsTab />
+  {:else if list && sheetReview}
+    <ScoresheetReview
+      path={sheetReview.path}
+      preview={sheetReview.preview}
+      {teams}
+      onclose={() => (sheetReview = null)}
+    />
   {:else if list}
     <h2>New match</h2>
+    <p class="sub-note">
+      <button class="btn" type="button" onclick={fromScoresheet}>From a scoresheet…</button>
+      Teams, rosters, venue and each set's lineups from the match's scoresheet (PDF).
+    </p>
     {#if teams.length < 2}
       <p class="empty-note">
         A match needs two teams. Add them on the Teams tab, or import a .dvw to take its teams.

@@ -10,6 +10,8 @@
   import type { VenueView } from "../teams";
   import MatchRosterDialog from "./MatchRosterDialog.svelte";
   import TeamDialog from "./TeamDialog.svelte";
+  import ScoresheetCheckDialog from "./ScoresheetCheckDialog.svelte";
+  import { open } from "@tauri-apps/plugin-dialog";
   import SideTag from "./SideTag.svelte";
 
   let { snap, set }: { snap: Snapshot; set: number } = $props();
@@ -50,12 +52,35 @@
   }
   let busy = $state(false);
 
+  // The attached scoresheet's record of this set (issue #57).
+  const sheetSet = $derived(snap.sheet?.sets.find((s) => s.set === set) ?? null);
+
+  // A six already entered wins; else the scoresheet's (zones 1–6 are its I–VI).
   function fromStart(side: Side): Draft {
     const start = startOf(snap, set, side);
+    const sheet = start ? undefined : snap.sheet?.sets.find((s) => s.set === set)?.sixes[side];
     return {
-      zones: Array.from({ length: 6 }, (_, i) => String(start?.court[i] ?? "")),
+      zones: Array.from({ length: 6 }, (_, i) => String(start?.court[i] ?? sheet?.[i] ?? "")),
       setter: start?.setter != null ? String(start.setter) : "",
     };
+  }
+  const filledFromSheet = untrack(() =>
+    (["home", "visiting"] as const).some(
+      (side) => !startOf(snap, set, side) && (sheetSet?.sixes[side].length ?? 0) > 0,
+    ),
+  );
+
+  let checking = $state(false);
+  let sheetNote = $state("");
+  async function attachSheet() {
+    sheetNote = "";
+    const path = await open({ filters: [{ name: "Scoresheet (PDF)", extensions: ["pdf"] }] });
+    if (typeof path !== "string") return;
+    const ok = await ui.apply("Scoresheet attached", () => backend.attachScoresheet(path));
+    if (!ok) sheetNote = ui.result?.text ?? "";
+  }
+  async function removeSheet() {
+    await ui.apply("Scoresheet removed", () => backend.removeScoresheet());
   }
 
   const needs = $derived(snap.needsLineup.home || snap.needsLineup.visiting);
@@ -216,6 +241,26 @@
       </div>
     {/each}
   </div>
+  <div class="lu-venue">
+    <span class="role">Scoresheet</span>
+    {#if snap.sheet}
+      <span class="sub-note"
+        >{snap.sheet.source}{#if filledFromSheet}: this set's sixes are filled in from it{/if}{#if sheetSet?.serving};
+          {snap.teams[sheetSet.serving].name} serves first{/if}.</span
+      >
+      <button class="btn" type="button" onclick={() => (checking = true)}
+        >Check the match against it</button
+      >
+      <button class="btn" type="button" onclick={attachSheet}>Replace</button>
+      <button class="btn" type="button" onclick={removeSheet}>Remove</button>
+    {:else}
+      <span class="sub-note"
+        >None attached. A scoresheet fills in each set's six and checks the coding.</span
+      >
+      <button class="btn" type="button" onclick={attachSheet}>Attach scoresheet…</button>
+    {/if}
+    {#if sheetNote}<span class="error">{sheetNote}</span>{/if}
+  </div>
   <div class="lu-venue pick">
     <span class="role">Venue</span>
     <label>Hall <input bind:value={venue.hall} onchange={saveVenue} /></label>
@@ -243,6 +288,10 @@
     >
   </div>
 </section>
+
+{#if checking}
+  <ScoresheetCheckDialog onclose={() => (checking = false)} />
+{/if}
 
 {#if teamFor}
   <TeamDialog teamId={snap.teams[teamFor].id} onclose={() => (teamFor = null)} />

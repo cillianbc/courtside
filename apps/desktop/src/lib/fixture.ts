@@ -173,6 +173,18 @@ export function fixture(): Snapshot {
     ],
     events: 412,
     videoPath: null,
+    // A made-up scoresheet: set 2's sixes fill the lineup screen.
+    sheet: {
+      source: "eScoresheet 2026.10.04",
+      sets: [
+        {
+          set: 2,
+          sixes: { home: [1, 3, 4, 5, 7, 9], visiting: [2, 5, 8, 9, 10, 12] },
+          serving: "visiting",
+          score: null,
+        },
+      ],
+    },
   };
 }
 

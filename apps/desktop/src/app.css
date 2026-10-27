@@ -2872,6 +2872,47 @@ button.flag {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
+/* Scoresheets (issue #57): the review before a match is made from one. */
+.sheet-review {
+  display: grid;
+  gap: 10px;
+}
+.sheet-teams {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.sheet-team {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+}
+.sheet-team label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.sheet-team select {
+  font: inherit;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--line);
+  background: var(--sunk);
+  color: var(--fg);
+}
+.sheet-diffs {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+}
+
 /* Team editor sections (issue #49): staff, home venue, kit. */
 .team-section {
   border: 1px solid var(--line);

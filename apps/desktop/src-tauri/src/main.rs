@@ -9,8 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use courtside_console::{
     ClipFilter, Clips, ClockTime, FixPreview, Keys, MatchId, MatchItem, PlayerDetail,
-    PlayerListItem, Preview, Resume, Session, Settings, Snapshot, Team, TeamDetail, TeamForm,
-    TeamImportView, VenueView,
+    PlayerListItem, Preview, Resume, Session, Settings, SheetCheck, SheetChoice, SheetPreview,
+    Snapshot, Team, TeamDetail, TeamForm, TeamImportView, VenueView,
 };
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -342,6 +342,44 @@ fn match_import(app: AppHandle, state: State<'_, Shared>, path: PathBuf) -> Repl
     })?;
     remember(&app, &state);
     Ok(snap)
+}
+
+/// Reads a scoresheet PDF for review before a match is made from it.
+#[tauri::command]
+fn scoresheet_read(state: State<'_, Shared>, path: PathBuf) -> Reply<SheetPreview> {
+    with(&state, |s| s.read_scoresheet(&path))
+}
+
+/// Creates a match from a scoresheet and opens it.
+#[tauri::command]
+fn match_from_scoresheet(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    path: PathBuf,
+    choice: SheetChoice,
+) -> Reply<Snapshot> {
+    let snap = with(&state, |s| {
+        s.new_match_from_scoresheet(&path, &choice, now_ms())
+    })?;
+    remember(&app, &state);
+    Ok(snap)
+}
+
+/// Attaches a scoresheet to the open match.
+#[tauri::command]
+fn scoresheet_attach(state: State<'_, Shared>, path: PathBuf) -> Reply<Snapshot> {
+    with(&state, |s| s.attach_scoresheet(&path, now_ms()))
+}
+
+#[tauri::command]
+fn scoresheet_remove(state: State<'_, Shared>) -> Reply<Snapshot> {
+    with(&state, |s| s.remove_scoresheet(now_ms()))
+}
+
+/// Where the open match and its scoresheet disagree.
+#[tauri::command]
+fn scoresheet_check(state: State<'_, Shared>) -> Reply<Option<SheetCheck>> {
+    with(&state, |s| s.scoresheet_check())
 }
 
 #[tauri::command]
@@ -745,6 +783,11 @@ fn main() {
             match_new,
             match_venue,
             match_venue_save,
+            scoresheet_read,
+            match_from_scoresheet,
+            scoresheet_attach,
+            scoresheet_remove,
+            scoresheet_check,
             resume,
             matches,
             match_import,

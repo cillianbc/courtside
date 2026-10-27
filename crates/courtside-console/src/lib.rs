@@ -9,6 +9,7 @@ pub mod keys;
 pub mod manage;
 pub mod readback;
 pub mod resume;
+pub mod sheet;
 pub mod snapshot;
 
 use std::path::Path;
@@ -32,6 +33,7 @@ pub use manage::{
 };
 pub use readback::Preview;
 pub use resume::Resume;
+pub use sheet::{SheetCheck, SheetChoice, SheetPreview, SheetSummary};
 pub use snapshot::{MatchItem, Snapshot};
 pub use vb_engine::event::ClockTime;
 pub use vb_grammar::Team;
@@ -50,6 +52,8 @@ pub enum Error {
     Log(#[from] LogError),
     #[error("lineup: {0}")]
     BadLineup(String),
+    #[error(transparent)]
+    Scoresheet(#[from] vb_scoresheet::Error),
     #[error("can't write {path}: {source}")]
     Write {
         path: String,
@@ -120,6 +124,8 @@ struct Current {
     /// Whether the match was over at the last snapshot. Every command ends
     /// with one, so a commit reads this instead of building another.
     match_over: std::cell::Cell<Option<bool>>,
+    /// The match's scoresheet, if one is attached (issue #57).
+    sheet: Option<vb_scoresheet::Scoresheet>,
 }
 
 /// Each event's video time once the match's first serve is at
@@ -1355,6 +1361,136 @@ impl Session {
         Ok(self.season_mut()?.set_match_venue(id, &venue.into())?)
     }
 
+    fn read_sheet(path: &Path) -> Result<vb_scoresheet::Scoresheet> {
+        let bytes = std::fs::read(path).map_err(|source| Error::Read {
+            path: path.display().to_string(),
+            source,
+        })?;
+        Ok(vb_scoresheet::read_pdf(&bytes)?)
+    }
+
+    /// Reads a scoresheet PDF and matches its teams and players to the
+    /// season's, for the scout to review (issue #57).
+    pub fn read_scoresheet(&self, path: &Path) -> Result<SheetPreview> {
+        let sheet = Self::read_sheet(path)?;
+        Ok(sheet::preview(sheet, &self.season()?.teams()?))
+    }
+
+    /// Creates a match from a scoresheet and opens it: its teams (the
+    /// season's chosen in `choice`, or new ones from the sheet), the sheet's
+    /// players a team lacks added to its roster, its date and venue, and the
+    /// sheet kept with the match for the lineups and the check.
+    pub fn new_match_from_scoresheet(
+        &mut self,
+        path: &Path,
+        choice: &SheetChoice,
+        now_ms: u64,
+    ) -> Result<Snapshot> {
+        let sheet = Self::read_sheet(path)?;
+        self.new_match_from_sheet(&sheet, choice, now_ms)
+    }
+
+    /// [`Session::new_match_from_scoresheet`] for a sheet already read.
+    pub fn new_match_from_sheet(
+        &mut self,
+        sheet: &vb_scoresheet::Scoresheet,
+        choice: &SheetChoice,
+        now_ms: u64,
+    ) -> Result<Snapshot> {
+        let season = self.season_mut()?;
+        let mut ids: Vec<String> = Vec::new();
+        for (i, st) in sheet.teams.iter().enumerate() {
+            let id = match &choice.team_ids[i] {
+                Some(id) => id.clone(),
+                None => {
+                    let staff = |role: &str| {
+                        st.staff
+                            .iter()
+                            .find(|s| s.role == role)
+                            .map(|s| courtside_store::Person {
+                                last_name: s.last_name.clone(),
+                                first_name: s.first_name.clone(),
+                            })
+                            .unwrap_or_default()
+                    };
+                    let input = courtside_store::TeamInput {
+                        name: st.name.clone(),
+                        staff: courtside_store::Staff {
+                            coach: staff("C"),
+                            assistant: staff("AC"),
+                            ..courtside_store::Staff::default()
+                        },
+                        // The home team plays at home.
+                        hall: if i == 0 {
+                            sheet.hall.clone()
+                        } else {
+                            String::new()
+                        },
+                        city: if i == 0 {
+                            sheet.city.clone()
+                        } else {
+                            String::new()
+                        },
+                        ..courtside_store::TeamInput::default()
+                    };
+                    season.create_team(&input, now_ms)?
+                }
+            };
+            add_sheet_players(season, &id, st, now_ms)?;
+            ids.push(id);
+        }
+        let [home, visiting] = [&ids[0], &ids[1]];
+        let venue = courtside_store::Venue {
+            hall: sheet.hall.clone(),
+            city: sheet.city.clone(),
+        };
+        let id =
+            season.create_match(home, visiting, sheet.date.as_deref(), Some(&venue), now_ms)?;
+        season.set_match_scoresheet(id, Some(sheet))?;
+        self.open_match(id, now_ms)
+    }
+
+    /// Attaches a scoresheet to the open match (replacing one attached
+    /// before): its sixes fill the lineup screen and the match can be
+    /// checked against it. Teams and rosters aren't changed.
+    pub fn attach_scoresheet(&mut self, path: &Path, now_ms: u64) -> Result<Snapshot> {
+        let sheet = Self::read_sheet(path)?;
+        self.attach_sheet(&sheet, now_ms)
+    }
+
+    /// [`Session::attach_scoresheet`] for a sheet already read.
+    pub fn attach_sheet(
+        &mut self,
+        sheet: &vb_scoresheet::Scoresheet,
+        now_ms: u64,
+    ) -> Result<Snapshot> {
+        let id = self.current.as_ref().ok_or(Error::NoMatch)?.id;
+        self.season_mut()?.set_match_scoresheet(id, Some(sheet))?;
+        self.open_match(id, now_ms)
+    }
+
+    /// Takes the open match's scoresheet off.
+    pub fn remove_scoresheet(&mut self, now_ms: u64) -> Result<Snapshot> {
+        let id = self.current.as_ref().ok_or(Error::NoMatch)?.id;
+        self.season_mut()?.set_match_scoresheet(id, None)?;
+        self.open_match(id, now_ms)
+    }
+
+    /// Where the coded match and its scoresheet disagree; `None` without one.
+    pub fn scoresheet_check(&self) -> Result<Option<SheetCheck>> {
+        let c = self.current.as_ref().ok_or(Error::NoMatch)?;
+        Ok(c.sheet.as_ref().map(|s| {
+            sheet::check(
+                &c.game,
+                s,
+                snapshot::Pair {
+                    home: c.teams.0.name.as_str(),
+                    visiting: c.teams.1.name.as_str(),
+                },
+            )
+        }))
+    }
+
     /// Imports a `.dvw` file into the open season (without opening it).
     pub fn import_file(&mut self, path: &Path, now_ms: u64) -> Result<MatchId> {
         let bytes = std::fs::read(path).map_err(|source| Error::Read {
@@ -1388,6 +1524,7 @@ impl Session {
             video: courtside_store::Video::default(),
             video_path: season.match_video(id)?,
             match_over: std::cell::Cell::new(None),
+            sheet: season.match_scoresheet(id)?,
         };
         apply_rules(&mut c, &settings);
         self.current = Some(c);
@@ -1420,6 +1557,10 @@ impl Session {
         let c = self.current.as_ref().ok_or(Error::NoMatch)?;
         let mut snap = snapshot::build(&c.id.to_string(), &c.game, &c.teams);
         snap.video_path.clone_from(&c.video_path);
+        snap.sheet = c
+            .sheet
+            .as_ref()
+            .map(|s| sheet::summary(s, &c.teams.0.name, &c.teams.1.name));
         combination_zones(&mut snap, &c.game, &c.defaults.combinations);
         c.match_over.set(Some(snap.match_over));
         Ok(snap)
@@ -2302,4 +2443,67 @@ impl Session {
     fn season_mut(&mut self) -> Result<&mut Season> {
         self.season.as_mut().ok_or(Error::NoSeason)
     }
+}
+
+/// Adds the sheet's players a team's roster doesn't have (by shirt
+/// number); players already on it are left as they are. A new player's
+/// code is the sheet's licence number when no one in the season has it.
+fn add_sheet_players(
+    season: &mut Season,
+    team_id: &str,
+    st: &vb_scoresheet::SheetTeam,
+    now_ms: u64,
+) -> Result<()> {
+    let team = season.team(team_id)?;
+    let new: Vec<_> = st
+        .players
+        .iter()
+        .filter(|p| !team.players.iter().any(|r| r.number == p.number))
+        .collect();
+    if new.is_empty() {
+        return Ok(());
+    }
+    let taken: std::collections::HashSet<String> = season
+        .players()?
+        .into_iter()
+        .map(|p| p.player.code)
+        .collect();
+    let mut rows: Vec<courtside_store::PlayerInput> = team
+        .players
+        .iter()
+        .map(|p| courtside_store::PlayerInput {
+            id: Some(p.id.clone()),
+            number: p.number,
+            code: p.code.clone(),
+            last_name: p.last_name.clone(),
+            first_name: p.first_name.clone(),
+            nickname: p.nickname.clone(),
+            role: p.role,
+            libero: p.libero,
+            captain: p.captain,
+            foreign: p.foreign,
+            birth_date: p.birth_date.clone(),
+            height_cm: p.height_cm,
+            weight_kg: p.weight_kg,
+            reach_cm: p.reach_cm,
+        })
+        .collect();
+    for p in new {
+        rows.push(courtside_store::PlayerInput {
+            number: p.number,
+            code: if p.id.is_empty() || taken.contains(&p.id) {
+                String::new()
+            } else {
+                p.id.clone()
+            },
+            last_name: p.last_name.clone(),
+            first_name: p.first_name.clone(),
+            role: p.libero.then_some(1),
+            libero: p.libero,
+            captain: p.captain,
+            ..courtside_store::PlayerInput::default()
+        });
+    }
+    season.save_roster(team_id, &rows, now_ms)?;
+    Ok(())
 }

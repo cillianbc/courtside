@@ -164,6 +164,7 @@ fn starting_sixes_are_stored() {
 /// Takes a season file back to the version 9 layout (issue #49's
 /// columns gone, the staff columns named as before).
 fn undo_v10(conn: &rusqlite::Connection) {
+    undo_v11(conn);
     let mut sql = String::from(
         "ALTER TABLE team RENAME COLUMN coach_last TO coach;
          ALTER TABLE team RENAME COLUMN assistant_last TO assistant;",
@@ -193,6 +194,41 @@ fn undo_v10(conn: &rusqlite::Connection) {
          PRAGMA user_version = 9;",
     );
     conn.execute_batch(&sql).expect("undo v10");
+}
+
+/// Takes a season file back to the version 10 layout (no scoresheets).
+fn undo_v11(conn: &rusqlite::Connection) {
+    conn.execute_batch(
+        "ALTER TABLE match DROP COLUMN scoresheet;
+         PRAGMA user_version = 10;",
+    )
+    .expect("undo v11");
+}
+
+/// Version 11 (issue #57): a version 10 file's matches have no scoresheet
+/// and can be given one.
+#[test]
+fn version_10_files_get_scoresheets() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("season.courtside");
+    let id = {
+        let mut season = Season::create(&path, "2026/27", 1).expect("create");
+        let id = season
+            .import_dvw("m.dvw", FILE.as_bytes(), 1_000)
+            .expect("import");
+        undo_v11(&rusqlite::Connection::open(&path).expect("sqlite"));
+        id
+    };
+    let mut season = Season::open(&path).expect("migrated");
+    assert_eq!(season.match_scoresheet(id).expect("read"), None);
+    let sheet = vb_scoresheet::Scoresheet {
+        match_number: "42".into(),
+        ..Default::default()
+    };
+    season
+        .set_match_scoresheet(id, Some(&sheet))
+        .expect("attach");
+    assert_eq!(season.match_scoresheet(id).expect("read"), Some(sheet));
 }
 
 /// Version 10 (issue #49): a version 9 file keeps its coaches' names, whole,

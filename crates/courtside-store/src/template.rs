@@ -18,6 +18,7 @@ pub fn blank(
     visiting: &Team,
     date: Option<&str>,
     venue: &Venue,
+    sheet: Option<&vb_scoresheet::Scoresheet>,
     tables: &Tables,
     created_ms: u64,
 ) -> Vec<u8> {
@@ -46,15 +47,27 @@ pub fn blank(
     lines.extend([
         "[3MATCH]".into(),
         // date; time; season; league; phase; home/away; day; match number;
-        // code page; regulation (1 = indoor rally point); zones; 0
-        format!("{written};;;;;;;;1252;1;Z;0;"),
+        // code page; regulation (1 = indoor rally point); zones; 0. The
+        // scoresheet's details when there is one (issue #57).
+        format!(
+            "{written};{};;{};;;{};{};1252;1;Z;0;",
+            sheet.map_or(String::new(), |s| dvw_time(&s.time)),
+            field(sheet.map_or("", |s| s.competition.as_str())),
+            field(sheet.map_or("", |s| s.day.as_str())),
+            field(sheet.map_or("", |s| s.match_number.as_str())),
+        ),
         format!(";;{serial};;;;;;;;"),
         "[3TEAMS]".into(),
         team_line(1, home),
         team_line(2, visiting),
         "[3MORE]".into(),
         // referees; spectators; receipts; city; arena; scout
-        format!(";;;{};{};;", field(&venue.city), field(&venue.hall)),
+        format!(
+            "{};;;{};{};;",
+            field(&sheet.map_or(String::new(), |s| s.referees.join(", "))),
+            field(&venue.city),
+            field(&venue.hall)
+        ),
         "[3COMMENTS]".into(),
         "[3SET]".into(),
     ]);
@@ -133,6 +146,14 @@ fn team_line(n: u8, t: &Team) -> String {
         field(&t.staff.assistant.last_first()),
         colour_to_dvw(&t.shirt_colour).map_or(String::new(), |c| c.to_string())
     )
+}
+
+/// `HH:MM` as `.dvw` writes a time: `HH.MM.SS`.
+fn dvw_time(t: &str) -> String {
+    match t.split_once(':') {
+        Some((h, m)) => format!("{h}.{m}.00"),
+        None => String::new(),
+    }
 }
 
 /// Text that can't break the positional format: no separators or newlines.

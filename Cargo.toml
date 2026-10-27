@@ -4,6 +4,7 @@ members = [
     "crates/dvw-codec",
     "crates/vb-grammar",
     "crates/vb-engine",
+    "crates/vb-scoresheet",
     "crates/courtside-store",
     "crates/courtside-console",
     "crates/courtside-ffi",
@@ -24,6 +25,7 @@ publish = false
 dvw-codec = { path = "crates/dvw-codec" }
 vb-grammar = { path = "crates/vb-grammar" }
 vb-engine = { path = "crates/vb-engine" }
+vb-scoresheet = { path = "crates/vb-scoresheet" }
 courtside-ffi = { path = "crates/courtside-ffi" }
 courtside-store = { path = "crates/courtside-store" }
 courtside-console = { path = "crates/courtside-console" }
@@ -33,6 +35,8 @@ clap = { version = "4", features = ["derive"] }
 csv = "1"
 encoding_rs = "0.8"
 insta = "1"
+# PDF reading only: no dates, threads or images.
+lopdf = { version = "0.36", default-features = false }
 proptest = "1"
 # bundled: the same SQLite on every platform, no system library.
 rusqlite = { version = "0.40", features = ["bundled"] }

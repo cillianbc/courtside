@@ -14,6 +14,7 @@ dist = false
 
 [dependencies]
 dvw-codec.workspace = true
+vb-scoresheet.workspace = true
 encoding_rs.workspace = true
 rusqlite.workspace = true
 serde.workspace = true

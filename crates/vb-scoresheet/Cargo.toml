@@ -1,0 +1,19 @@
+[package]
+name = "vb-scoresheet"
+description = "Reads official volleyball scoresheets (eScoresheet PDFs): teams, rosters, lineups, substitutions, results"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+encoding_rs.workspace = true
+lopdf.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

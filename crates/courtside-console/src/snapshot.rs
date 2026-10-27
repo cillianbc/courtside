@@ -94,6 +94,8 @@ pub struct Snapshot {
     pub events: usize,
     /// The match video's path: from the imported file or opened with it.
     pub video_path: Option<String>,
+    /// The attached scoresheet's sixes and scores, set by set (issue #57).
+    pub sheet: Option<crate::sheet::SheetSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -611,5 +613,6 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             .collect(),
         events: game.log.len(),
         video_path: None,
+        sheet: None,
     }
 }

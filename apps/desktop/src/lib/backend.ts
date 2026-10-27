@@ -14,6 +14,7 @@ import type {
   TeamImportView,
   VenueView,
 } from "./teams";
+import type { SheetCheck, SheetChoice, SheetPreview } from "./scoresheet";
 import { noteAction } from "./trail";
 
 // Polled or sent while typing: too many to say what the scout did.
@@ -384,4 +385,28 @@ export async function reportProblem(
 ): Promise<string> {
   if (!inTauri) throw new Error("Reports need the desktop app.");
   return invoke<string>("report_problem", { note, includeMatch, actions });
+}
+
+/** Reads a scoresheet PDF and matches it to the season, for review. */
+export async function readScoresheet(path: string): Promise<SheetPreview> {
+  return invoke<SheetPreview>("scoresheet_read", { path });
+}
+
+/** Creates a match from a scoresheet and opens it. */
+export async function matchFromScoresheet(path: string, choice: SheetChoice): Promise<Snapshot> {
+  return invoke<Snapshot>("match_from_scoresheet", { path, choice });
+}
+
+/** Attaches a scoresheet to the open match. */
+export async function attachScoresheet(path: string): Promise<Snapshot> {
+  return invoke<Snapshot>("scoresheet_attach", { path });
+}
+
+export async function removeScoresheet(): Promise<Snapshot> {
+  return invoke<Snapshot>("scoresheet_remove");
+}
+
+/** Where the open match and its scoresheet disagree; null without one. */
+export async function scoresheetCheck(): Promise<SheetCheck | null> {
+  return invoke<SheetCheck | null>("scoresheet_check");
 }
