@@ -80,7 +80,7 @@ jobs:
           # mpv's and FFmpeg's licences (docs/THIRD-PARTY.md).
           $tag = gh release view --repo shinchiro/mpv-winbuild-cmake --json tagName --jq .tagName
           $mpv = if ($asset -match 'git-([0-9a-f]+)') { $Matches[1] } else { 'unknown' }
-          $notice = apps/desktop/src-tauri/libmpv/third-party
+          $notice = 'apps/desktop/src-tauri/libmpv/third-party'
           New-Item -ItemType Directory -Force $notice | Out-Null
           @(
             "Courtside: third-party software bundled for video playback",
