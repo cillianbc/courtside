@@ -105,6 +105,17 @@ cp -R "$app" "$stage/"
 ln -s /Applications "$stage/Applications"
 dmg="$out/Courtside_${version}_${arch}.dmg"
 rm -f "$dmg"
-hdiutil create -quiet -volname Courtside -srcfolder "$stage" -ov -format UDZO "$dmg"
-rm -rf "$stage"
+# The disk shows Courtside's icon when opened: made writable, the icon set
+# on its root, then compressed. (An icon on the .dmg file itself would be
+# lost on download.)
+rw="$(mktemp -d)/rw.dmg"
+hdiutil create -quiet -volname Courtside -srcfolder "$stage" -fs HFS+ -format UDRW "$rw"
+mnt=$(mktemp -d)
+hdiutil attach -quiet -nobrowse -noautoopen -mountpoint "$mnt" "$rw"
+cp "$root/apps/desktop/src-tauri/icons/icon.icns" "$mnt/.VolumeIcon.icns"
+SetFile -c icnC "$mnt/.VolumeIcon.icns"
+SetFile -a C "$mnt"
+hdiutil detach -quiet "$mnt"
+hdiutil convert -quiet "$rw" -format UDZO -o "$dmg"
+rm -rf "$stage" "$(dirname "$rw")" "$mnt"
 echo "$dmg"

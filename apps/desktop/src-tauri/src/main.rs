@@ -625,6 +625,28 @@ fn video_smoke(app: &AppHandle) {
                 log::info!("video smoke: {:?}", p.state());
             }
         });
+        // A taller box, as the Video layout gives: the picture must follow
+        // (no "viewport …, layer …" line after this one).
+        step("resize", |app, _| {
+            if let Some(state) = app.try_state::<Video>()
+                && let Ok(mut p) = state.lock()
+            {
+                let bounds = video::Bounds {
+                    x: 24.0,
+                    y: 90.0,
+                    width: 600.0,
+                    height: 450.0,
+                };
+                log::info!("video smoke: resized {:?}", p.place(bounds, true));
+            }
+        });
+        step("state", |app, _| {
+            if let Some(state) = app.try_state::<Video>()
+                && let Ok(p) = state.lock()
+            {
+                log::info!("video smoke: {:?}", p.state());
+            }
+        });
         // Closing frees mpv's render context before mpv; opening again
         // makes both anew.
         step("close", |app, _| {

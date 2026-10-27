@@ -658,6 +658,9 @@ mod surface {
                 self.layer.setContentsScale(scale);
             }
             self.render.dirty.store(true, Ordering::Release);
+            // An asynchronous layer keeps its framebuffer at the old size
+            // until it's told to redisplay.
+            self.layer.setNeedsDisplay();
             Ok(())
         }
 
