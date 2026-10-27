@@ -1084,13 +1084,6 @@ body {
   align-items: center;
   gap: 5px;
 }
-.sw {
-  width: 11px;
-  height: 11px;
-  border-radius: 3px;
-  display: inline-block;
-  box-shadow: inset 0 0 0 2px var(--fg);
-}
 
 /* Team controls */
 .team-ctl {
@@ -2844,10 +2837,16 @@ button.flag {
   flex-wrap: wrap;
   gap: 6px;
 }
-.sw {
+/* Scoped under .swatches so the editor's stacked-label rule doesn't apply. */
+.swatches .sw {
+  position: relative;
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
   gap: 6px;
+  color: var(--fg);
+  text-transform: none;
+  letter-spacing: normal;
   padding: 4px 8px 4px 4px;
   border: 1px solid var(--edge);
   border-radius: var(--radius-control);
@@ -2855,17 +2854,17 @@ button.flag {
   font-size: 13px;
   cursor: pointer;
 }
-.sw.on {
+.swatches .sw.on {
   border: 2px solid var(--accent);
   padding: 3px 7px 3px 3px;
 }
-.sw input {
+.swatches .sw input {
   position: absolute;
   opacity: 0;
   width: 1px;
   height: 1px;
 }
-.sw:focus-within {
+.swatches .sw:focus-within {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
