@@ -49,6 +49,7 @@ pub fn rule_name(r: Rule) -> &'static str {
         Rule::Substitution => "substitution",
         Rule::ServeReception => "serve/reception",
         Rule::Code => "code",
+        Rule::Roles => "roles",
     }
 }
 

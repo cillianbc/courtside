@@ -385,6 +385,7 @@ mod tests {
                     number: *n,
                     starting_zones: [StartingZone::Zone(i as u8 + 1); 5],
                     libero: false,
+                    role: None,
                 })
                 .collect(),
         }

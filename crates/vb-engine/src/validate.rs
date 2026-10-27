@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use vb_grammar::{Code, Player, Skill, Team};
+use vb_grammar::{Code, Player, Skill, Team, Touch};
 
 use crate::event::{EventId, EventKind, MatchEvent};
 use crate::fold::{Folded, Rally, Score, State, fold_events};
@@ -31,8 +31,12 @@ pub enum Rule {
     /// 5. A serve is followed by the other team's reception, or ends the
     ///    rally; the point goes to the team the touches say won it.
     ServeReception,
-    /// 6. Unknown codes, players not on the team sheet, bad zones.
+    /// 6. Unknown codes, players not on the team sheet, bad zones; a
+    ///    touch whose type or zones don't match the touch it answers.
     Code,
+    /// 7. Who does what: sets on good passes and setter calls by the
+    ///    setter on court (hints only).
+    Roles,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,6 +113,25 @@ pub enum IssueKind {
     BlockPointWithoutBlockedAttack,
     RallyContinues,
     PointToWrongTeam,
+    /// A serve that won the point with no reception, not coded as an ace.
+    ServeNotAce,
+    SecondReception,
+    /// The same player, skill and evaluation as the code before.
+    RepeatedTouch,
+    /// One player setting then blocking.
+    SamePlayerTwice,
+    /// A set between the other team's reception or dig and their attack.
+    SetForWrongTeam,
+    // Rule::BackRow, also
+    FrontRowAttackFromBack,
+    // Rule::Roles
+    SetByNonSetter,
+    SetterCallByNonSetter,
+    // Rule::Code, also
+    /// A reception whose type differs from its serve's.
+    TypeMismatch,
+    /// A reception whose zones differ from its serve's.
+    ZoneMismatch,
 }
 
 impl IssueKind {
@@ -164,6 +187,24 @@ fn touch_player(code: &Code) -> Option<(Team, u8)> {
             Player::Unknown => None,
         },
         _ => None,
+    }
+}
+
+/// A touch as its code (`*08SH+`).
+fn code_text(t: &Touch) -> String {
+    Code::Touch(t.clone()).to_string()
+}
+
+fn skill_name(s: Skill) -> &'static str {
+    match s {
+        Skill::Serve => "serve",
+        Skill::Reception => "reception",
+        Skill::Set => "set",
+        Skill::Attack => "attack",
+        Skill::Block => "block",
+        Skill::Dig => "dig",
+        Skill::Freeball => "freeball",
+        Skill::Green => "point",
     }
 }
 
@@ -740,6 +781,24 @@ impl Validator<'_> {
                     IssueKind::BackRowBlock,
                     format!("back-row player {n} (zone {}) blocked", zone.unwrap_or(0)),
                 ),
+                // Legal, but rarely what happened (datavolley's dv_validate
+                // reports it too).
+                Skill::Attack
+                    if zone.is_some_and(|z| matches!(z, 2..=4))
+                        && matches!(t.start_zone(), Some('1' | '5' | '6' | '7' | '8' | '9')) =>
+                {
+                    self.push(
+                        i,
+                        Severity::Info,
+                        Rule::BackRow,
+                        IssueKind::FrontRowAttackFromBack,
+                        format!(
+                            "front-row player {n} (zone {}) attacked from back-row zone {}",
+                            zone.unwrap_or(0),
+                            t.start_zone().unwrap_or(' ')
+                        ),
+                    );
+                }
                 Skill::Attack if back && matches!(t.start_zone(), Some('2' | '3' | '4')) => self
                     .push(
                         i,
@@ -1119,6 +1178,222 @@ impl Validator<'_> {
 }
 
 impl Validator<'_> {
+    /// The rally's touches, without green codes.
+    fn touches(&self, r: &Rally) -> Vec<(usize, Touch)> {
+        (r.first..=r.last)
+            .filter_map(|i| match self.events[i].code() {
+                Some(Code::Touch(t)) if t.skill != Skill::Green => Some((i, t.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Slips in a rally's sequence that datavolley's `dv_validate` also
+    /// looks for: a winning serve not coded as an ace, a second reception,
+    /// a code entered twice, one player touching twice where it can't
+    /// happen, a set given to the wrong team.
+    fn rally_flow(&mut self) {
+        for r in self.f.rallies.clone() {
+            let touches = self.touches(&r);
+            let mut receptions = 0;
+            // A green code gave the point without a play (a fault by the
+            // other team): no ace.
+            let green = (r.first..=r.last)
+                .any(|i| matches!(self.events[i].code(), Some(Code::Touch(t)) if t.skill == Skill::Green));
+            if let [(i, serve)] = touches.as_slice()
+                && !green
+                && serve.skill == Skill::Serve
+                && r.won_by == Some(serve.team)
+                && !matches!(serve.evaluation(), Some('#' | '='))
+            {
+                self.push(
+                    *i,
+                    Severity::Warning,
+                    Rule::ServeReception,
+                    IssueKind::ServeNotAce,
+                    format!(
+                        "{} won the point with no reception; an ace is coded {}#",
+                        code_text(serve),
+                        serve.skill.as_char()
+                    ),
+                );
+            }
+            for (j, (i, t)) in touches.iter().enumerate() {
+                let prev = j
+                    .checked_sub(1)
+                    .and_then(|p| touches.get(p))
+                    .map(|(_, p)| p);
+                let next = touches.get(j + 1).map(|(_, n)| n);
+                if t.skill == Skill::Reception {
+                    receptions += 1;
+                    if receptions == 2 {
+                        self.push(
+                            *i,
+                            Severity::Warning,
+                            Rule::ServeReception,
+                            IssueKind::SecondReception,
+                            "second reception in one rally".into(),
+                        );
+                    }
+                }
+                let Some(p) = prev else { continue };
+                let player = |x: &Touch| touch_player(&Code::Touch(x.clone()));
+                let same_player = player(t).is_some() && player(t) == player(p);
+                if same_player && t.skill == p.skill && t.evaluation() == p.evaluation() {
+                    self.push(
+                        *i,
+                        Severity::Warning,
+                        Rule::ServeReception,
+                        IssueKind::RepeatedTouch,
+                        format!("{} repeats the code before; entered twice?", code_text(t)),
+                    );
+                // A pass then an attack by the same player is common where
+                // sets aren't coded (the corpus: 800 in 84 files), so only a
+                // set then a block counts.
+                } else if same_player && (p.skill, t.skill) == (Skill::Set, Skill::Block) {
+                    self.push(
+                        *i,
+                        Severity::Warning,
+                        Rule::ServeReception,
+                        IssueKind::SamePlayerTwice,
+                        format!(
+                            "player {} set and then blocked",
+                            player(t).map_or(0, |(_, n)| n)
+                        ),
+                    );
+                }
+                // `R/` and `D/` send the ball straight over: the other team
+                // sets it, legitimately.
+                if t.skill == Skill::Set
+                    && p.team != t.team
+                    && matches!(p.skill, Skill::Reception | Skill::Dig)
+                    && p.evaluation() != Some('/')
+                    && next.is_some_and(|n| n.skill == Skill::Attack && n.team != t.team)
+                {
+                    self.push(
+                        *i,
+                        Severity::Warning,
+                        Rule::ServeReception,
+                        IssueKind::SetForWrongTeam,
+                        format!(
+                            "{} sits between the other team's {} and attack; coded for the wrong team?",
+                            code_text(t),
+                            if p.skill == Skill::Reception { "reception" } else { "dig" }
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Hints from the setter on court: a set on a good pass, or a setter
+    /// call, by someone other than the setter. (datavolley's role checks,
+    /// quicks by non-middles and middles' other balls, and its setter call
+    /// on a poor pass flag thousands of ordinary plays in the corpus, so
+    /// they aren't made.)
+    fn roles(&mut self) {
+        for r in self.f.rallies.clone() {
+            let touches = self.touches(&r);
+            for (j, (i, t)) in touches.iter().enumerate() {
+                let Some((team, n)) = touch_player(&Code::Touch(t.clone())) else {
+                    continue;
+                };
+                if t.skill != Skill::Set {
+                    continue;
+                }
+                let setter = *self.f.states[*i].setter.get(team);
+                let prev = j
+                    .checked_sub(1)
+                    .and_then(|p| touches.get(p))
+                    .map(|(_, p)| p);
+                let after_pass = prev.filter(|p| p.skill == Skill::Reception && p.team == team);
+                let called = t
+                    .combination()
+                    .is_some_and(|c| !c.trim().is_empty() && !c.contains('~'));
+                let not_setter = setter.is_some_and(|s| s != n);
+                if not_setter
+                    && after_pass.is_some_and(|p| matches!(p.evaluation(), Some('#' | '+')))
+                {
+                    self.push(
+                        *i,
+                        Severity::Info,
+                        Rule::Roles,
+                        IssueKind::SetByNonSetter,
+                        format!(
+                            "set on a good pass by {n}, not the setter {}; is the setter right?",
+                            setter.unwrap_or(0)
+                        ),
+                    );
+                } else if not_setter && called {
+                    self.push(
+                        *i,
+                        Severity::Info,
+                        Rule::Roles,
+                        IssueKind::SetterCallByNonSetter,
+                        format!(
+                            "setter call on a set by {n}, not the setter {}",
+                            setter.unwrap_or(0)
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// A reception answers its serve: same type and zones (both products
+    /// fill them in, so a difference is a typing slip). datavolley also
+    /// compares an attack with its set and a block or dig with the attack;
+    /// in the corpus those types differ routinely, so they aren't compared.
+    fn answers(&mut self) {
+        for r in self.f.rallies.clone() {
+            let touches = self.touches(&r);
+            for pair in touches.windows(2) {
+                let ((_, p), (i, t)) = (&pair[0], &pair[1]);
+                if !(p.skill == Skill::Serve && t.skill == Skill::Reception && p.team != t.team) {
+                    continue;
+                }
+                if let (Some(a), Some(b)) = (p.skill_type(), t.skill_type())
+                    && a != b
+                {
+                    self.push(
+                        *i,
+                        Severity::Info,
+                        Rule::Code,
+                        IssueKind::TypeMismatch,
+                        format!(
+                            "{} is type {b}, the {} before it type {a}",
+                            code_text(t),
+                            skill_name(p.skill)
+                        ),
+                    );
+                }
+                if p.skill == Skill::Serve {
+                    let pairs = [
+                        ("start zone", p.start_zone(), t.start_zone()),
+                        ("end zone", p.end_zone(), t.end_zone()),
+                        ("end subzone", p.end_subzone(), t.end_subzone()),
+                    ];
+                    if let Some((what, a, b)) = pairs
+                        .iter()
+                        .find(|(_, a, b)| a.is_some() && b.is_some() && a != b)
+                    {
+                        self.push(
+                            *i,
+                            Severity::Info,
+                            Rule::Code,
+                            IssueKind::ZoneMismatch,
+                            format!(
+                                "the reception's {what} is {}, its serve's {}",
+                                b.unwrap_or(' '),
+                                a.unwrap_or(' ')
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     /// Downgrades issues that follow from an earlier one to Info:
     /// - after a point code with a Score or ServeReception error (wrong
     ///   score, wrong team), a score issue on the next point code;
@@ -1268,6 +1543,9 @@ pub fn validate_folded(m: &Match, events: &[&MatchEvent], folded: &Folded) -> Ve
     v.substitutions();
     v.liberos();
     v.serve_reception();
+    v.rally_flow();
+    v.roles();
+    v.answers();
     v.knock_ons();
     let mut issues = v.issues;
     issues.sort_by_key(|i| (i.index, std::cmp::Reverse(i.severity), i.rule));
@@ -1288,6 +1566,7 @@ mod tests {
                 number: *n,
                 starting_zones: [StartingZone::Zone(i as u8 + 1); 5],
                 libero: false,
+                role: None,
             })
             .collect();
         for n in bench.iter().copied().chain(libero) {
@@ -1295,6 +1574,7 @@ mod tests {
                 number: n,
                 starting_zones: [StartingZone::None; 5],
                 libero: Some(n) == libero,
+                role: None,
             });
         }
         TeamSheet { players }
@@ -1382,6 +1662,88 @@ mod tests {
         assert_eq!(
             with_lineup(&["*08SH-", "a16RH#", "a18AH#", "ap00:02"]),
             ["7 Score: point to visiting: score 0:0 → 0:2, expected 0:1"]
+        );
+    }
+
+    fn has(issues: &[String], text: &str) -> bool {
+        issues.iter().any(|i| i.contains(text))
+    }
+
+    /// Slips datavolley's dv_validate also looks for (made-up rallies).
+    #[test]
+    fn rally_flow_slips() {
+        assert_eq!(
+            with_lineup(&["*08SH+", "*p01:00"]),
+            ["4 ServeReception: *08SH+ won the point with no reception; an ace is coded S#"]
+        );
+        // A point given without a play isn't an ace.
+        assert!(
+            with_lineup(&["*08SH+", "a$$&H=", "*p01:00"])
+                .iter()
+                .all(|i| !i.contains("ace"))
+        );
+        let twice = with_lineup(&["*08SH-", "a16RH#", "a16RH#"]);
+        assert!(
+            has(&twice, "6 ServeReception: second reception in one rally"),
+            "{twice:?}"
+        );
+        assert!(
+            has(&twice, "6 ServeReception: a16RH# repeats the code before"),
+            "{twice:?}"
+        );
+        // Passing then attacking is allowed (sets often aren't coded).
+        let same = with_lineup(&["*08SH-", "a16RH#", "a16AH#"]);
+        assert!(!has(&same, "and then"), "{same:?}");
+        let wrong = with_lineup(&["*08SH-", "a16RH+", "*11EH+", "a18AH#"]);
+        assert!(
+            has(
+                &wrong,
+                "*11EH+ sits between the other team's reception and attack"
+            ),
+            "{wrong:?}"
+        );
+        // An overpass (R/) is set by the other team, legitimately.
+        let over = with_lineup(&["*08SH-", "a16RH/", "*11EH+", "*13AH#"]);
+        assert!(!has(&over, "coded for the wrong team"), "{over:?}");
+    }
+
+    #[test]
+    fn touches_answer_the_one_before() {
+        let i = with_lineup(&["*08SM-", "a16RH+"]);
+        assert!(
+            has(&i, "a16RH+ is type H, the serve before it type M"),
+            "{i:?}"
+        );
+        let z = with_lineup(&["*08SH-~~~15", "a16RH+~~~16"]);
+        assert!(
+            has(&z, "the reception's end zone is 6, its serve's 5"),
+            "{z:?}"
+        );
+        // Home 11 is in zone 4: an attack from zone 9 is legal but unusual.
+        let f = with_lineup(&["a16SH-", "*08RH+", "*11AH#~~~9"]);
+        assert!(
+            has(
+                &f,
+                "front-row player 11 (zone 4) attacked from back-row zone 9"
+            ),
+            "{f:?}"
+        );
+    }
+
+    #[test]
+    fn the_setter_sets_good_passes() {
+        // Home's setter is 8; 12 sets a perfect pass, 12 calls a play.
+        let out = with_lineup(&[
+            "a16SH-", "*14RH#", "*12EH+", "*11AH=", "ap00:01", // side-out for the visitors
+            "a16SH-", "*14RH-", "*12EH+K1", "*13AH-",
+        ]);
+        assert!(
+            has(&out, "set on a good pass by 12, not the setter 8"),
+            "{out:?}"
+        );
+        assert!(
+            has(&out, "setter call on a set by 12, not the setter 8"),
+            "{out:?}"
         );
     }
 
