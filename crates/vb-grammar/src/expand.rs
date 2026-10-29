@@ -428,7 +428,7 @@ fn layout(skill: Skill, t: &Typed, d: &Defaults) -> Result<String, String> {
             (skill == Skill::Set && c.starts_with('K')) || d.combination(c).is_some()
         })
     };
-    let ext = extended(skill, post);
+    let ext = extended(skill, post, t.evaluation);
     if post.contains('~') || named(post) || (ext.is_none() && !post.is_empty()) {
         if !pre.is_empty() {
             return Err(format!(
@@ -480,10 +480,18 @@ fn layout(skill: Skill, t: &Typed, d: &Defaults) -> Result<String, String> {
 /// The extended part typed after the evaluation, as subtype, number of
 /// players and special (`~` where left out), with the values each skill
 /// takes (courtside-research/DATAVOLLEY4.md §3); `None` if it isn't one.
-fn extended(skill: Skill, text: &str) -> Option<[char; 3]> {
+///
+/// VolleyStation types an overhead reception `Z` (its help article
+/// "Reception code"), which DataVolley and VolleyStation's own `.dvw`
+/// exports write as `O`; DataVolley's `Z` is a referee call, which only
+/// comes on a reception error. So `Z` on a reception that isn't an error
+/// is overhand.
+fn extended(skill: Skill, text: &str, evaluation: Option<char>) -> Option<[char; 3]> {
+    let overhead = skill == Skill::Reception && evaluation.is_some_and(|e| e != '=');
     let (subtypes, players, specials) = match skill {
         Skill::Attack => ("HPT", "01234", "SOFXNCIZA"),
         Skill::Block => ("AT", "01234", "SOFXNIPZT"),
+        Skill::Reception if overhead => ("LRWOMZ", "123456789", "UXPZE"),
         Skill::Reception => ("LRWOM", "123456789", "UXPZE"),
         Skill::Dig => ("SCBE", "", "UXPZEFO"),
         Skill::Set => ("12345", "", "UIZ"),
@@ -493,7 +501,10 @@ fn extended(skill: Skill, text: &str) -> Option<[char; 3]> {
     };
     let mut p = text.chars().peekable();
     let mut take = |set: &str| p.next_if(|c| set.contains(*c)).unwrap_or('~');
-    let out = [take(subtypes), take(players), take(specials)];
+    let mut out = [take(subtypes), take(players), take(specials)];
+    if overhead && out[0] == 'Z' {
+        out[0] = 'O';
+    }
     p.next().is_none().then_some(out)
 }
 
@@ -1021,6 +1032,53 @@ mod tests {
 
     /// VolleyStation's order (courtside-research/VOLLEYSTATION.md §12): zones
     /// before the evaluation, the extended part after it, no `~`.
+    /// The examples in VolleyStation's help articles (attack, block,
+    /// setting and reception codes), read 2026-10-28.
+    #[test]
+    fn volleystation_help_examples() {
+        let all = |s: &str, before: &str| {
+            let b = touch(before);
+            expand(s, Some(&b), &Defaults::default())
+                .unwrap_or_else(|e| panic!("{s}: {e}"))
+                .codes
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        };
+        let set = "*01EH+";
+        // Attack: zones, subzone; hit, blockers, how it ended.
+        assert_eq!(all("*17AQ36A#", "*01EQ+"), ["*17AQ#~~~36A"]);
+        assert_eq!(all("*07AH48#T3", set), ["*07AH#~~~48~T3"]);
+        assert_eq!(all("*12AT26=H1O", set), ["*12AT=~~~26~H1O"]);
+        // A dot adds the other team's block or dig.
+        assert_eq!(all("a05AT45#.5=", "a03ET+"), ["a05AT#~~~45", "*05BT=~~~2"]);
+        assert_eq!(all("*12AH26-.10D", set), ["*12AH-~~~26", "a10DH+~~~26"]);
+        // Block: assist or attempt, blockers, how it ended.
+        assert_eq!(
+            all("*12AH26/.10B#A2N", set),
+            ["*12AH/~~~26", "a10BH#~~~4~~A2N"]
+        );
+        assert_eq!(
+            all("*12AH26/.10B#T3Z", set),
+            ["*12AH/~~~26", "a10BH#~~~4~~T3Z"]
+        );
+        assert_eq!(
+            all("*12AH26/.10B=1P", set),
+            ["*12AH/~~~26", "a10BH=~~~4~~~1P"]
+        );
+        // Set: call, zone and subzone; the hands; unhittable, net, referee.
+        let pass = "*14RH#";
+        assert_eq!(all("*10K13C+", pass), ["*10EH+K1~~3C"]);
+        assert_eq!(all("*10K13C+2U", pass), ["*10EH+K1~~3C2~U"]);
+        assert_eq!(all("*10K1+5Z", pass), ["*10EH+K1~~~~5~Z"]);
+        // Reception: VolleyStation's Z is overhead, written O as its .dvw
+        // exports do; on a reception error Z stays DataVolley's referee call.
+        let serve = "a07SH-";
+        assert_eq!(all("*02RH+Z", serve), ["*02RH+~~~~~~O"]);
+        assert_eq!(all("*02RH#L3", serve), ["*02RH#~~~~~~L3"]);
+        assert_eq!(all("*02RH=Z", serve), ["*02RH=~~~~~~~~Z"]);
+    }
+
     #[test]
     fn volleystation_order() {
         let d = Defaults {

@@ -233,7 +233,7 @@ fn preview_reads_codes_back() {
     assert!(p.ok);
     assert_eq!(
         p.codes[0].meaning,
-        "Northgate #13 attack, high, perfect, wins the point"
+        "Northgate #13 attack, high, kill, wins the point"
     );
     assert_eq!(p.codes[1].meaning, "Timeout Harbour City");
     let p = session.preview("a13K").expect("preview");

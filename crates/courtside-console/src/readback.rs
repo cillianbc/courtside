@@ -211,6 +211,11 @@ fn inferred_set(
     {
         return None;
     }
+    // DataVolley's P combinations are attacks on the first or second touch
+    // (PP setter dump, P2 second touch, PR first touch): no set before them.
+    if attack.combination().is_some_and(|c| c.starts_with('P')) {
+        return None;
+    }
     let setter = (*setters.get(attack.team))?;
     let shirt = |p: &Player| match p {
         Player::Number(d) => d.value().and_then(|v| u8::try_from(v).ok()),
@@ -319,6 +324,23 @@ fn type_name(c: char) -> Option<&'static str> {
     })
 }
 
+/// The evaluation in words for this skill: where DataVolley's standard
+/// table means something particular (an attack's `/` is blocked, a block's
+/// a net touch), that; otherwise the general word.
+fn evaluation_word(skill: Skill, c: char) -> Option<&'static str> {
+    let particular = match (skill, c) {
+        (Skill::Serve, '#') => "ace",
+        (Skill::Attack, '#') => "kill",
+        (Skill::Attack, '!') => "blocked back for a re-attack",
+        (Skill::Attack, '/') => "blocked",
+        (Skill::Block, '#') => "stuff block",
+        (Skill::Block, '/') => "net touch",
+        (Skill::Dig, '/') => "straight back over",
+        _ => return evaluation_name(c),
+    };
+    Some(particular)
+}
+
 fn evaluation_name(c: char) -> Option<&'static str> {
     Some(match c {
         '#' => "perfect",
@@ -329,6 +351,108 @@ fn evaluation_name(c: char) -> Option<&'static str> {
         '=' => "error",
         _ => return None,
     })
+}
+
+/// The extended part in words: the subtype, number of players and
+/// special, as DataVolley means them (courtside-research/DATAVOLLEY4.md
+/// §3; the names as openvolley's `datavolley` decodes them). An attack's
+/// and a serve's special depend on how it ended.
+fn extras(t: &Touch, e: char) -> Vec<String> {
+    let subtype = t.skill_subtype().and_then(|c| {
+        Some(match (t.skill, c) {
+            (Skill::Attack, 'H') => "hard hit",
+            (Skill::Attack, 'P') => "soft spike",
+            (Skill::Attack, 'T') => "tip",
+            (Skill::Block, 'A') => "assist",
+            (Skill::Block, 'T') => "attempt",
+            (Skill::Block, 'P') => "on a soft spike",
+            (Skill::Reception, 'L') => "on the left",
+            (Skill::Reception, 'R') => "on the right",
+            (Skill::Reception, 'W') => "low",
+            (Skill::Reception, 'O') => "overhand",
+            (Skill::Reception, 'M') => "middle line",
+            (Skill::Set, '1') => "one hand",
+            (Skill::Set, '2') => "two hands",
+            (Skill::Set, '3') => "bump",
+            (Skill::Set, '4') => "other hands",
+            (Skill::Set, '5') => "underhand",
+            (Skill::Dig, 'S') => "on a spike",
+            (Skill::Dig, 'C') => "spike cover",
+            (Skill::Dig, 'B') => "after the block",
+            (Skill::Dig, 'E') => "emergency",
+            (Skill::Dig, 'T') => "on a tip",
+            (Skill::Dig, 'P') => "on a soft spike",
+            _ => return None,
+        })
+    });
+    let players = t.num_players().and_then(|c| {
+        Some(match (t.skill, c) {
+            (Skill::Attack | Skill::Block, '0') => "no block",
+            (Skill::Attack | Skill::Block, '1') => "one blocker",
+            (Skill::Attack | Skill::Block, '2') => "two blockers",
+            (Skill::Attack | Skill::Block, '3') => "three blockers",
+            (Skill::Attack | Skill::Block, '4') => "hole in the block",
+            (Skill::Reception, '1') => "two receiving, the left one",
+            (Skill::Reception, '2') => "two receiving, the right one",
+            (Skill::Reception, '3') => "three receiving, the left one",
+            (Skill::Reception, '4') => "three receiving, the centre one",
+            (Skill::Reception, '5') => "three receiving, the right one",
+            (Skill::Reception, '6') => "four receiving, the left one",
+            (Skill::Reception, '7') => "four receiving, centre-left",
+            (Skill::Reception, '8') => "four receiving, centre-right",
+            (Skill::Reception, '9') => "four receiving, the right one",
+            _ => return None,
+        })
+    });
+    let special = t.special().and_then(|c| {
+        Some(match (t.skill, e, c) {
+            (Skill::Attack, '=', 'S') => "out at the side",
+            (Skill::Attack, '=', 'O') => "out long",
+            (Skill::Attack, '=', 'N') => "in the net",
+            (Skill::Attack, '=', 'I') => "net touch",
+            (Skill::Attack, '=', 'A') => "antenna",
+            (Skill::Attack, '#', 'S') => "off the block, out at the side",
+            (Skill::Attack, '#', 'O') => "off the block, out long",
+            (Skill::Attack, '#', 'F') => "off the block to the floor",
+            (Skill::Attack, '#', 'X') => "straight to the floor",
+            (Skill::Attack, _, 'C') => "block control",
+            (Skill::Attack | Skill::Serve, _, 'N') => "off the net",
+            (Skill::Block, _, 'S') => "out at the side",
+            (Skill::Block, _, 'O') => "out long",
+            (Skill::Block, _, 'F') => "to the floor",
+            (Skill::Block, _, 'X') => "between the hands",
+            (Skill::Block, _, 'N') => "hands and net",
+            (Skill::Block | Skill::Set, _, 'I') => "net touch",
+            (Skill::Block, _, 'A') => "antenna",
+            (Skill::Block, _, 'P') => "no jump",
+            (Skill::Block, _, 'T') => "position error",
+            (Skill::Serve, '=', 'O') => "out long",
+            (Skill::Serve, '=', 'L') => "out left",
+            (Skill::Serve, '=', 'R') => "out right",
+            (Skill::Reception | Skill::Dig | Skill::Freeball, _, 'U') => "unplayable",
+            (Skill::Reception | Skill::Dig | Skill::Freeball, _, 'X') => "body error",
+            (Skill::Reception | Skill::Dig | Skill::Freeball, _, 'P') => "position error",
+            (Skill::Reception | Skill::Dig | Skill::Freeball, _, 'E') => "lack of effort",
+            (Skill::Dig, _, 'F') => "to the floor",
+            (Skill::Dig, _, 'O') => "out",
+            (Skill::Set, _, 'U') => "unhittable",
+            (_, _, 'Z') => "referee call",
+            _ => return None,
+        })
+    });
+    let unknown = |what: &str, c: Option<char>, known: bool| {
+        c.filter(|_| !known).map(|c| format!("{what} {c}?"))
+    };
+    let mut out: Vec<String> = [subtype, players, special]
+        .into_iter()
+        .flatten()
+        .map(str::to_owned)
+        .collect();
+    // A letter with no meaning for this skill is said as typed, so it shows.
+    out.extend(unknown("extra", t.skill_subtype(), subtype.is_some()));
+    out.extend(unknown("extra", t.num_players(), players.is_some()));
+    out.extend(unknown("extra", t.special(), special.is_some()));
+    out
 }
 
 fn touch(t: &Touch, game: &Match, team: &str) -> (String, Option<String>) {
@@ -346,13 +470,14 @@ fn touch(t: &Touch, game: &Match, team: &str) -> (String, Option<String>) {
             Some("Add the evaluation (# + ! - / =).".into()),
         );
     };
-    let Some(name) = evaluation_name(e) else {
+    let Some(name) = evaluation_word(t.skill, e) else {
         return (parts.join(", "), Some(format!("Unknown evaluation {e}.")));
     };
     parts.push(name.into());
     if let Some(c) = t.combination() {
         parts.push(format!("call {c}"));
     }
+    parts.extend(extras(t, e));
     match game.winning_symbols.outcome(t.skill, e) {
         Some(Outcome::Win) => parts.push("wins the point".into()),
         Some(Outcome::Lose) => parts.push("loses the point".into()),
