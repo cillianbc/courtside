@@ -18,7 +18,7 @@ Courtside is a desktop app for coding volleyball matches live or from video. It 
 
 ## Download
 
-**Desktop app (preview).** [Download the latest preview](https://github.com/cillianbc/courtside/releases/tag/app-v0.5.0): a `.dmg` for macOS (Apple silicon, macOS 14 or later) and an installer for Windows 10 and 11, with video playback included and nothing else to install. [Installing](https://courtside-2.gitbook.io/courtside-docs/getting-started/install) covers the one-time security prompt on each system.
+**Desktop app (preview).** [Download the latest preview](https://github.com/cillianbc/courtside/releases/tag/app-v0.5.0): a `.dmg` for macOS (Apple silicon, macOS 15 or later) and an installer for Windows 10 and 11, with video playback included and nothing else to install. [Installing](https://courtside-2.gitbook.io/courtside-docs/getting-started/install) covers the one-time security prompt on each system.
 
 **Command-line tool** (`courtside validate | convert | stats`). It checks `.dvw` and `.vsm` files for errors, converts matches to JSON for R, Python or spreadsheets, and prints match statistics. [Latest release](https://github.com/cillianbc/courtside-cli/releases/latest).
 

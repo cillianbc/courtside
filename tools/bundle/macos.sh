@@ -7,7 +7,7 @@
 #
 # Needs Homebrew's mpv and dylibbundler. The libraries are Homebrew's, so
 # the app runs on the macOS they were built for and later: build releases
-# on the oldest macOS to support (CI uses macos-14).
+# on the oldest macOS to support (CI uses macos-15).
 #
 #   tools/bundle/macos.sh        # → target/release/bundle/dmg/Courtside_<version>_<arch>.dmg
 set -euo pipefail

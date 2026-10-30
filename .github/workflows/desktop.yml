@@ -15,7 +15,7 @@ jobs:
   macos:
     # The bundled libraries are Homebrew's for this macOS, so the app runs
     # on it and later.
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
