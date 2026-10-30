@@ -104,8 +104,7 @@ export function personName(p: PersonView): string {
 /**
  * Team colours a team may pick (v6 T13): each a light and a dark tone that
  * keep 4.5:1 on the panels, and far enough from the error, warning,
- * selection and setter colours (docs/design/reviews/v5-ui-designer.md,
- * "Team-colour picker range"). Contrast on the light / dark panel noted.
+ * selection and setter colours. Contrast on the light / dark panel noted.
  */
 export const TEAM_COLOURS: readonly { key: string; label: string; light: string; dark: string }[] =
   [

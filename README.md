@@ -66,6 +66,10 @@ Design decisions are in [`docs/adr`](docs/adr). The file-format findings, each c
 
 Issues are welcome: [open one](https://github.com/cillianbc/courtside/issues). Match files contain real players' names, so please don't attach them to public issues. Describe the problem, or use [Report a problem](https://courtside-2.gitbook.io/courtside-docs/troubleshooting/reporting-a-problem) in the app, which emails the Courtside team directly.
 
+## Credits
+
+Courtside stands on the work of the [openvolley](https://openvolley.org) project: its `datavolley` R package (MIT) is the reference Courtside's file reading is tested against, and several of Courtside's definitions follow it. What is used and how is in [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md#openvolley).
+
 ## Licence
 
 Courtside is licensed under the [GNU Affero General Public License v3.0 only](LICENSE).

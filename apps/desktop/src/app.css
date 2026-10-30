@@ -1,4 +1,4 @@
-/* Console styles, from the approved layout (docs/mockups/console.html v4).
+/* Console styles, from the approved layout (v4).
    Tailwind supplies the reset and utilities; the console's own classes are
    below. */
 @import "tailwindcss";
@@ -9,7 +9,7 @@
   --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
 }
 
-/* Colour tokens: docs/design/v6-tokens.css, verbatim (light, dark, and the
+/* Colour tokens: the v6 design's, verbatim (light, dark, and the
    boost over each; `data-theme` and `data-boost` on <html>, set by `ui`). */
 :root {
   --bg: #eef2f6;
@@ -408,7 +408,7 @@ body {
 }
 
 /* Work area: one set of panels, placed by the layout (approved mockup,
-   docs/mockups/console.html). Coding: the video over the codes and the
+   the v4 layout). Coding: the video over the codes and the
    team panel, the direction court and checks on the right. Watch: the
    video fills the window beside one narrow column. */
 .work {
@@ -2077,7 +2077,7 @@ label.inline {
   color: var(--err);
 }
 
-/* ===== v6 (docs/design/v6-console.html): marks, log, checks ===== */
+/* ===== v6 design: marks, log, checks ===== */
 svg.mark {
   width: 16px;
   height: 16px;

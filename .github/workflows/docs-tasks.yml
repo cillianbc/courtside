@@ -1,7 +1,7 @@
 name: Docs tasks
 
 # Each `Docs-Update:` / `Docs-New:` trailer in a commit pushed to main
-# opens a docs issue (tools/docs/tasks.sh, convention in CLAUDE.md).
+# opens a docs issue (tools/docs/tasks.sh).
 on:
   push:
     branches: [main]

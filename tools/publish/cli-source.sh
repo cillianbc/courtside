@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Writes the CLI's source (AGPL-3.0-only) into a checkout of the public
 # repo cillianbc/courtside-cli, as one snapshot of this repo's HEAD:
-# the five crates the CLI builds from, LICENSE, a workspace Cargo.toml and
-# the lock file. No history, no corpus, no app code (console, store,
+# the five crates the CLI builds from, LICENSE, the third-party credits, a
+# workspace Cargo.toml and the lock file. No history, no corpus, no app code (console, store,
 # desktop). Run before tagging a CLI release; then commit and push there.
 #
 #   tools/publish/cli-source.sh <path to courtside-cli checkout>
@@ -19,8 +19,8 @@ if [ -n "$(git -C "$root" status --porcelain -- crates LICENSE Cargo.toml Cargo.
 fi
 
 # Replace what a previous snapshot wrote; the README is the public repo's own.
-rm -rf "$dest/crates" "$dest/Cargo.toml" "$dest/Cargo.lock" "$dest/LICENSE"
-paths=(LICENSE Cargo.lock)
+rm -rf "$dest/crates" "$dest/Cargo.toml" "$dest/Cargo.lock" "$dest/LICENSE" "$dest/docs"
+paths=(LICENSE Cargo.lock docs/THIRD-PARTY.md)
 for c in "${crates[@]}"; do paths+=("crates/$c"); done
 git -C "$root" archive HEAD "${paths[@]}" | tar -x -C "$dest"
 

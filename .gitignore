@@ -3,7 +3,7 @@
 *.snap.new
 .DS_Store
 
-# Source of docs/PRD.md; the Markdown is canonical
+# Word exports of the product notes
 /*.docx
 
 # Private corpus. Becomes a submodule; until then never commit match files.
@@ -14,3 +14,17 @@
 /apps/desktop/src-tauri/libmpv/
 # Notes kept outside this repo stay local.
 /docs/research/
+
+# Working docs kept out of the public repo (copy in the private
+# cillianbc/courtside-research, courtside-internal/)
+/CLAUDE.md
+/CONTEXT.md
+/docs/PRD.md
+/docs/PROGRESS.md
+/docs/CORPUS.md
+/docs/agents/
+/docs/design/
+/docs/mockups/
+/docs/media/
+/.serena/
+/n16bi8yx3Px1Dsefmddm3TlFpVSuCf5UJg.png

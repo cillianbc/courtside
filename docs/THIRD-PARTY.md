@@ -20,6 +20,33 @@ For three years from the release of any Courtside installer, the Courtside proje
 
 The Rust crates and JavaScript packages Courtside is built from are under permissive licences (MIT, Apache-2.0, BSD and similar) or the MPL-2.0. They're listed in `Cargo.lock` and `apps/desktop/pnpm-lock.yaml`. The fonts (IBM Plex, Barlow Condensed) are under the SIL Open Font License.
 
-## Reference: openvolley
+## openvolley
 
-Courtside checks its reading of `.dvw` files against [openvolley](https://github.com/openvolley)'s `datavolley` R package (MIT), which isn't part of the app; the tests run it in Docker (`tools/parity`). The volleymetrics and German evaluation meanings follow its `skill_evaluation_decoder`, and the read-back's names for a code's extras follow its `plays.R`.
+Courtside is built on what the [openvolley](https://openvolley.org) project worked out about DataVolley files, and checks itself against its tools. Thank you to its authors. None of openvolley's code is in the app or its installers; where Courtside follows openvolley, it says so in the code.
+
+| Project | Licence | How Courtside uses it |
+|---|---|---|
+| [`datavolley`](https://github.com/openvolley/datavolley) (R), © the datavolley package authors (Ben Raymond, Adrien Ickowicz, Tyler Widdison and contributors) | MIT | **The oracle.** `tools/parity` runs it in Docker (`dv_read`, `dv_validate`) and the parity tests compare Courtside's reading of every corpus file with it. **Definitions followed:** the meaning of the `.dvw` columns (`R/meta.R`, `read_main` in `R/plays.R`), the names of a code's extras in the read-back (`R/plays.R`), the volleymetrics and German evaluation meanings (`skill_evaluation_decoder`), court grid positions and zones (`dv_index2xy`), and the plays layout of `courtside convert --to json`. Validator checks modelled on `dv_validate` are marked in `vb-engine/src/validate.rs`. |
+| [`fivbvis`](https://github.com/openvolley/fivbvis) (R), © openvolley | MIT | Read alongside FIVB's VIS SDK documentation to build the VIS requests in `crates/vb-vis`. |
+
+openvolley's licence asks that its copyright notice and permission notice go with copies or substantial portions of its software. Courtside copies no openvolley code; the tables it follows (evaluation meanings, column names, grid values) are credited here and at each place in the source. The MIT licence:
+
+```
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
