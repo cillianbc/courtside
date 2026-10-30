@@ -233,10 +233,10 @@ mod surface {
         CGLPixelFormatAttribute, CGLPixelFormatObj, CGLReleaseContext, CGLReleasePixelFormat,
         CGLRetainContext, CGLRetainPixelFormat, CGLSetCurrentContext, CGLUnlockContext,
     };
-    use objc2_quartz_core::{CALayer, CAOpenGLLayer};
+    use objc2_quartz_core::{CALayer, CAOpenGLLayer, CATransaction};
     use std::ffi::{c_char, c_void};
     use std::ptr::{NonNull, null_mut};
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
 
     unsafe extern "C" {
@@ -246,6 +246,8 @@ mod surface {
     }
     const GL_VIEWPORT: u32 = 0x0BA2;
     const GL_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
+    /// Redraws after a draw into a framebuffer of the wrong size.
+    const BEHIND_RETRIES: u32 = 30;
     /// `RTLD_DEFAULT` on macOS: search every image loaded.
     const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
 
@@ -259,6 +261,9 @@ mod surface {
         dirty: AtomicBool,
         /// The last layer size noted as differing from the GL viewport.
         noted: AtomicU64,
+        /// Draws in a row where Core Animation's framebuffer wasn't the
+        /// layer's size yet.
+        behind: AtomicU32,
         /// mpv's render context, while a player is attached.
         mpv: Mutex<Option<NonNull<mpv::mpv_render_context>>>,
     }
@@ -336,6 +341,7 @@ mod surface {
                 cgl,
                 dirty: AtomicBool::new(true),
                 noted: AtomicU64::new(0),
+                behind: AtomicU32::new(0),
                 mpv: Mutex::new(None),
             })
         }
@@ -405,8 +411,11 @@ mod surface {
                 glGetIntegerv(GL_FRAMEBUFFER_BINDING, &raw mut fbo);
                 glGetIntegerv(GL_VIEWPORT, viewport.as_mut_ptr());
             }
+            // Core Animation rounds the framebuffer a pixel off the layer's
+            // size at times (2153 for 2154): that is the same size.
             let (w, h) = size
                 .filter(|&(w, h)| w > 0 && h > 0)
+                .filter(|&(w, h)| (w - viewport[2]).abs() > 2 || (h - viewport[3]).abs() > 2)
                 .unwrap_or((viewport[2], viewport[3]));
             if (w, h) != (viewport[2], viewport[3]) {
                 // Noted once per size, so the log shows when it happens.
@@ -420,6 +429,16 @@ mod surface {
                 }
                 // SAFETY: a plain GL call on the current context.
                 unsafe { glViewport(0, 0, w, h) };
+                // The framebuffer is from before a resize (switching
+                // layouts): this frame is drawn at the wrong scale, and a
+                // paused video sends no new frame to fix it. Draw again on
+                // the next refreshes, by when Core Animation has caught up;
+                // a lasting difference (seen 2026-10-22) stops after a few.
+                if self.behind.fetch_add(1, Ordering::Relaxed) < BEHIND_RETRIES {
+                    self.dirty.store(true, Ordering::Release);
+                }
+            } else {
+                self.behind.store(0, Ordering::Relaxed);
             }
             let mut target = mpv::mpv_opengl_fbo {
                 fbo,
@@ -652,11 +671,17 @@ mod surface {
             let Some(content) = (unsafe { self.view.superview() }) else {
                 return Ok(());
             };
+            // A hosted layer animates its size by default, showing the old
+            // frame stretched while it does: changes take effect at once.
+            CATransaction::begin();
+            CATransaction::setDisableActions(true);
             self.view.setFrame(frame(&self.webview, &content, bounds));
             self.view.setHidden(!visible);
             if let Some(scale) = self.view.window().map(|w| w.backingScaleFactor()) {
                 self.layer.setContentsScale(scale);
             }
+            CATransaction::commit();
+            self.render.behind.store(0, Ordering::Relaxed);
             self.render.dirty.store(true, Ordering::Release);
             // An asynchronous layer keeps its framebuffer at the old size
             // until it's told to redisplay.

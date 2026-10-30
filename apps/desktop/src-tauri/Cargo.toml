@@ -46,7 +46,7 @@ objc2-core-foundation = { version = "0.3", features = ["CFDate"] }
 objc2-core-video = { version = "0.3", features = ["CVBase"] }
 objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
 objc2-open-gl = { version = "0.3", features = ["CGLTypes", "CGLCurrent"] }
-objc2-quartz-core = { version = "0.3", features = ["CALayer", "CAOpenGLLayer", "CAMediaTiming", "objc2-open-gl", "objc2-core-video", "objc2-core-foundation"] }
+objc2-quartz-core = { version = "0.3", features = ["CALayer", "CAOpenGLLayer", "CATransaction", "CAMediaTiming", "objc2-open-gl", "objc2-core-video", "objc2-core-foundation"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
