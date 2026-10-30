@@ -8,7 +8,7 @@ export interface Hint {
 }
 
 export const IDLE =
-  "Enter adds the code · Esc clears · shorthand like a10 or 5S.a12# is filled in · several codes per line";
+  "Enter adds the code · Esc clears · shorthand like a10 or 7S.a14# is filled in · several codes per line";
 
 export function hintFor(line: string, preview: Preview | null): Hint {
   if (!line.trim()) return { text: IDLE, bad: false };

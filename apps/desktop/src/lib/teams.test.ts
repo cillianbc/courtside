@@ -20,7 +20,7 @@ const p = (number: number, lastName: string, firstName = "", code = "") => ({
 
 describe("player codes", () => {
   it("matches the season's rule", () => {
-    expect(suggestCode("Smith", "John", 4)).toBe("SMI-JOH");
+    expect(suggestCode("Ardent", "Jonah", 4)).toBe("ARD-JON");
     expect(suggestCode("Ó Sé", "", 7)).toBe("ÓSÉ");
     expect(suggestCode("", "", 12)).toBe("P12");
   });

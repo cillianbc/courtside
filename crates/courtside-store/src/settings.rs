@@ -174,7 +174,7 @@ impl Default for Tables {
             lose: lose.into(),
             win: win.into(),
         };
-        // Winning symbols as DataVolley ships them (every corpus file).
+        // Winning symbols as DataVolley files write them.
         let winning = vec![
             w('S', "=", "#"),
             w('R', "=", ""),
@@ -214,7 +214,7 @@ impl Default for Tables {
                 4,
                 'O',
                 "",
-                "Attacked straight off the first ball (an overpass)",
+                "First-touch attack, e.g. on a ball sent over",
             ),
         ];
         let k = |code: &str, description: &str| SetterCall {

@@ -198,7 +198,7 @@ const letters = (s: string) =>
 
 /**
  * The code the season will give a player saved without one (before it
- * adds `-2`, `-3`… for codes already taken): `SMI-JOH`.
+ * adds `-2`, `-3`… for codes already taken): `ARD-JON`.
  */
 export function suggestCode(last: string, first: string, number: number): string {
   const l = letters(last);

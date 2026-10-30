@@ -211,7 +211,7 @@ impl Team {
 }
 
 /// The code a player gets when none is entered: the first three letters
-/// of the last and first names (`SMI-JOH`), then `-2`, `-3`… if taken.
+/// of the last and first names (`ARD-JON`), then `-2`, `-3`… if taken.
 pub fn suggest_player_code(last: &str, first: &str, number: u8, taken: &HashSet<String>) -> String {
     let part = |s: &str| -> String {
         s.chars()
@@ -1062,11 +1062,11 @@ mod tests {
     #[test]
     fn player_codes() {
         let mut taken = HashSet::new();
-        assert_eq!(suggest_player_code("Smith", "John", 4, &taken), "SMI-JOH");
-        taken.insert("SMI-JOH".to_owned());
+        assert_eq!(suggest_player_code("Ardent", "Jonah", 4, &taken), "ARD-JON");
+        taken.insert("ARD-JON".to_owned());
         assert_eq!(
-            suggest_player_code("Smith", "Johanna", 5, &taken),
-            "SMI-JOH-2"
+            suggest_player_code("Ardent", "Jona", 5, &taken),
+            "ARD-JON-2"
         );
         assert_eq!(suggest_player_code("Ó Sé", "", 7, &taken), "ÓSÉ");
         assert_eq!(suggest_player_code("", "", 12, &taken), "P12");
