@@ -31,7 +31,9 @@ src, out, crates = sys.argv[1], sys.argv[2], sys.argv[3:]
 s = open(src).read()
 members = "members = [\n" + "".join(f'    "crates/{c}",\n' for c in crates) + "]"
 s = re.sub(r"members = \[.*?\]", members, s, count=1, flags=re.S)
-s = re.sub(r"^courtside-(store|console) = \{ path = .*\n", "", s, flags=re.M)
+# Path dependencies on crates outside the snapshot (the app's) go.
+s = re.sub(r'^([\w-]+) = \{ path = "crates/([\w-]+)" \}\n',
+           lambda m: m.group(0) if m.group(2) in crates else "", s, flags=re.M)
 head = "# The courtside CLI's source, published from the app's private repository.\n\n"
 open(out, "w").write(head + s)
 PY
