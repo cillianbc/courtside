@@ -354,8 +354,8 @@ fn evaluation_name(c: char) -> Option<&'static str> {
 }
 
 /// The extended part in words: the subtype, number of players and
-/// special, as DataVolley means them (courtside-research/DATAVOLLEY4.md
-/// §3; the names as openvolley's `datavolley` decodes them). An attack's
+/// special, with the meanings openvolley's `datavolley` reader gives them
+/// (`R/plays.R`). An attack's
 /// and a serve's special depend on how it ended.
 fn extras(t: &Touch, e: char) -> Vec<String> {
     let subtype = t.skill_subtype().and_then(|c| {

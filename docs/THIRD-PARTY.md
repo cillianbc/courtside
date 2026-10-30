@@ -19,3 +19,7 @@ For three years from the release of any Courtside installer, the Courtside proje
 ## Courtside's own dependencies
 
 The Rust crates and JavaScript packages Courtside is built from are under permissive licences (MIT, Apache-2.0, BSD and similar) or the MPL-2.0. They're listed in `Cargo.lock` and `apps/desktop/pnpm-lock.yaml`. The fonts (IBM Plex, Barlow Condensed) are under the SIL Open Font License.
+
+## Reference: openvolley
+
+Courtside checks its reading of `.dvw` files against [openvolley](https://github.com/openvolley)'s `datavolley` R package (MIT), which isn't part of the app; the tests run it in Docker (`tools/parity`). The volleymetrics and German evaluation meanings follow its `skill_evaluation_decoder`, and the read-back's names for a code's extras follow its `plays.R`.

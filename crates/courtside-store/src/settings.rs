@@ -207,9 +207,15 @@ impl Default for Tables {
             c("V8", 1, 'H', "B", "High set to zone 1"),
             c("VP", 8, 'H', "P", "High pipe"),
             c("V3", 3, 'H', "C", "High set to zone 3"),
-            c("PP", 3, 'O', "S", "Setter dump"),
-            c("P2", 3, 'O', "", "Attack on the second touch"),
-            c("PR", 4, 'O', "", "Attack on the first touch"),
+            c("PP", 3, 'O', "S", "The setter attacks the second ball"),
+            c("P2", 3, 'O', "", "Another player attacks the second ball"),
+            c(
+                "PR",
+                4,
+                'O',
+                "",
+                "Attacked straight off the first ball (an overpass)",
+            ),
         ];
         let k = |code: &str, description: &str| SetterCall {
             code: code.into(),

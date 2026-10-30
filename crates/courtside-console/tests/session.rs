@@ -313,7 +313,7 @@ fn a_substitute_setter_sets() {
     assert_eq!(codes, ["*03RH-", "*07EQ+", "*08AQ#"]);
 }
 
-/// VolleyStation's shorthand (courtside-research/VOLLEYSTATION.md §12): a call
+/// VolleyStation's shorthand (as its public help articles describe it): a call
 /// with no player is the setter's set, the set's target comes from the
 /// attack's combination (the made-up table: X5 → C, X6 → B), and the
 /// extended part goes after the evaluation without `~`.

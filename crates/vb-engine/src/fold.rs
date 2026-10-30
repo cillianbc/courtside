@@ -314,7 +314,7 @@ pub fn fold_events(m: &Match, events: &[&MatchEvent]) -> Folded {
             let won = t
                 .evaluation()
                 .and_then(|e| evaluations.meaning(Skill::Attack, e))
-                == Some("Winning attack");
+                == Some("Kill");
             let next_error = events.get(i + 1).and_then(|e| e.code()).is_some_and(|c| {
                 matches!(c, Code::Touch(n)
                     if matches!(n.skill, Skill::Dig | Skill::Block)
