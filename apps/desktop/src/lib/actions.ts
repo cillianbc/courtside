@@ -49,6 +49,7 @@ function rotate(side: Side) {
 function stepCode(by: 1 | -1): boolean {
   const snap = ui.snapshot;
   if (!snap) return false;
+  if (ui.followedShown && ui.followed.length) return stepIds(ui.followed, by);
   if (ui.finding && ui.found.length) return stepFound(by);
   const touches = snap.groups.flatMap((g) => g.rows).filter((r) => r.kind === "touch");
   if (!touches.length) return false;
@@ -67,10 +68,15 @@ function stepCode(by: 1 | -1): boolean {
 
 /** Picks the search's next or previous match (#25) and shows it in the video. */
 export function stepFound(by: 1 | -1): boolean {
+  return stepIds(ui.found, by);
+}
+
+/** Picks the next or previous of `ids` (in match order) from the picked code. */
+function stepIds(ids: string[], by: 1 | -1): boolean {
   const snap = ui.snapshot;
   if (!snap) return false;
   const order = snap.groups.flatMap((g) => g.rows).map((r) => r.id);
-  const id = stepMatch(ui.found, order, ui.selected, by);
+  const id = stepMatch(ids, order, ui.selected, by);
   if (id === null) return false;
   pickCode(snap, id);
   return true;
@@ -136,6 +142,10 @@ export function run(action: string): boolean {
       return true;
     case "find":
       ui.openFind();
+      return true;
+    case "replace":
+      ui.openFind();
+      ui.replacing = true;
       return true;
     case "modifyPicked":
     case "insertBeforePicked":

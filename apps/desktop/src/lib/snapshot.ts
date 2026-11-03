@@ -204,6 +204,7 @@ export interface ClipFilter {
 /** Find and replace in the code log (#25, `rules.rs`). */
 export type Rule =
   | { kind: "replace"; with: string }
+  | { kind: "rating"; evaluation: string }
   | { kind: "add"; code: string; place: "before" | "after"; team: "same" | "other" };
 
 /** What a rule does to one code found. */
@@ -215,6 +216,19 @@ export interface RuleChange {
   result: string[];
   /** Why the rule leaves this code alone. */
   error: string | null;
+  /** Left out by the scout (unticked). */
+  left: boolean;
+  /** Other codes that changed with it, as a hand edit changes them. */
+  followed: Followed[];
+}
+
+/** A code the search didn't find that changed with one it did. */
+export interface Followed {
+  /** Its event id now; null when it was taken out. */
+  id: string | null;
+  before: string | null;
+  after: string | null;
+  kind: "paired" | "point" | "green" | "rotation" | "other";
 }
 
 export interface Clip {

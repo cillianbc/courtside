@@ -2117,6 +2117,18 @@ svg.mark {
   color: var(--muted);
   border: 1px solid var(--edge);
 }
+.tag.followed {
+  background: var(--info-soft);
+  color: var(--info);
+  border: 1px solid var(--info);
+}
+.row.followed:not(.picked) {
+  background: var(--info-soft);
+}
+.hint-act {
+  margin-left: 6px;
+  font-size: 13px;
+}
 .tag.edited {
   background: var(--panel);
   color: var(--accent);
@@ -2382,10 +2394,33 @@ button.flag {
   overflow-y: auto;
   font-size: 12px;
 }
+.replace-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 6px;
+}
+.replace-list li.left {
+  opacity: 0.6;
+}
+.replace-follow {
+  color: var(--info);
+}
+.replace-list .replace-follow {
+  padding-left: 24px;
+  flex-basis: 100%;
+}
+.replace-note.grow {
+  flex: 1;
+}
+.replace-row select.mono {
+  font-family: var(--mono);
+}
 .replace-list button {
   display: flex;
   gap: 6px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 1px 4px;
   background: none;
   border: 0;

@@ -5,6 +5,8 @@ import type { Preview } from "./snapshot";
 export interface Hint {
   text: string;
   bad: boolean;
+  /** A link after the text, e.g. Show after a find and replace. */
+  action?: { label: string; run: () => void };
 }
 
 export const IDLE =

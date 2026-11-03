@@ -1993,7 +1993,7 @@ fn a_set_is_marked_where_it_was() {
 /// previewed first, undone as one.
 #[test]
 fn find_and_replace_changes_every_code_found() {
-    use courtside_console::rules::{Place, RuleTeam};
+    use courtside_console::rules::{FollowKind, Place, RuleTeam};
     use courtside_console::{ClipFilter, Rule};
     let (mut session, _dir) = opened();
     let start = texts(&session.snapshot().expect("snapshot"));
@@ -2004,7 +2004,7 @@ fn find_and_replace_changes_every_code_found() {
     let replace = Rule::Replace { with: "a15".into() };
 
     let preview = session
-        .preview_rule(&by_text("a12"), &replace)
+        .preview_rule(&by_text("a12"), &replace, &[])
         .expect("preview");
     let results: Vec<_> = preview
         .iter()
@@ -2020,8 +2020,8 @@ fn find_and_replace_changes_every_code_found() {
     // A dry run: nothing changed, nothing to undo.
     assert_eq!(texts(&session.snapshot().expect("snapshot")), start);
 
-    let snap = session
-        .apply_rule(&by_text("a12"), &replace, None)
+    let (snap, _) = session
+        .apply_rule(&by_text("a12"), &replace, &[], None)
         .expect("apply");
     let t = texts(&snap);
     assert!(t.contains(&"a15RM+".to_string()) && t.contains(&"a15SM=".to_string()));
@@ -2038,12 +2038,12 @@ fn find_and_replace_changes_every_code_found() {
         place: Place::After,
         team: RuleTeam::Other,
     };
-    let preview = session.preview_rule(&kill, &add).expect("preview");
+    let preview = session.preview_rule(&kill, &add, &[]).expect("preview");
     assert_eq!(preview.len(), 1);
     assert_eq!(preview[0].error, None);
     let dig = preview[0].result[0].clone();
     assert!(dig.starts_with("*$$D"), "{dig}");
-    let t = texts(&session.apply_rule(&kill, &add, None).expect("apply"));
+    let t = texts(&session.apply_rule(&kill, &add, &[], None).expect("apply").0);
     let at = t.iter().position(|c| c == "a13AH#").expect("kill");
     assert_eq!(t[at + 1], dig);
     session.undo().expect("undo");
@@ -2055,16 +2055,64 @@ fn find_and_replace_changes_every_code_found() {
         place: Place::After,
         team: RuleTeam::Same,
     };
-    assert!(session.preview_rule(&kill, &typed_team).is_err());
+    assert!(session.preview_rule(&kill, &typed_team, &[]).is_err());
     let last = session
-        .preview_rule(&by_text("*02SH+"), &add)
+        .preview_rule(&by_text("*02SH+"), &add, &[])
         .expect("preview");
     assert!(last[0].error.is_some());
-    assert!(session.apply_rule(&by_text("*02SH+"), &add, None).is_err());
+    assert!(
+        session
+            .apply_rule(&by_text("*02SH+"), &add, &[], None)
+            .is_err()
+    );
+    // Codes left out (unticked) stay as they are.
+    let first = preview_ids(&mut session, &by_text("a12"), &replace);
+    let (snap, changes) = session
+        .apply_rule(&by_text("a12"), &replace, &first[..1], None)
+        .expect("apply the rest");
+    assert!(changes[0].left);
+    let t = texts(&snap);
+    assert!(t.contains(&"a12RM+".to_string()) && t.contains(&"a15SM=".to_string()));
+    session.undo().expect("undo");
+
+    // A serve re-rated: the reception after it follows, and says so.
+    let serves = ClipFilter {
+        skill: Some('S'),
+        team: Some(Side::Home),
+        ..ClipFilter::default()
+    };
+    let rating = Rule::Rating { evaluation: '+' };
+    let preview = session
+        .preview_rule(&serves, &rating, &[])
+        .expect("preview");
+    let serve = preview.iter().find(|c| c.code == "*01SM-").expect("serve");
+    assert_eq!(serve.result, ["*01SM+"]);
+    let follows: Vec<_> = serve
+        .followed
+        .iter()
+        .map(|f| (f.kind, f.before.clone(), f.after.is_some()))
+        .collect();
+    assert_eq!(
+        follows,
+        [
+            (FollowKind::Paired, Some("a12RM+".to_string()), true),
+            // The edited rally gets its green code for the kill, too.
+            (FollowKind::Green, None, true),
+        ],
+        "{:?}",
+        serve.followed
+    );
+    // Point codes are the console's: Replace leaves them alone.
+    let points = session
+        .preview_rule(&by_text("p01"), &Rule::Replace { with: "p02".into() }, &[])
+        .expect("preview");
+    assert!(points.iter().all(|c| c.error.is_some()), "{points:?}");
+    assert_eq!(texts(&session.snapshot().expect("snapshot")), start);
+
     // Replace needs the text it replaces.
     assert!(
         session
-            .apply_rule(&ClipFilter::default(), &replace, None)
+            .apply_rule(&ClipFilter::default(), &replace, &[], None)
             .is_err()
     );
     assert_eq!(texts(&session.snapshot().expect("snapshot")), start);
@@ -2170,4 +2218,17 @@ fn a_sets_liberos_are_chosen_with_its_six() {
     };
     assert_eq!(special(16).as_deref(), Some("L"));
     assert_eq!(special(17).as_deref(), Some("L"));
+}
+
+fn preview_ids(
+    session: &mut Session,
+    filter: &courtside_console::ClipFilter,
+    rule: &courtside_console::Rule,
+) -> Vec<String> {
+    session
+        .preview_rule(filter, rule, &[])
+        .expect("preview")
+        .into_iter()
+        .map(|c| c.id)
+        .collect()
 }

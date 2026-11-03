@@ -152,6 +152,7 @@
     if (ui.finding) findInput?.focus();
   });
   const foundSet = $derived(new Set(ui.found));
+  const followedSet = $derived(new Set(ui.followedShown ? ui.followed : []));
   const asked = $derived(!!ui.findFilter.text || hasFields(ui.findFilter));
   const foundAt = $derived(ui.selected ? ui.found.indexOf(ui.selected) : -1);
   function hits(g: Group): number {
@@ -253,7 +254,7 @@
         type="text"
         spellcheck="false"
         autocomplete="off"
-        placeholder="Find: D=, a12, *T"
+        placeholder="Find: DT=, a12, *T"
         aria-label="Code text to find"
         title="Codes containing this text, as written. Enter: next, Shift+Enter: previous, Esc: close."
         onkeydown={findKey}
@@ -389,6 +390,7 @@
               }}
               class:picked={ui.selected === r.id}
               class:found={ui.finding && foundSet.has(r.id)}
+              class:followed={followedSet.has(r.id)}
               class="row"
               class:home={r.team === "home"}
               class:away={r.team === "visiting"}
@@ -402,6 +404,9 @@
               <code>{r.text}</code>
               <span class="meaning"
                 >{#if r.auto}<span class="tag auto" title="Written by the console">added</span
+                  >{/if}{#if followedSet.has(r.id)}<span
+                    class="tag followed"
+                    title="Changed with a code the last find and replace changed">followed</span
                   >{/if}{#if r.edited}<span class="tag edited">edited</span>{/if}{r.meaning}</span
               >
               <span class="flags">

@@ -534,19 +534,33 @@ fn rule_preview(
     state: State<'_, Shared>,
     filter: ClipFilter,
     rule: Rule,
+    leave: Vec<String>,
 ) -> Reply<Vec<RuleChange>> {
-    with(&state, |s| s.preview_rule(&filter, &rule))
+    with(&state, |s| s.preview_rule(&filter, &rule, &leave))
 }
 
-/// Applies a find-and-replace rule to every code `filter` finds.
+/// A find-and-replace rule applied: the match, and what happened to each
+/// code found.
+#[derive(serde::Serialize)]
+struct RuleApplied {
+    snapshot: Snapshot,
+    changes: Vec<RuleChange>,
+}
+
+/// Applies a find-and-replace rule to every code `filter` finds, except
+/// the ones in `leave`.
 #[tauri::command]
 fn rule_apply(
     state: State<'_, Shared>,
     filter: ClipFilter,
     rule: Rule,
+    leave: Vec<String>,
     clock: Option<[u8; 3]>,
-) -> Reply<Snapshot> {
-    with(&state, |s| s.apply_rule(&filter, &rule, clock_time(clock)))
+) -> Reply<RuleApplied> {
+    with(&state, |s| {
+        s.apply_rule(&filter, &rule, &leave, clock_time(clock))
+            .map(|(snapshot, changes)| RuleApplied { snapshot, changes })
+    })
 }
 
 /// Enters a team's six for the set in progress: `team` is `"home"` or

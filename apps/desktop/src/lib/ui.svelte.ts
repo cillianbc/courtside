@@ -102,6 +102,12 @@ class Ui {
   /** The search's Replace row is open (find and replace). */
   replacing = $state(false);
   /**
+   * Codes the last find and replace changed besides the ones it found, by
+   * event id; tinted in the log while `followedShown`, until the next change.
+   */
+  followed = $state<string[]>([]);
+  followedShown = $state(false);
+  /**
    * Clips' filter, Checked ticks and Whole rallies, kept while the panel is
    * closed, for the match `matchId` (another match starts afresh).
    */
@@ -150,8 +156,11 @@ class Ui {
    * earlier code, so the log keeps the set and place shown.
    */
   async apply(what: string, change: () => Promise<Snapshot>, inPlace = false): Promise<boolean> {
-    // Any change cancels a point waiting for its second click.
+    // Any change cancels a point waiting for its second click, and ends
+    // the last find and replace's tint.
     this.pointPending = null;
+    this.followed = [];
+    this.followedShown = false;
     try {
       const before = this.snapshot;
       const next = await change();

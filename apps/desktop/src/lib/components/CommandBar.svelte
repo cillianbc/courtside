@@ -243,5 +243,10 @@
     </div>
     {@render point(ui.order[1] ?? "visiting", false)}
   </div>
-  <output class="hint" id="hint" title={hint.text}>{hint.text}</output>
+  <output class="hint" id="hint" title={hint.text}
+    >{hint.text}{#if hint.action}
+      {@const act = hint.action}<button class="link hint-act" type="button" onclick={act.run}
+        >{act.label}</button
+      >{/if}</output
+  >
 </section>

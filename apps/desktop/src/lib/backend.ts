@@ -205,15 +205,26 @@ export async function findCodes(filter: ClipFilter): Promise<string[]> {
 }
 
 /** What `rule` would do to each code `filter` finds; nothing changes. */
-export async function previewRule(filter: ClipFilter, rule: Rule): Promise<RuleChange[]> {
+export async function previewRule(
+  filter: ClipFilter,
+  rule: Rule,
+  leave: string[],
+): Promise<RuleChange[]> {
   if (!inTauri) return [];
-  return invoke<RuleChange[]>("rule_preview", { filter, rule });
+  return invoke<RuleChange[]>("rule_preview", { filter, rule, leave });
 }
 
-/** Applies `rule` to every code `filter` finds; one undo takes it back. */
-export async function applyRule(filter: ClipFilter, rule: Rule): Promise<Snapshot> {
+/**
+ * Applies `rule` to every code `filter` finds but those in `leave`; one
+ * undo takes it back. Also says what happened to each code found.
+ */
+export async function applyRule(
+  filter: ClipFilter,
+  rule: Rule,
+  leave: string[],
+): Promise<{ snapshot: Snapshot; changes: RuleChange[] }> {
   if (!inTauri) throw new Error("Find and replace needs the desktop app.");
-  return invoke<Snapshot>("rule_apply", { filter, rule, clock: clock() });
+  return invoke("rule_apply", { filter, rule, leave, clock: clock() });
 }
 
 /**

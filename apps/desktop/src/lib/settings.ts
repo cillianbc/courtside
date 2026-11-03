@@ -101,6 +101,7 @@ export const ACTIONS: readonly { id: string; label: string; keys: string }[] = [
   // Search the code log (#25); while a search is on, the previous/next
   // play keys step through what it found.
   { id: "find", label: "Search the codes", keys: "Mod+F" },
+  { id: "replace", label: "Find and replace", keys: "Mod+Alt+F" },
   // Video transport. Alt so they work while typing a code.
   { id: "videoPlay", label: "Video: play or pause", keys: "Alt+K" },
   { id: "videoBack", label: "Video: back 5 seconds", keys: "Alt+J" },

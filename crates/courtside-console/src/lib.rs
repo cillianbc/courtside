@@ -664,12 +664,56 @@ fn event_id(id: &str) -> Result<EventId> {
 }
 
 impl Current {
+    /// The codes the console wrote, corrected or took out since the visible
+    /// events were `shown`: what followed a change the scout made.
+    fn followed_since(&self, shown: &[EventId]) -> Vec<rules::Followed> {
+        let visible = self.game.log.visible();
+        let text = |e: &MatchEvent| e.code().map(Code::to_string);
+        let mut replaced = Vec::new();
+        let mut out = Vec::new();
+        for e in &visible {
+            if shown.contains(&e.id) {
+                continue;
+            }
+            replaced.extend(e.supersedes);
+            if e.producer != Producer::Repair {
+                continue;
+            }
+            let Some(code) = e.code() else { continue };
+            out.push(rules::Followed {
+                id: Some(e.id.0.to_string()),
+                before: e
+                    .supersedes
+                    .and_then(|old| self.game.log.get(old))
+                    .and_then(text),
+                after: Some(code.to_string()),
+                kind: rules::FollowKind::of(code),
+            });
+        }
+        for id in shown {
+            if visible.iter().any(|e| e.id == *id) || replaced.contains(id) {
+                continue;
+            }
+            let Some(code) = self.game.log.get(*id).and_then(|e| e.code()) else {
+                continue;
+            };
+            out.push(rules::Followed {
+                id: None,
+                before: Some(code.to_string()),
+                after: None,
+                kind: rules::FollowKind::of(code),
+            });
+        }
+        out
+    }
+
     /// [`Session::apply_rule`] without saving: what happened to each code
     /// found.
     fn run_rule(
         &mut self,
         filter: &ClipFilter,
         rule: &Rule,
+        leave: &[String],
         clock: Option<ClockTime>,
     ) -> Result<Vec<RuleChange>> {
         match rule {
@@ -692,7 +736,10 @@ impl Current {
                     ));
                 }
             }
-            Rule::Replace { .. } => {}
+            Rule::Rating { evaluation } if !"#+!-/=".contains(*evaluation) => {
+                return Err(Error::BadCode(format!("{evaluation} isn't a rating.")));
+            }
+            Rule::Replace { .. } | Rule::Rating { .. } => {}
         }
         let mut out = Vec::new();
         for id in clips::find(&self.game, filter) {
@@ -710,8 +757,49 @@ impl Current {
                 continue;
             };
             let next = visible.get(pos + 1).map(|e| e.id);
+            let shown: Vec<EventId> = visible.iter().map(|e| e.id).collect();
             let text = code.to_string();
+            if leave.contains(&id) {
+                out.push(RuleChange {
+                    id,
+                    code: text,
+                    result: Vec::new(),
+                    error: None,
+                    left: true,
+                    followed: Vec::new(),
+                });
+                continue;
+            }
+            let console = || {
+                Err(Error::BadCode(
+                    "Courtside writes these: it follows the rally.".into(),
+                ))
+            };
             let done = match rule {
+                Rule::Replace { .. } | Rule::Rating { .. }
+                    if matches!(code, Code::Point { .. } | Code::SetEnd { .. }) =>
+                {
+                    console()
+                }
+                Rule::Rating { evaluation } => match &code {
+                    Code::Touch(t) if t.skill == Skill::Green => console(),
+                    Code::Touch(t) if t.evaluation() == Some(*evaluation) => continue,
+                    Code::Touch(t) => {
+                        let new = Code::Touch(t.clone().with_evaluation(*evaluation)).to_string();
+                        self.correct(now, &new, clock).map(|()| {
+                            self.game
+                                .log
+                                .visible()
+                                .get(pos)
+                                .and_then(|e| e.code())
+                                .map(|c| vec![c.to_string()])
+                                .unwrap_or_default()
+                        })
+                    }
+                    _ => Err(Error::BadCode(
+                        "Not a touch: only touches have a rating.".into(),
+                    )),
+                },
                 Rule::Replace { with } => {
                     let new = text.replace(&filter.text, with);
                     if new == text {
@@ -760,12 +848,16 @@ impl Current {
                     code: text,
                     result,
                     error: None,
+                    left: false,
+                    followed: self.followed_since(&shown),
                 },
                 Err(e) => RuleChange {
                     id,
                     code: text,
                     result: Vec::new(),
                     error: Some(e.to_string()),
+                    left: false,
+                    followed: Vec::new(),
                 },
             });
         }
@@ -2615,10 +2707,15 @@ impl Session {
     /// What `rule` would do to each code `filter` finds
     /// ([`Session::apply_rule`]), without doing it: a dry run on the match
     /// in memory, rolled back before returning; nothing is saved.
-    pub fn preview_rule(&mut self, filter: &ClipFilter, rule: &Rule) -> Result<Vec<RuleChange>> {
+    pub fn preview_rule(
+        &mut self,
+        filter: &ClipFilter,
+        rule: &Rule,
+        leave: &[String],
+    ) -> Result<Vec<RuleChange>> {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let before = c.game.log.len();
-        let changes = c.run_rule(filter, rule, None);
+        let changes = c.run_rule(filter, rule, leave, None);
         while c.game.log.len() > before {
             c.game.log.undo();
         }
@@ -2628,18 +2725,20 @@ impl Session {
     /// Find and replace (#25): `rule` on every code `filter` finds, in
     /// match order, each with the rally there as context, as if the scout
     /// had modified or added it by hand. Codes it can't change are left
-    /// as they are ([`Session::preview_rule`] says why). One undo takes
-    /// back the lot.
+    /// as they are ([`Session::preview_rule`] says why), and so are the
+    /// ones in `leave`. One undo takes back the lot. Returns what happened
+    /// to each code found, with the codes that changed with it.
     pub fn apply_rule(
         &mut self,
         filter: &ClipFilter,
         rule: &Rule,
+        leave: &[String],
         clock: Option<ClockTime>,
-    ) -> Result<Snapshot> {
+    ) -> Result<(Snapshot, Vec<RuleChange>)> {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
         let before = c.game.log.len();
-        let changes = c.run_rule(filter, rule, clock)?;
+        let changes = c.run_rule(filter, rule, leave, clock)?;
         if c.game.log.len() == before {
             let why = changes
                 .iter()
@@ -2649,7 +2748,7 @@ impl Session {
         }
         c.persist(season, before)?;
         c.batches.push((before, c.game.log.len()));
-        self.snapshot()
+        Ok((self.snapshot()?, changes))
     }
 
     /// Remembers the video opened with the match (`None` forgets it).
