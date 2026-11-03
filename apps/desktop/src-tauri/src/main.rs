@@ -9,8 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use courtside_console::{
     ClipFilter, Clips, ClockTime, FixPreview, Keys, MatchId, MatchItem, PlayerDetail,
-    PlayerListItem, Preview, Resume, Session, Settings, SheetCheck, SheetChoice, SheetPreview,
-    Snapshot, Team, TeamDetail, TeamForm, TeamImportView, VenueView,
+    PlayerListItem, Preview, Resume, Rule, RuleChange, Session, Settings, SheetCheck, SheetChoice,
+    SheetPreview, Snapshot, Team, TeamDetail, TeamForm, TeamImportView, VenueView,
 };
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -528,6 +528,27 @@ fn find_codes(state: State<'_, Shared>, filter: ClipFilter) -> Reply<Vec<String>
     with(&state, |s| s.find_codes(&filter))
 }
 
+/// What a find-and-replace rule would do to each code `filter` finds.
+#[tauri::command]
+fn rule_preview(
+    state: State<'_, Shared>,
+    filter: ClipFilter,
+    rule: Rule,
+) -> Reply<Vec<RuleChange>> {
+    with(&state, |s| s.preview_rule(&filter, &rule))
+}
+
+/// Applies a find-and-replace rule to every code `filter` finds.
+#[tauri::command]
+fn rule_apply(
+    state: State<'_, Shared>,
+    filter: ClipFilter,
+    rule: Rule,
+    clock: Option<[u8; 3]>,
+) -> Reply<Snapshot> {
+    with(&state, |s| s.apply_rule(&filter, &rule, clock_time(clock)))
+}
+
 /// Enters a team's six for the set in progress: `team` is `"home"` or
 /// `"visiting"`, `court` shirt numbers in zones 1–6.
 #[tauri::command]
@@ -536,11 +557,12 @@ fn lineup_set(
     team: String,
     court: [u8; 6],
     setter: u8,
+    liberos: Option<Vec<u8>>,
     clock: Option<[u8; 3]>,
 ) -> Reply<Snapshot> {
     let team = side(&team)?;
     with(&state, |s| {
-        s.set_lineup(team, court, setter, clock_time(clock))
+        s.set_lineup(team, court, setter, liberos, clock_time(clock))
     })
 }
 
@@ -570,11 +592,12 @@ fn lineup_correct(
     set: u8,
     court: [u8; 6],
     setter: u8,
+    liberos: Option<Vec<u8>>,
     clock: Option<[u8; 3]>,
 ) -> Reply<Snapshot> {
     let team = side(&team)?;
     with(&state, |s| {
-        s.correct_lineup(team, set, court, setter, clock_time(clock))
+        s.correct_lineup(team, set, court, setter, liberos, clock_time(clock))
     })
 }
 
@@ -892,6 +915,8 @@ fn main() {
             video_sync,
             clips,
             find_codes,
+            rule_preview,
+            rule_apply,
             privacy_get,
             privacy_set,
             report_js_error,

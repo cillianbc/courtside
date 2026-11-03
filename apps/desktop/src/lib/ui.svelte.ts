@@ -99,6 +99,8 @@ class Ui {
   findFilter = $state<ClipFilter>(emptyFilter());
   found = $state<string[]>([]);
   findFocus = $state(0);
+  /** The search's Replace row is open (find and replace). */
+  replacing = $state(false);
   /**
    * Clips' filter, Checked ticks and Whole rallies, kept while the panel is
    * closed, for the match `matchId` (another match starts afresh).
@@ -356,6 +358,7 @@ class Ui {
 
   closeFind() {
     this.finding = false;
+    this.replacing = false;
     this.found = [];
   }
 

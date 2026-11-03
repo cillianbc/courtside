@@ -233,10 +233,10 @@ fn a_whole_match_coded_live() {
             h.rotate_left(turn % 6);
             v.rotate_left((turn * 2) % 6);
             session
-                .set_lineup(Team::Home, h, 1, clock())
+                .set_lineup(Team::Home, h, 1, None, clock())
                 .expect("home six");
             snap = session
-                .set_lineup(Team::Visiting, v, 21, clock())
+                .set_lineup(Team::Visiting, v, 21, None, clock())
                 .expect("away six");
         }
         let total = snap.score.home + snap.score.visiting;
@@ -358,10 +358,10 @@ fn a_whole_match_coded_live() {
     snap = session.start_golden_set(clock()).expect("golden set");
     let golden = snap.set;
     session
-        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, clock())
+        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, None, clock())
         .expect("six");
     snap = session
-        .set_lineup(Team::Visiting, [21, 22, 23, 24, 25, 26], 21, clock())
+        .set_lineup(Team::Visiting, [21, 22, 23, 24, 25, 26], 21, None, clock())
         .expect("six");
     while !snap.match_over {
         let serving = snap.serving.unwrap_or(Side::Home);

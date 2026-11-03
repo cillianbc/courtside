@@ -9,6 +9,7 @@ pub mod keys;
 pub mod manage;
 pub mod readback;
 pub mod resume;
+pub mod rules;
 pub mod sheet;
 pub mod snapshot;
 
@@ -33,6 +34,7 @@ pub use manage::{
 };
 pub use readback::Preview;
 pub use resume::Resume;
+pub use rules::{Rule, RuleChange};
 pub use sheet::{SheetCheck, SheetChoice, SheetPreview, SheetSummary};
 pub use snapshot::{MatchItem, Snapshot};
 pub use vb_engine::event::ClockTime;
@@ -105,12 +107,15 @@ struct Current {
     teams: (courtside_store::Team, courtside_store::Team),
     /// New event ids; the time part is when the match was opened.
     ids: IdGen,
-    /// What undo took off, newest last, for redo. Any other change
-    /// clears it. Kept in memory only.
-    redo: Vec<Vec<MatchEvent>>,
+    /// What undo took off, newest last, for redo, and whether it was one
+    /// find-and-replace. Any other change clears it. Kept in memory only.
+    redo: Vec<(Vec<MatchEvent>, bool)>,
     /// Log lengths where a change made only of console codes begins (a
     /// fix the scout asked for): undo stops there, not at the code before.
     marks: Vec<usize>,
+    /// Log stretches (start, end) written by one find-and-replace (#25):
+    /// undo takes each back whole.
+    batches: Vec<(usize, usize)>,
     /// Typing defaults (season settings, step E).
     defaults: Defaults,
     /// The match's own attack combinations (empty: the season's are used).
@@ -302,17 +307,30 @@ fn is_green(e: &MatchEvent) -> bool {
 }
 
 /// Checks a six for `sheet`'s team; the setter's zone.
-fn check_six(sheet: &TeamSheet, court: &[u8; 6], setter: u8) -> Result<u8> {
+/// `liberos`: the set's, chosen with the six (`None`: the team sheet's).
+fn check_six(sheet: &TeamSheet, court: &[u8; 6], setter: u8, liberos: Option<&[u8]>) -> Result<u8> {
+    if let Some(liberos) = liberos {
+        if liberos.len() > 2 {
+            return Err(Error::BadLineup("a set has two liberos at most".into()));
+        }
+        for (i, n) in liberos.iter().enumerate() {
+            if liberos[..i].contains(n) {
+                return Err(Error::BadLineup(format!("libero #{n} is in twice")));
+            }
+            if sheet.player(*n).is_none() {
+                return Err(Error::BadLineup(format!("#{n} is not on the team sheet")));
+            }
+        }
+    }
     for (i, n) in court.iter().enumerate() {
         if court[..i].contains(n) {
             return Err(Error::BadLineup(format!("#{n} is in two zones")));
         }
-        match sheet.player(*n) {
-            None => return Err(Error::BadLineup(format!("#{n} is not on the team sheet"))),
-            Some(p) if p.libero => {
-                return Err(Error::BadLineup(format!("#{n} is a libero")));
-            }
-            Some(_) => {}
+        let Some(p) = sheet.player(*n) else {
+            return Err(Error::BadLineup(format!("#{n} is not on the team sheet")));
+        };
+        if liberos.map_or(p.libero, |l| l.contains(n)) {
+            return Err(Error::BadLineup(format!("#{n} is a libero")));
         }
     }
     let zone = court
@@ -638,7 +656,338 @@ fn other(t: Team) -> Team {
     }
 }
 
+/// The event a UI id names.
+fn event_id(id: &str) -> Result<EventId> {
+    ulid::Ulid::from_string(id)
+        .map(EventId)
+        .map_err(|_| Error::BadCode(format!("no event {id:?}")))
+}
+
 impl Current {
+    /// [`Session::apply_rule`] without saving: what happened to each code
+    /// found.
+    fn run_rule(
+        &mut self,
+        filter: &ClipFilter,
+        rule: &Rule,
+        clock: Option<ClockTime>,
+    ) -> Result<Vec<RuleChange>> {
+        match rule {
+            Rule::Replace { .. } if filter.text.is_empty() => {
+                return Err(Error::BadCode(
+                    "Type the code text to replace in the search box.".into(),
+                ));
+            }
+            Rule::Add { code, .. } => {
+                let code = code.trim();
+                if code.is_empty() {
+                    return Err(Error::BadCode("Type the code to add.".into()));
+                }
+                if code.split_whitespace().count() > 1 {
+                    return Err(Error::BadCode("One code at a time here.".into()));
+                }
+                if code.starts_with(['*', 'a']) {
+                    return Err(Error::BadCode(
+                        "Leave the team out: it's the found code's team or the other one.".into(),
+                    ));
+                }
+            }
+            Rule::Replace { .. } => {}
+        }
+        let mut out = Vec::new();
+        for id in clips::find(&self.game, filter) {
+            let Ok(target) = event_id(&id) else {
+                continue;
+            };
+            // An earlier change may have corrected this code (the other
+            // half of a pair): the rule works on it as it is now.
+            let Some(pos) = self.position_of(target) else {
+                continue;
+            };
+            let visible = self.game.log.visible();
+            let Some((now, Some(code))) = visible.get(pos).map(|e| (e.id, e.code().cloned()))
+            else {
+                continue;
+            };
+            let next = visible.get(pos + 1).map(|e| e.id);
+            let text = code.to_string();
+            let done = match rule {
+                Rule::Replace { with } => {
+                    let new = text.replace(&filter.text, with);
+                    if new == text {
+                        continue;
+                    }
+                    self.correct(now, &new, clock).map(|()| {
+                        self.game
+                            .log
+                            .visible()
+                            .get(pos)
+                            .and_then(|e| e.code())
+                            .map(|c| vec![c.to_string()])
+                            .unwrap_or_default()
+                    })
+                }
+                Rule::Add {
+                    code: add,
+                    place,
+                    team,
+                } => match &code {
+                    Code::Touch(t) => {
+                        let team = match team {
+                            rules::RuleTeam::Same => t.team,
+                            rules::RuleTeam::Other => match t.team {
+                                Team::Home => Team::Visiting,
+                                Team::Visiting => Team::Home,
+                            },
+                        };
+                        let typed = format!("{}{}", team.as_char(), add.trim());
+                        match (place, next) {
+                            (rules::Place::Before, _) => self.insert(now, &typed, clock),
+                            (rules::Place::After, Some(next)) => self.insert(next, &typed, clock),
+                            (rules::Place::After, None) => Err(Error::BadCode(
+                                "Nothing comes after it yet: add it on the command line.".into(),
+                            )),
+                        }
+                    }
+                    _ => Err(Error::BadCode(
+                        "Not a touch: codes are added next to touches.".into(),
+                    )),
+                },
+            };
+            out.push(match done {
+                Ok(result) => RuleChange {
+                    id,
+                    code: text,
+                    result,
+                    error: None,
+                },
+                Err(e) => RuleChange {
+                    id,
+                    code: text,
+                    result: Vec::new(),
+                    error: Some(e.to_string()),
+                },
+            });
+        }
+        Ok(out)
+    }
+
+    /// Corrects (`text`) or removes the code `target` through `change`,
+    /// then writes the rally endings, green codes and rotations again;
+    /// nothing is saved. On an error everything it wrote is taken off.
+    fn change_code(
+        &mut self,
+        target: EventId,
+        text: Option<&str>,
+        clock: Option<ClockTime>,
+        change: impl FnOnce(
+            &mut EventLog,
+            &mut IdGen,
+            EventId,
+            Option<NewEvent>,
+        ) -> std::result::Result<EventId, LogError>,
+    ) -> Result<()> {
+        let c = self;
+        let new = match text {
+            None => None,
+            Some(text) => {
+                let text = text.trim();
+                if text.split_whitespace().count() != 1 {
+                    return Err(Error::BadCode("One code at a time here.".into()));
+                }
+                let before = c.touch_before(target);
+                // One code in, one code out: no set is added in front.
+                let preview = readback::preview(
+                    text,
+                    &c.game,
+                    c.names(),
+                    before.as_ref(),
+                    &c.defaults,
+                    None,
+                    None,
+                );
+                if let Some(e) = preview.codes.iter().find_map(|r| r.error.clone()) {
+                    return Err(Error::BadCode(format!("{text}: {e}")));
+                }
+                let [code] = preview.codes.as_slice() else {
+                    return Err(Error::BadCode(
+                        "A dot code makes two codes; correct one half at a time.".into(),
+                    ));
+                };
+                Some(NewEvent {
+                    body: Body::Code(Code::parse(&code.text)),
+                    video_ms: None,
+                    clock,
+                    producer: Producer::Keyboard,
+                })
+            }
+        };
+        // A console-written code the scout edits is the scout's call: the
+        // ending and the rotations aren't written again over it.
+        let theirs = c
+            .game
+            .log
+            .get(target)
+            .is_some_and(|e| e.producer == Producer::Repair);
+        let at = c.position_of(target).unwrap_or(0);
+        let before = c.game.log.len();
+        let repair = change(&mut c.game.log, &mut c.ids, target, new).and_then(|_| {
+            if theirs {
+                Ok(())
+            } else {
+                c.reclose(clock)
+                    .and_then(|()| c.regreen(at))
+                    .and_then(|()| c.drop_open_green())
+                    .and_then(|()| c.rerotate(at))
+            }
+        });
+        if let Err(e) = repair {
+            while c.game.log.len() > before {
+                c.game.log.undo();
+            }
+            return Err(e.into());
+        }
+        Ok(())
+    }
+
+    /// [`Session::correct`] without saving.
+    fn correct(&mut self, target: EventId, text: &str, clock: Option<ClockTime>) -> Result<()> {
+        let defaults = self.defaults.clone();
+        self.change_code(target, Some(text), clock, |log, ids, target, new| {
+            let Some(new) = new else {
+                return Err(LogError::NotFound(target));
+            };
+            let partner = pair_partner(log, target);
+            let set = touch_just_before(log, target);
+            // A correction keeps the code's times: the touch happened then.
+            let new = NewEvent {
+                clock: None,
+                video_ms: None,
+                ..new
+            };
+            let id = log.correct(ids, target, new)?;
+            let repair = |t: Touch| NewEvent::code(Code::Touch(t), Producer::Repair);
+            if let Some((set_id, set)) = set
+                && let (Some(old), Some(now)) = (
+                    log.get(target).and_then(touch_of),
+                    log.get(id).and_then(touch_of),
+                )
+                && let Some(updated) = follow_combination(&old, &now, &set, &defaults)
+            {
+                log.correct(ids, set_id, repair(updated))?;
+            }
+            if let Some((partner, edited_first)) = partner {
+                let old = log.get(target).and_then(touch_of);
+                let now = log.get(id).and_then(touch_of);
+                let other = log.get(partner).and_then(touch_of);
+                if let (Some(old), Some(now), Some(other)) = (old, now, other)
+                    && let Some(updated) = follow_pair(&old, &now, &other, edited_first)
+                {
+                    log.correct(ids, partner, repair(updated))?;
+                }
+            }
+            Ok(id)
+        })
+    }
+
+    /// [`Session::insert_before`] without saving: the codes it wrote from
+    /// `text` (not the console's own after them).
+    fn insert(
+        &mut self,
+        target: EventId,
+        text: &str,
+        clock: Option<ClockTime>,
+    ) -> Result<Vec<String>> {
+        let c = self;
+        let id = target.0;
+        let pos = c
+            .position_of(target)
+            .ok_or_else(|| Error::BadCode(format!("no event {id:?}")))?;
+        let preview = c
+            .preview_before(text.trim(), target)
+            .ok_or_else(|| Error::BadCode(format!("no event {id:?}")))?;
+        if !preview.ok {
+            let why = preview
+                .codes
+                .iter()
+                .find_map(|r| r.error.as_ref().map(|e| format!("{}: {e}", r.text)))
+                .unwrap_or_else(|| "Type a code first.".into());
+            return Err(Error::BadCode(why));
+        }
+        let codes: Vec<Code> = preview.codes.iter().map(|r| Code::parse(&r.text)).collect();
+        let written: Vec<String> = preview.codes.iter().map(|r| r.text.clone()).collect();
+        let folded = fold(&c.game);
+        let at = pos.checked_sub(1).and_then(|p| folded.states.get(p));
+        let score_before = at.map(|s| s.score).unwrap_or_default();
+        let setter_zones = at.map(|s| s.setter_position).unwrap_or_default();
+        // A rally of its own: nothing of the rally at `target` comes first.
+        let own_rally =
+            c.touch_before(target).is_none() && codes.iter().any(|c| matches!(c, Code::Touch(_)));
+        let new = |code: Code, producer| NewEvent {
+            body: Body::Code(code),
+            // Placed in the video where the code it goes before is.
+            video_ms: c.game.log.visible().get(pos).and_then(|e| e.video_ms),
+            clock,
+            producer,
+        };
+        let mut events: Vec<NewEvent> = codes
+            .iter()
+            .map(|code| new(code.clone(), Producer::Keyboard))
+            .collect();
+        let typed_point = codes.iter().rev().find_map(|code| match code {
+            Code::Point { team, .. } => Some(*team),
+            _ => None,
+        });
+        let winner = typed_point.or_else(|| decided_by(&c.game, codes.iter()));
+        if own_rally && winner.is_none() {
+            return Err(Error::BadCode(
+                "Who won this rally? End it with the winning code, or press Point for the winner."
+                    .into(),
+            ));
+        }
+        if own_rally && let Some(winner) = winner {
+            if typed_point.is_none() {
+                let (h, v) = match winner {
+                    Team::Home => (score_before.home.saturating_add(1), score_before.visiting),
+                    Team::Visiting => (score_before.home, score_before.visiting.saturating_add(1)),
+                };
+                let point = format!("{}p{h:02}:{v:02}", winner.as_char());
+                events.push(new(Code::parse(&point), Producer::Repair));
+            }
+            let serving = codes.iter().find_map(|code| match code {
+                Code::Touch(t) if t.skill == Skill::Serve => Some(t.team),
+                _ => None,
+            });
+            if serving.is_some_and(|s| s != winner)
+                && let Some(z) = *setter_zones.get(winner)
+            {
+                let next = if z == 1 { 6 } else { z - 1 };
+                let rotation = format!("{}z{next}", winner.as_char());
+                events.push(new(Code::parse(&rotation), Producer::Repair));
+            }
+        }
+        let before = c.game.log.len();
+        let change = || -> std::result::Result<(), LogError> {
+            for e in events {
+                c.game.log.insert_before(&mut c.ids, target, e)?;
+            }
+            if own_rally {
+                c.rescore_from(pos, score_before)?;
+            }
+            c.reclose(clock)?;
+            c.regreen(pos)?;
+            c.drop_open_green()?;
+            c.rerotate(pos)
+        };
+        if let Err(e) = change() {
+            while c.game.log.len() > before {
+                c.game.log.undo();
+            }
+            return Err(e.into());
+        }
+        Ok(written)
+    }
+
     fn names(&self) -> (&str, &str) {
         (&self.teams.0.name, &self.teams.1.name)
     }
@@ -1523,6 +1872,7 @@ impl Session {
             ids: IdGen::new(now_ms),
             redo: Vec::new(),
             marks: Vec::new(),
+            batches: Vec::new(),
             defaults: defaults_from(&settings, &combinations),
             own_combinations: combinations.clone(),
             confirm_set_end: false,
@@ -1671,22 +2021,28 @@ impl Session {
 
     /// Enters `team`'s six for the set in progress (zones 1–6) and its
     /// setter, written as DataVolley does: the six as starting zones, then
-    /// `P` and `z` codes marked `>LUp`.
+    /// `P` and `z` codes marked `>LUp`. `liberos`: the set's, at most two
+    /// (#56); `None` leaves them to the team sheet.
     pub fn set_lineup(
         &mut self,
         team: Team,
         court: [u8; 6],
         setter: u8,
+        liberos: Option<Vec<u8>>,
         clock: Option<ClockTime>,
     ) -> Result<Snapshot> {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
-        let zone = check_six(c.game.teams.get(team), &court, setter)?;
+        let zone = check_six(c.game.teams.get(team), &court, setter, liberos.as_deref())?;
         let before = c.game.log.len();
         c.game.log.append(
             &mut c.ids,
             NewEvent {
-                body: Body::StartingSix { team, court },
+                body: Body::StartingSix {
+                    team,
+                    court,
+                    liberos,
+                },
                 video_ms: None,
                 clock,
                 producer: Producer::Keyboard,
@@ -1720,13 +2076,26 @@ impl Session {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
         let mut taken = Vec::new();
-        while !(!taken.is_empty() && c.marks.contains(&c.game.log.len()))
-            && let Some(e) = c.game.log.undo()
-        {
-            let auto = e.producer == Producer::Repair;
-            taken.push(e);
-            if !auto {
-                break;
+        let batch = c
+            .batches
+            .last()
+            .copied()
+            .filter(|(_, end)| *end == c.game.log.len());
+        if let Some((start, _)) = batch {
+            while c.game.log.len() > start
+                && let Some(e) = c.game.log.undo()
+            {
+                taken.push(e);
+            }
+        } else {
+            while !(!taken.is_empty() && c.marks.contains(&c.game.log.len()))
+                && let Some(e) = c.game.log.undo()
+            {
+                let auto = e.producer == Producer::Repair;
+                taken.push(e);
+                if !auto {
+                    break;
+                }
             }
         }
         if taken.is_empty() {
@@ -1742,7 +2111,10 @@ impl Session {
             }
             return Err(e.into());
         }
-        c.redo.push(taken);
+        if batch.is_some() {
+            c.batches.pop();
+        }
+        c.redo.push((taken, batch.is_some()));
         self.snapshot()
     }
 
@@ -1750,7 +2122,7 @@ impl Session {
     pub fn redo(&mut self) -> Result<Snapshot> {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
-        let Some(events) = c.redo.pop() else {
+        let Some((events, batch)) = c.redo.pop() else {
             return self.snapshot();
         };
         let before = c.game.log.len();
@@ -1766,10 +2138,12 @@ impl Session {
             while c.game.log.len() > before {
                 c.game.log.undo();
             }
-            c.redo.push(events);
+            c.redo.push((events, batch));
             return Err(e.into());
         }
-        if events.iter().all(|e| e.producer == Producer::Repair) {
+        if batch {
+            c.batches.push((before, c.game.log.len()));
+        } else if events.iter().all(|e| e.producer == Producer::Repair) {
             c.marks.push(before);
         }
         self.snapshot()
@@ -1858,17 +2232,19 @@ impl Session {
     /// sheet (an imported file) one is put before the set's first code. The
     /// set's `P` and `z` codes marked `>LUp` follow, written by the console,
     /// so one undo takes back the whole change. With nothing coded in the
-    /// set in progress yet, this enters its lineup.
+    /// set in progress yet, this enters its lineup. `liberos` as for
+    /// [`Session::set_lineup`].
     pub fn correct_lineup(
         &mut self,
         team: Team,
         set: u8,
         court: [u8; 6],
         setter: u8,
+        liberos: Option<Vec<u8>>,
         clock: Option<ClockTime>,
     ) -> Result<Snapshot> {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
-        let zone = check_six(c.game.teams.get(team), &court, setter)?;
+        let zone = check_six(c.game.teams.get(team), &court, setter, liberos.as_deref())?;
         let folded = fold(&c.game);
         let visible: Vec<MatchEvent> = c.game.log.visible().into_iter().cloned().collect();
         let current = folded.states.last().map_or(1, |s| s.set);
@@ -1880,7 +2256,7 @@ impl Session {
             .collect();
         let Some(first) = in_set.first() else {
             if set == current {
-                return self.set_lineup(team, court, setter, clock);
+                return self.set_lineup(team, court, setter, liberos, clock);
             }
             return Err(Error::BadLineup(format!("set {set} has no codes")));
         };
@@ -1892,7 +2268,14 @@ impl Session {
             clock,
             producer,
         };
-        let six = event(Body::StartingSix { team, court }, Producer::Keyboard);
+        let six = event(
+            Body::StartingSix {
+                team,
+                court,
+                liberos,
+            },
+            Producer::Keyboard,
+        );
         let entered = in_set
             .iter()
             .find(|e| matches!(e.body, Body::StartingSix { team: t, .. } if t == team));
@@ -1965,46 +2348,8 @@ impl Session {
     /// before it. Those follow-ups are written by the console, so one undo
     /// takes back all of them.
     pub fn correct(&mut self, id: &str, text: &str, clock: Option<ClockTime>) -> Result<Snapshot> {
-        let defaults = self
-            .current
-            .as_ref()
-            .map(|c| c.defaults.clone())
-            .unwrap_or_default();
-        self.edit(id, Some(text), clock, |log, ids, target, new| {
-            let Some(new) = new else {
-                return Err(LogError::NotFound(target));
-            };
-            let partner = pair_partner(log, target);
-            let set = touch_just_before(log, target);
-            // A correction keeps the code's times: the touch happened then.
-            let new = NewEvent {
-                clock: None,
-                video_ms: None,
-                ..new
-            };
-            let id = log.correct(ids, target, new)?;
-            let repair = |t: Touch| NewEvent::code(Code::Touch(t), Producer::Repair);
-            if let Some((set_id, set)) = set
-                && let (Some(old), Some(now)) = (
-                    log.get(target).and_then(touch_of),
-                    log.get(id).and_then(touch_of),
-                )
-                && let Some(updated) = follow_combination(&old, &now, &set, &defaults)
-            {
-                log.correct(ids, set_id, repair(updated))?;
-            }
-            if let Some((partner, edited_first)) = partner {
-                let old = log.get(target).and_then(touch_of);
-                let now = log.get(id).and_then(touch_of);
-                let other = log.get(partner).and_then(touch_of);
-                if let (Some(old), Some(now), Some(other)) = (old, now, other)
-                    && let Some(updated) = follow_pair(&old, &now, &other, edited_first)
-                {
-                    log.correct(ids, partner, repair(updated))?;
-                }
-            }
-            Ok(id)
-        })
+        let target = event_id(id)?;
+        self.change(|c| c.correct(target, text, clock))
     }
 
     /// Adds the codes on `text` just before an earlier code, read with the
@@ -2020,97 +2365,8 @@ impl Session {
         text: &str,
         clock: Option<ClockTime>,
     ) -> Result<Snapshot> {
-        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
-        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
-        let target = ulid::Ulid::from_string(id)
-            .map(EventId)
-            .map_err(|_| Error::BadCode(format!("no event {id:?}")))?;
-        let pos = c
-            .position_of(target)
-            .ok_or_else(|| Error::BadCode(format!("no event {id:?}")))?;
-        let preview = c
-            .preview_before(text.trim(), target)
-            .ok_or_else(|| Error::BadCode(format!("no event {id:?}")))?;
-        if !preview.ok {
-            let why = preview
-                .codes
-                .iter()
-                .find_map(|r| r.error.as_ref().map(|e| format!("{}: {e}", r.text)))
-                .unwrap_or_else(|| "Type a code first.".into());
-            return Err(Error::BadCode(why));
-        }
-        let codes: Vec<Code> = preview.codes.iter().map(|r| Code::parse(&r.text)).collect();
-        let folded = fold(&c.game);
-        let at = pos.checked_sub(1).and_then(|p| folded.states.get(p));
-        let score_before = at.map(|s| s.score).unwrap_or_default();
-        let setter_zones = at.map(|s| s.setter_position).unwrap_or_default();
-        // A rally of its own: nothing of the rally at `target` comes first.
-        let own_rally =
-            c.touch_before(target).is_none() && codes.iter().any(|c| matches!(c, Code::Touch(_)));
-        let new = |code: Code, producer| NewEvent {
-            body: Body::Code(code),
-            // Placed in the video where the code it goes before is.
-            video_ms: c.game.log.visible().get(pos).and_then(|e| e.video_ms),
-            clock,
-            producer,
-        };
-        let mut events: Vec<NewEvent> = codes
-            .iter()
-            .map(|code| new(code.clone(), Producer::Keyboard))
-            .collect();
-        let typed_point = codes.iter().rev().find_map(|code| match code {
-            Code::Point { team, .. } => Some(*team),
-            _ => None,
-        });
-        let winner = typed_point.or_else(|| decided_by(&c.game, codes.iter()));
-        if own_rally && winner.is_none() {
-            return Err(Error::BadCode(
-                "Who won this rally? End it with the winning code, or press Point for the winner."
-                    .into(),
-            ));
-        }
-        if own_rally && let Some(winner) = winner {
-            if typed_point.is_none() {
-                let (h, v) = match winner {
-                    Team::Home => (score_before.home.saturating_add(1), score_before.visiting),
-                    Team::Visiting => (score_before.home, score_before.visiting.saturating_add(1)),
-                };
-                let point = format!("{}p{h:02}:{v:02}", winner.as_char());
-                events.push(new(Code::parse(&point), Producer::Repair));
-            }
-            let serving = codes.iter().find_map(|code| match code {
-                Code::Touch(t) if t.skill == Skill::Serve => Some(t.team),
-                _ => None,
-            });
-            if serving.is_some_and(|s| s != winner)
-                && let Some(z) = *setter_zones.get(winner)
-            {
-                let next = if z == 1 { 6 } else { z - 1 };
-                let rotation = format!("{}z{next}", winner.as_char());
-                events.push(new(Code::parse(&rotation), Producer::Repair));
-            }
-        }
-        let before = c.game.log.len();
-        let change = || -> std::result::Result<(), LogError> {
-            for e in events {
-                c.game.log.insert_before(&mut c.ids, target, e)?;
-            }
-            if own_rally {
-                c.rescore_from(pos, score_before)?;
-            }
-            c.reclose(clock)?;
-            c.regreen(pos)?;
-            c.drop_open_green()?;
-            c.rerotate(pos)
-        };
-        if let Err(e) = change() {
-            while c.game.log.len() > before {
-                c.game.log.undo();
-            }
-            return Err(e.into());
-        }
-        c.persist(season, before)?;
-        self.snapshot()
+        let target = event_id(id)?;
+        self.change(|c| c.insert(target, text, clock).map(|_| ()))
     }
 
     /// Writes the console's side-out rotations again from the rally at
@@ -2317,86 +2573,21 @@ impl Session {
 
     /// Takes an earlier code out of the match.
     pub fn remove(&mut self, id: &str) -> Result<Snapshot> {
-        self.edit(id, None, None, |log, ids, target, _| {
-            log.remove(ids, target, Producer::Keyboard)
+        let target = event_id(id)?;
+        self.change(|c| {
+            c.change_code(target, None, None, |log, ids, target, _| {
+                log.remove(ids, target, Producer::Keyboard)
+            })
         })
     }
 
-    fn edit(
-        &mut self,
-        id: &str,
-        text: Option<&str>,
-        clock: Option<ClockTime>,
-        change: impl FnOnce(
-            &mut EventLog,
-            &mut IdGen,
-            EventId,
-            Option<NewEvent>,
-        ) -> std::result::Result<EventId, LogError>,
-    ) -> Result<Snapshot> {
+    /// Runs `f` on the open match and saves what it wrote; on an error
+    /// `f` has taken its own events off again.
+    fn change(&mut self, f: impl FnOnce(&mut Current) -> Result<()>) -> Result<Snapshot> {
         let c = self.current.as_mut().ok_or(Error::NoMatch)?;
         let season = self.season.as_mut().ok_or(Error::NoSeason)?;
-        let target = ulid::Ulid::from_string(id)
-            .map(EventId)
-            .map_err(|_| Error::BadCode(format!("no event {id:?}")))?;
-        let new = match text {
-            None => None,
-            Some(text) => {
-                let text = text.trim();
-                if text.split_whitespace().count() != 1 {
-                    return Err(Error::BadCode("One code at a time here.".into()));
-                }
-                let before = c.touch_before(target);
-                // One code in, one code out: no set is added in front.
-                let preview = readback::preview(
-                    text,
-                    &c.game,
-                    c.names(),
-                    before.as_ref(),
-                    &c.defaults,
-                    None,
-                    None,
-                );
-                if let Some(e) = preview.codes.iter().find_map(|r| r.error.clone()) {
-                    return Err(Error::BadCode(format!("{text}: {e}")));
-                }
-                let [code] = preview.codes.as_slice() else {
-                    return Err(Error::BadCode(
-                        "A dot code makes two codes; correct one half at a time.".into(),
-                    ));
-                };
-                Some(NewEvent {
-                    body: Body::Code(Code::parse(&code.text)),
-                    video_ms: None,
-                    clock,
-                    producer: Producer::Keyboard,
-                })
-            }
-        };
-        // A console-written code the scout edits is the scout's call: the
-        // ending and the rotations aren't written again over it.
-        let theirs = c
-            .game
-            .log
-            .get(target)
-            .is_some_and(|e| e.producer == Producer::Repair);
-        let at = c.position_of(target).unwrap_or(0);
         let before = c.game.log.len();
-        change(&mut c.game.log, &mut c.ids, target, new)?;
-        let repair = if theirs {
-            Ok(())
-        } else {
-            c.reclose(clock)
-                .and_then(|()| c.regreen(at))
-                .and_then(|()| c.drop_open_green())
-                .and_then(|()| c.rerotate(at))
-        };
-        if let Err(e) = repair {
-            while c.game.log.len() > before {
-                c.game.log.undo();
-            }
-            return Err(e.into());
-        }
+        f(c)?;
         c.persist(season, before)?;
         self.snapshot()
     }
@@ -2419,6 +2610,46 @@ impl Session {
     pub fn find_codes(&self, filter: &ClipFilter) -> Result<Vec<String>> {
         let c = self.current.as_ref().ok_or(Error::NoMatch)?;
         Ok(clips::find(&c.game, filter))
+    }
+
+    /// What `rule` would do to each code `filter` finds
+    /// ([`Session::apply_rule`]), without doing it: a dry run on the match
+    /// in memory, rolled back before returning; nothing is saved.
+    pub fn preview_rule(&mut self, filter: &ClipFilter, rule: &Rule) -> Result<Vec<RuleChange>> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let before = c.game.log.len();
+        let changes = c.run_rule(filter, rule, None);
+        while c.game.log.len() > before {
+            c.game.log.undo();
+        }
+        changes
+    }
+
+    /// Find and replace (#25): `rule` on every code `filter` finds, in
+    /// match order, each with the rally there as context, as if the scout
+    /// had modified or added it by hand. Codes it can't change are left
+    /// as they are ([`Session::preview_rule`] says why). One undo takes
+    /// back the lot.
+    pub fn apply_rule(
+        &mut self,
+        filter: &ClipFilter,
+        rule: &Rule,
+        clock: Option<ClockTime>,
+    ) -> Result<Snapshot> {
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let before = c.game.log.len();
+        let changes = c.run_rule(filter, rule, clock)?;
+        if c.game.log.len() == before {
+            let why = changes
+                .iter()
+                .find_map(|x| x.error.clone())
+                .unwrap_or_else(|| "The search found nothing to change.".into());
+            return Err(Error::BadCode(why));
+        }
+        c.persist(season, before)?;
+        c.batches.push((before, c.game.log.len()));
+        self.snapshot()
     }
 
     /// Remembers the video opened with the match (`None` forgets it).

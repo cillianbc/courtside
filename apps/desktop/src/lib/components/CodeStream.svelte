@@ -11,6 +11,7 @@
   import CodeMenu from "./CodeMenu.svelte";
   import Icon from "./Icon.svelte";
   import Mark from "./Mark.svelte";
+  import ReplaceBar from "./ReplaceBar.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
 
@@ -288,6 +289,13 @@
         onclick={() => (findFields = !findFields)}>Filter</button
       >
       <button
+        class="btn small"
+        type="button"
+        aria-expanded={ui.replacing}
+        title="Change every code found: replace text in it, or add a code before or after it"
+        onclick={() => (ui.replacing = !ui.replacing)}>Replace</button
+      >
+      <button
         class="btn icon"
         type="button"
         aria-label="Close the search"
@@ -301,6 +309,9 @@
         withText={false}
         ondone={() => (findFields = false)}
       />
+    {/if}
+    {#if ui.replacing}
+      <ReplaceBar {snap} />
     {/if}
   {/if}
   <div class="tab-panel" role="tabpanel" bind:this={pane}>

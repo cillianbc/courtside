@@ -66,6 +66,8 @@ pub struct Snapshot {
     pub court: Pair<[Option<u8>; 6]>,
     pub setter: Pair<Option<u8>>,
     pub setter_zone: Pair<Option<u8>>,
+    /// Each team's liberos in the set in progress (#56).
+    pub liberos: Pair<Vec<u8>>,
     /// The team has no six on court: enter its lineup before play.
     pub needs_lineup: Pair<bool>,
     /// A team has won the match (and the golden set, if one was played):
@@ -110,6 +112,8 @@ pub struct StartingView {
     /// Shirt numbers in zones 1–6.
     pub court: [Option<u8>; 6],
     pub setter: Option<u8>,
+    /// The set's liberos: chosen with the six, else the team sheet's.
+    pub liberos: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -272,6 +276,7 @@ fn is_serve(e: &MatchEvent) -> Option<Team> {
 /// `team`'s six and setter once the lineup codes leading `set` are read:
 /// the state after the last of them, or after the set's first event.
 fn starting(
+    game: &Match,
     events: &[&MatchEvent],
     folded: &vb_engine::Folded,
     set: u8,
@@ -298,6 +303,7 @@ fn starting(
     (!court.iter().all(Option::is_none)).then(|| StartingView {
         court,
         setter: *st.setter.get(team),
+        liberos: folded.liberos(game, team, set),
     })
 }
 
@@ -408,14 +414,28 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             kind: kind_name(kind),
             meaning: match &e.body {
                 vb_engine::Body::Code(c) => readback::read(&c.to_string(), game, names).meaning,
-                vb_engine::Body::StartingSix { team, court } => format!(
-                    "{} starting six: {}",
-                    match team {
+                vb_engine::Body::StartingSix {
+                    team,
+                    court,
+                    liberos,
+                } => {
+                    let name = match team {
                         Team::Home => names.0,
                         Team::Visiting => names.1,
-                    },
-                    court.map(|n| n.to_string()).join(" ")
-                ),
+                    };
+                    let six = court.map(|n| n.to_string()).join(" ");
+                    match liberos.as_deref() {
+                        None => format!("{name} starting six: {six}"),
+                        Some([]) => format!("{name} starting six: {six}; no libero"),
+                        Some(l) => format!(
+                            "{name} starting six: {six}; libero {}",
+                            l.iter()
+                                .map(|n| n.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    }
+                }
                 vb_engine::Body::GoldenSet => "Golden set next (to 15)".into(),
                 _ => String::new(),
             },
@@ -575,6 +595,7 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             },
             |s| Pair::from(&s.setter_position),
         ),
+        liberos: Pair::from_fn(|team| folded.liberos(game, team, set)),
         needs_lineup: Pair::from_fn(|team| !match_over && court(team).iter().all(Option::is_none)),
         match_over,
         golden_set: folded.golden_set,
@@ -589,8 +610,8 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
         starting: (1..=set)
             .map(|n| SetStart {
                 set: n,
-                home: starting(&events, &folded, n, Team::Home),
-                visiting: starting(&events, &folded, n, Team::Visiting),
+                home: starting(game, &events, &folded, n, Team::Home),
+                visiting: starting(game, &events, &folded, n, Team::Visiting),
             })
             .collect(),
         timeouts: count(EventKind::Timeout),

@@ -153,10 +153,10 @@ fn a_match_from_a_scoresheet_is_checked_against_it() {
     // Set 1 coded: an ace, then 7 on for 3 at 1:0 (the sheet says 2:1), and
     // 3 never back.
     session
-        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, None)
+        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, None, None)
         .unwrap();
     session
-        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 11, None)
+        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 11, None, None)
         .unwrap();
     session.commit("*01SH#", None).unwrap();
     session.commit("*c03:07", None).unwrap();

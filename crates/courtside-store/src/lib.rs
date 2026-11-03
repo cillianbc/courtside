@@ -1066,7 +1066,11 @@ fn write_events(conn: &Connection, id: MatchId, events: &[MatchEvent], from: usi
             Body::Code(c) => ("code", c.to_string()),
             Body::Comment(t) => ("comment", t.clone()),
             Body::Removed => ("removed", String::new()),
-            Body::StartingSix { team, court } => ("six", six_text(*team, court)),
+            Body::StartingSix {
+                team,
+                court,
+                liberos,
+            } => ("six", six_text(*team, court, liberos.as_deref())),
             Body::GoldenSet => ("golden", String::new()),
         };
         let seq = i64::try_from(from + i).unwrap_or(i64::MAX);
@@ -1172,11 +1176,20 @@ fn read_events(conn: &Connection, id: MatchId) -> Result<Vec<MatchEvent>> {
     .collect()
 }
 
-fn six_text(team: Side, court: &[u8; 6]) -> String {
+/// `* 1 2 3 4 5 6`, then `L` and the set's liberos when the scout chose
+/// them (`L` alone: none this set).
+fn six_text(team: Side, court: &[u8; 6], liberos: Option<&[u8]>) -> String {
     let mut s = team.as_char().to_string();
     for n in court {
         s.push(' ');
         s.push_str(&n.to_string());
+    }
+    if let Some(liberos) = liberos {
+        s.push_str(" L");
+        for n in liberos {
+            s.push(' ');
+            s.push_str(&n.to_string());
+        }
     }
     s
 }
@@ -1189,11 +1202,21 @@ fn parse_six(text: &str) -> Result<Body> {
         Some("a") => Side::Visiting,
         _ => return Err(bad()),
     };
-    let numbers: Vec<u8> = parts
-        .map(|p| p.parse().map_err(|_| bad()))
-        .collect::<Result<_>>()?;
-    let court: [u8; 6] = numbers.try_into().map_err(|_| bad())?;
-    Ok(Body::StartingSix { team, court })
+    let rest: Vec<&str> = parts.collect();
+    let (six, liberos) = match rest.iter().position(|p| *p == "L") {
+        Some(at) => (&rest[..at], Some(&rest[at + 1..])),
+        None => (&rest[..], None),
+    };
+    let numbers = |ps: &[&str]| -> Result<Vec<u8>> {
+        ps.iter().map(|p| p.parse().map_err(|_| bad())).collect()
+    };
+    let court: [u8; 6] = numbers(six)?.try_into().map_err(|_| bad())?;
+    let liberos = liberos.map(numbers).transpose()?;
+    Ok(Body::StartingSix {
+        team,
+        court,
+        liberos,
+    })
 }
 
 fn event_id(s: &str) -> Result<EventId> {

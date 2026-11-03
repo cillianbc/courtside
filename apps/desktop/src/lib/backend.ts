@@ -5,7 +5,16 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { fixture, fixtureTeams } from "./fixture";
 import type { Keys, Settings } from "./settings";
-import type { ClipFilter, Clips, MatchItem, Preview, Side, Snapshot } from "./snapshot";
+import type {
+  ClipFilter,
+  Clips,
+  MatchItem,
+  Preview,
+  Rule,
+  RuleChange,
+  Side,
+  Snapshot,
+} from "./snapshot";
 import type {
   PlayerDetail,
   PlayerListItem,
@@ -195,10 +204,30 @@ export async function findCodes(filter: ClipFilter): Promise<string[]> {
   return invoke<string[]>("find_codes", { filter });
 }
 
-/** Enters a team's six (zones 1–6) and setter for the set in progress. */
-export async function setLineup(team: Side, court: number[], setter: number): Promise<Snapshot> {
+/** What `rule` would do to each code `filter` finds; nothing changes. */
+export async function previewRule(filter: ClipFilter, rule: Rule): Promise<RuleChange[]> {
+  if (!inTauri) return [];
+  return invoke<RuleChange[]>("rule_preview", { filter, rule });
+}
+
+/** Applies `rule` to every code `filter` finds; one undo takes it back. */
+export async function applyRule(filter: ClipFilter, rule: Rule): Promise<Snapshot> {
+  if (!inTauri) throw new Error("Find and replace needs the desktop app.");
+  return invoke<Snapshot>("rule_apply", { filter, rule, clock: clock() });
+}
+
+/**
+ * Enters a team's six (zones 1–6), setter and liberos for the set in
+ * progress; `liberos` null leaves them to the team sheet.
+ */
+export async function setLineup(
+  team: Side,
+  court: number[],
+  setter: number,
+  liberos: number[] | null,
+): Promise<Snapshot> {
   if (!inTauri) throw new Error("Coding needs the desktop app.");
-  return invoke<Snapshot>("lineup_set", { team, court, setter, clock: clock() });
+  return invoke<Snapshot>("lineup_set", { team, court, setter, liberos, clock: clock() });
 }
 
 /** Ends the set in progress once its score wins it; `minutes`: its length as the scout gave it. */
@@ -213,15 +242,23 @@ export async function startGoldenSet(): Promise<Snapshot> {
   return invoke<Snapshot>("golden_set_start", { clock: clock() });
 }
 
-/** Corrects a team's six and setter for a set; the rest replays from it. */
+/** Corrects a team's six, setter and liberos for a set; the rest replays from it. */
 export async function correctLineup(
   team: Side,
   set: number,
   court: number[],
   setter: number,
+  liberos: number[] | null,
 ): Promise<Snapshot> {
   if (!inTauri) throw new Error("Coding needs the desktop app.");
-  return invoke<Snapshot>("lineup_correct", { team, set, court, setter, clock: clock() });
+  return invoke<Snapshot>("lineup_correct", {
+    team,
+    set,
+    court,
+    setter,
+    liberos,
+    clock: clock(),
+  });
 }
 
 /** The video player's state, for the transport bar. */

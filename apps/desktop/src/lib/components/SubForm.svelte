@@ -9,7 +9,7 @@
   const court = $derived(snap.court[side]);
   const bench = $derived(
     team.players
-      .filter((p) => !p.libero && !court.includes(p.number))
+      .filter((p) => !snap.liberos[side].includes(p.number) && !court.includes(p.number))
       .map((p) => p.number)
       .sort((a, b) => a - b),
   );

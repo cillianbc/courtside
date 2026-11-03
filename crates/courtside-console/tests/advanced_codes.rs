@@ -55,10 +55,10 @@ fn match_from_defaults() -> (Session, tempfile::TempDir) {
         .new_match(&home.id, &away.id, None, None, 4)
         .expect("match");
     session
-        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, None)
+        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, None, None)
         .expect("home six");
     session
-        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 11, None)
+        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 11, None, None)
         .expect("away six");
     (session, dir)
 }

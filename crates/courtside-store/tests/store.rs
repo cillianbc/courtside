@@ -141,24 +141,40 @@ fn starting_sixes_are_stored() {
         .import_dvw("m.dvw", FILE.as_bytes(), 1_000)
         .expect("import");
     let mut open = season.open_match(id).expect("open");
-    let six = vb_engine::Body::StartingSix {
-        team: vb_grammar::Team::Visiting,
-        court: [16, 1, 2, 3, 4, 5],
-    };
-    open.game.log.append(
-        &mut IdGen::new(2_000),
-        NewEvent {
-            body: six.clone(),
-            video_ms: None,
-            clock: None,
-            producer: Producer::Keyboard,
-        },
-    );
+    // Liberos from the team sheet, none this set, and two chosen (#56).
+    let sixes: Vec<vb_engine::Body> = [None, Some(vec![]), Some(vec![17, 6])]
+        .into_iter()
+        .map(|liberos| vb_engine::Body::StartingSix {
+            team: vb_grammar::Team::Visiting,
+            court: [16, 1, 2, 3, 4, 5],
+            liberos,
+        })
+        .collect();
+    let mut ids = IdGen::new(2_000);
+    for six in &sixes {
+        open.game.log.append(
+            &mut ids,
+            NewEvent {
+                body: six.clone(),
+                video_ms: None,
+                clock: None,
+                producer: Producer::Keyboard,
+            },
+        );
+    }
     season.save(id, &open.game.log).expect("save");
     drop(season);
     let season = Season::open(&path).expect("reopen");
     let log = season.open_match(id).expect("open").game.log;
-    assert_eq!(log.all().last().map(|e| &e.body), Some(&six));
+    let stored: Vec<&vb_engine::Body> = log
+        .all()
+        .iter()
+        .rev()
+        .take(3)
+        .rev()
+        .map(|e| &e.body)
+        .collect();
+    assert_eq!(stored, sixes.iter().collect::<Vec<_>>());
 }
 
 /// Takes a season file back to the version 9 layout (issue #49's
@@ -466,6 +482,7 @@ fn version_1_files_are_migrated() {
             body: vb_engine::Body::StartingSix {
                 team: vb_grammar::Team::Home,
                 court: [8, 12, 1, 2, 3, 4],
+                liberos: None,
             },
             video_ms: None,
             clock: None,

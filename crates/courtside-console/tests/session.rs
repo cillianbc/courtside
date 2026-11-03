@@ -397,21 +397,21 @@ fn a_won_set_ends_and_the_next_needs_lineups() {
     assert!(snap.sets[0].finished);
 
     let err = session
-        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 5], 1, None)
+        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 5], 1, None, None)
         .expect_err("duplicate");
     assert_eq!(err.to_string(), "lineup: #5 is in two zones");
     assert!(
         session
-            .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 17], 14, None)
+            .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 17], 14, None, None)
             .is_err(),
         "libero"
     );
 
     session
-        .set_lineup(Team::Home, [2, 3, 4, 5, 6, 1], 1, None)
+        .set_lineup(Team::Home, [2, 3, 4, 5, 6, 1], 1, None, None)
         .expect("home six");
     let snap = session
-        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 14, None)
+        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 14, None, None)
         .expect("visiting six");
     assert_eq!(
         snap.needs_lineup,
@@ -606,10 +606,10 @@ fn a_new_match_codes_and_exports() {
     );
 
     session
-        .set_lineup(Team::Home, [11, 12, 13, 14, 15, 16], 14, None)
+        .set_lineup(Team::Home, [11, 12, 13, 14, 15, 16], 14, None, None)
         .expect("home");
     session
-        .set_lineup(Team::Visiting, [1, 2, 3, 4, 5, 6], 1, None)
+        .set_lineup(Team::Visiting, [1, 2, 3, 4, 5, 6], 1, None, None)
         .expect("visiting");
     session
         .commit("a01SM- *12RM+ *14EH+ *13AH#", None)
@@ -742,10 +742,10 @@ fn from_an_empty_season_to_an_exported_match() {
     assert_eq!(snap.teams.home.players.len(), 7);
     assert_eq!(snap.teams.home.players[0].role, Some(5));
     session
-        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, None)
+        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, None, None)
         .expect("six");
     session
-        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 11, None)
+        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 11, None, None)
         .expect("six");
     session.commit("*01SM# a12RM=", None).expect("ace");
     // A late arrival for this match only.
@@ -885,7 +885,7 @@ fn a_lineup_is_corrected_in_place() {
 
     // 1 and 2 were the other way round; the setter, 1, starts in zone 2.
     let snap = session
-        .correct_lineup(Team::Home, 1, [2, 1, 3, 4, 5, 6], 1, None)
+        .correct_lineup(Team::Home, 1, [2, 1, 3, 4, 5, 6], 1, None, None)
         .expect("correct");
     let start = snap.starting[0].home.clone().expect("home six");
     assert_eq!(start.court, [2, 1, 3, 4, 5, 6].map(Some));
@@ -906,7 +906,7 @@ fn a_lineup_is_corrected_in_place() {
 
     assert!(
         session
-            .correct_lineup(Team::Home, 1, [2, 1, 3, 4, 5, 7], 9, None)
+            .correct_lineup(Team::Home, 1, [2, 1, 3, 4, 5, 7], 9, None, None)
             .is_err(),
         "setter not in the six"
     );
@@ -931,7 +931,7 @@ fn an_earlier_sets_lineup_is_corrected_after_the_match() {
     assert!(session.snapshot().expect("snapshot").match_over);
 
     let snap = session
-        .correct_lineup(Team::Home, 2, [6, 5, 4, 3, 2, 1], 3, None)
+        .correct_lineup(Team::Home, 2, [6, 5, 4, 3, 2, 1], 3, None, None)
         .expect("set 2");
     assert!(snap.match_over);
     let start = |n: usize| snap.starting[n].home.clone().expect("home six");
@@ -952,7 +952,7 @@ fn an_earlier_sets_lineup_is_corrected_after_the_match() {
     );
     assert!(
         session
-            .correct_lineup(Team::Home, 5, [6, 5, 4, 3, 2, 1], 3, None)
+            .correct_lineup(Team::Home, 5, [6, 5, 4, 3, 2, 1], 3, None, None)
             .is_err(),
         "no set 5"
     );
@@ -1213,7 +1213,7 @@ fn review_fixes_on_rally_endings() {
 
     // Visiting's setter started in zone 2: its later rotation follows.
     let snap = session
-        .correct_lineup(Team::Visiting, 1, [11, 14, 12, 13, 15, 16], 14, None)
+        .correct_lineup(Team::Visiting, 1, [11, 14, 12, 13, 15, 16], 14, None, None)
         .expect("lineup");
     let t = texts(&snap);
     assert!(t.contains(&"az2>LUp".to_string()), "{t:?}");
@@ -1360,10 +1360,10 @@ fn a_golden_set_after_the_match() {
     assert!(session.start_golden_set(None).is_err(), "only one");
 
     session
-        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, None)
+        .set_lineup(Team::Home, [1, 2, 3, 4, 5, 6], 1, None, None)
         .expect("home six");
     session
-        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 14, None)
+        .set_lineup(Team::Visiting, [11, 12, 13, 14, 15, 16], 14, None, None)
         .expect("away six");
     // 15 wins a golden set, not 25.
     let snap = session.commit("p14:13", None).expect("14:13");
@@ -1987,4 +1987,187 @@ fn a_set_is_marked_where_it_was() {
         "{:?}",
         texts(&snap)
     );
+}
+
+/// Find and replace (#25): one rule over every code a search finds,
+/// previewed first, undone as one.
+#[test]
+fn find_and_replace_changes_every_code_found() {
+    use courtside_console::rules::{Place, RuleTeam};
+    use courtside_console::{ClipFilter, Rule};
+    let (mut session, _dir) = opened();
+    let start = texts(&session.snapshot().expect("snapshot"));
+    let by_text = |text: &str| ClipFilter {
+        text: text.into(),
+        ..ClipFilter::default()
+    };
+    let replace = Rule::Replace { with: "a15".into() };
+
+    let preview = session
+        .preview_rule(&by_text("a12"), &replace)
+        .expect("preview");
+    let results: Vec<_> = preview
+        .iter()
+        .map(|c| (c.code.as_str(), c.result.clone()))
+        .collect();
+    assert_eq!(
+        results,
+        [
+            ("a12RM+", vec!["a15RM+".to_string()]),
+            ("a12SM=", vec!["a15SM=".to_string()]),
+        ]
+    );
+    // A dry run: nothing changed, nothing to undo.
+    assert_eq!(texts(&session.snapshot().expect("snapshot")), start);
+
+    let snap = session
+        .apply_rule(&by_text("a12"), &replace, None)
+        .expect("apply");
+    let t = texts(&snap);
+    assert!(t.contains(&"a15RM+".to_string()) && t.contains(&"a15SM=".to_string()));
+    assert!(!t.iter().any(|c| c.starts_with("a12")));
+    // One undo takes back both; redo puts back both.
+    assert_eq!(texts(&session.undo().expect("undo")), start);
+    assert_eq!(texts(&session.redo().expect("redo")), t);
+    assert_eq!(texts(&session.undo().expect("undo")), start);
+
+    // A dig by the other team after the kill, its player unknown.
+    let kill = by_text("a13AH#");
+    let add = Rule::Add {
+        code: "$$D".into(),
+        place: Place::After,
+        team: RuleTeam::Other,
+    };
+    let preview = session.preview_rule(&kill, &add).expect("preview");
+    assert_eq!(preview.len(), 1);
+    assert_eq!(preview[0].error, None);
+    let dig = preview[0].result[0].clone();
+    assert!(dig.starts_with("*$$D"), "{dig}");
+    let t = texts(&session.apply_rule(&kill, &add, None).expect("apply"));
+    let at = t.iter().position(|c| c == "a13AH#").expect("kill");
+    assert_eq!(t[at + 1], dig);
+    session.undo().expect("undo");
+    assert_eq!(texts(&session.snapshot().expect("snapshot")), start);
+
+    // The team comes from the code found; nothing comes after the last code.
+    let typed_team = Rule::Add {
+        code: "a$$D".into(),
+        place: Place::After,
+        team: RuleTeam::Same,
+    };
+    assert!(session.preview_rule(&kill, &typed_team).is_err());
+    let last = session
+        .preview_rule(&by_text("*02SH+"), &add)
+        .expect("preview");
+    assert!(last[0].error.is_some());
+    assert!(session.apply_rule(&by_text("*02SH+"), &add, None).is_err());
+    // Replace needs the text it replaces.
+    assert!(
+        session
+            .apply_rule(&ClipFilter::default(), &replace, None)
+            .is_err()
+    );
+    assert_eq!(texts(&session.snapshot().expect("snapshot")), start);
+}
+
+/// A set's liberos chosen with its six (#56): the team sheet's libero can
+/// play in the six, the chosen one can't attack, and the export marks
+/// the chosen one `L`.
+#[test]
+fn a_sets_liberos_are_chosen_with_its_six() {
+    let (mut session, dir) = opened();
+    for n in 2..=25 {
+        session
+            .commit(&format!("*p{n:02}:01"), None)
+            .expect("point");
+    }
+    session
+        .set_lineup(Team::Home, [2, 3, 4, 5, 6, 1], 1, None, None)
+        .expect("home six");
+    // 16 is set 2's libero; the team sheet's libero 17 plays in the six.
+    assert!(
+        session
+            .set_lineup(
+                Team::Visiting,
+                [11, 12, 13, 14, 15, 16],
+                14,
+                Some(vec![16]),
+                None
+            )
+            .is_err(),
+        "a libero in the six"
+    );
+    assert!(
+        session
+            .set_lineup(
+                Team::Visiting,
+                [11, 12, 13, 14, 15, 17],
+                14,
+                Some(vec![16, 7, 8]),
+                None
+            )
+            .is_err(),
+        "three liberos"
+    );
+    let snap = session
+        .set_lineup(
+            Team::Visiting,
+            [11, 12, 13, 14, 15, 17],
+            14,
+            Some(vec![16]),
+            None,
+        )
+        .expect("visiting six");
+    assert_eq!(snap.liberos.visiting, [16]);
+    assert_eq!(snap.liberos.home, Vec::<u8>::new());
+    let start = snap.starting.iter().find(|s| s.set == 2).expect("set 2");
+    assert_eq!(
+        start.visiting.as_ref().map(|v| v.liberos.clone()),
+        Some(vec![16])
+    );
+    // Set 1 kept the team sheet's.
+    let first = snap.starting.iter().find(|s| s.set == 1).expect("set 1");
+    assert_eq!(
+        first.visiting.as_ref().map(|v| v.liberos.clone()),
+        Some(vec![17])
+    );
+
+    let snap = session
+        .commit("*1SM- a16RM+ a14EH+ a16AH#", None)
+        .expect("rally");
+    let libero: Vec<_> = snap
+        .issues
+        .iter()
+        .filter(|i| i.message.contains("libero"))
+        .map(|i| i.message.as_str())
+        .collect();
+    assert_eq!(libero, ["libero 16 attacked"]);
+
+    // Modifying the six keeps its liberos as given: none this set.
+    let snap = session
+        .correct_lineup(
+            Team::Visiting,
+            2,
+            [11, 12, 13, 14, 15, 17],
+            14,
+            Some(vec![]),
+            None,
+        )
+        .expect("modify");
+    assert!(snap.liberos.visiting.is_empty());
+    assert!(!snap.issues.iter().any(|i| i.message.contains("libero")));
+    session.undo().expect("undo");
+
+    let out = dir.path().join("out.dvw");
+    session.export_dvw(&out, false).expect("export");
+    let text = String::from_utf8_lossy(&std::fs::read(&out).expect("read")).into_owned();
+    let special = |n: u8| {
+        let row = text
+            .lines()
+            .find(|l| l.starts_with(&format!("1;{n};")))
+            .expect("visiting player");
+        row.split(';').nth(12).map(str::to_owned)
+    };
+    assert_eq!(special(16).as_deref(), Some("L"));
+    assert_eq!(special(17).as_deref(), Some("L"));
 }

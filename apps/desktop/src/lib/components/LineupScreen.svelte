@@ -23,6 +23,8 @@
     /** Shirt numbers by zone (index zone − 1), as typed. */
     zones: string[];
     setter: string;
+    /** The set's liberos, at most two (#56). */
+    liberos: number[];
   }
 
   // Filled once from the set's sixes; later snapshots don't overwrite typing.
@@ -62,6 +64,8 @@
     return {
       zones: Array.from({ length: 6 }, (_, i) => String(start?.court[i] ?? sheet?.[i] ?? "")),
       setter: start?.setter != null ? String(start.setter) : "",
+      liberos:
+        start?.liberos ?? snap.teams[side].players.filter((p) => p.libero).map((p) => p.number),
     };
   }
   const filledFromSheet = untrack(() =>
@@ -115,6 +119,8 @@
     const sheet = snap.teams[side].players.map((p) => p.number);
     const missing = six.find((n) => !sheet.includes(n));
     if (missing !== undefined) return `#${missing} isn't on the team sheet`;
+    const libero = six.find((n) => draft[side].liberos.includes(n));
+    if (libero !== undefined) return `#${libero} is this set's libero`;
     const s = setterOf(side, six);
     if (s === null || !six.includes(s)) return "pick the setter";
     return null;
@@ -124,12 +130,22 @@
     const start = fromStart(side);
     return (
       start.zones.join(" ") !== draft[side].zones.map((z) => z.trim()).join(" ") ||
-      start.setter !== draft[side].setter.trim()
+      start.setter !== draft[side].setter.trim() ||
+      start.liberos.join(" ") !== draft[side].liberos.join(" ")
     );
   }
 
   const problems = $derived(ui.order.map((side) => [side, problem(side)] as const));
   const ready = $derived(problems.every(([, p]) => p === null));
+
+  // Libero slot `i` (0 or 1) takes `n`, or empties with null.
+  function setLibero(side: Side, i: number, n: number | null) {
+    const l = [...draft[side].liberos];
+    if (n === null) l.splice(i, 1);
+    else if (i < l.length) l[i] = n;
+    else l.push(n);
+    draft[side].liberos = [...new Set(l)];
+  }
 
   // A team-sheet chip fills the first empty zone, or takes its player out.
   function toggle(side: Side, n: number) {
@@ -158,9 +174,12 @@
       const start = startOf(snap, set, side);
       const name = snap.teams[side].name;
       if (start && !changed(side)) continue;
+      const liberos = [...draft[side].liberos];
       const ok = start
-        ? await ui.apply(`${name} lineup modified`, () => backend.correctLineup(side, set, six, s))
-        : await ui.apply(`${name} lineup entered`, () => backend.setLineup(side, six, s));
+        ? await ui.apply(`${name} lineup modified`, () =>
+            backend.correctLineup(side, set, six, s, liberos),
+          )
+        : await ui.apply(`${name} lineup entered`, () => backend.setLineup(side, six, s, liberos));
       if (!ok) {
         note = ui.result?.text ?? `${name}'s lineup wasn't saved.`;
         busy = false;
@@ -222,6 +241,32 @@
             >{problems.find(([s]) => s === side)?.[1] ?? "ready"}</span
           >
         </div>
+        <div class="lu-row">
+          <span class="lu-label" id="lu-libero-{cls}">Libero</span>
+          {#each [0, 1] as i (i)}
+            {@const chosen = draft[side].liberos[i] ?? null}
+            {#if i <= draft[side].liberos.length}
+              <select
+                aria-labelledby="lu-libero-{cls}"
+                value={chosen === null ? "" : String(chosen)}
+                onchange={(e) =>
+                  setLibero(
+                    side,
+                    i,
+                    e.currentTarget.value === "" ? null : Number(e.currentTarget.value),
+                  )}
+              >
+                <option value="">{i === 0 ? "none" : "no second"}</option>
+                {#each [...team.players].sort((a, b) => a.number - b.number) as p (p.number)}
+                  {#if p.number === chosen || (!six.includes(p.number) && !draft[side].liberos.includes(p.number))}
+                    <option value={String(p.number)}>#{p.number}</option>
+                  {/if}
+                {/each}
+              </select>
+            {/if}
+          {/each}
+          <span class="sub-note">this set; not in the six</span>
+        </div>
         <div>
           <div class="sub-note lu-sheet-note">Team sheet: click to fill the next empty zone</div>
           <div class="lu-bench">
@@ -229,11 +274,13 @@
               <button
                 type="button"
                 class:used={six.includes(p.number)}
-                class:lib={p.libero}
-                disabled={p.libero}
-                title={p.libero ? `${p.name}, libero: not in the six` : p.name}
+                class:lib={draft[side].liberos.includes(p.number)}
+                disabled={draft[side].liberos.includes(p.number)}
+                title={draft[side].liberos.includes(p.number)
+                  ? `${p.name}, this set's libero: not in the six`
+                  : p.name}
                 onclick={() => toggle(side, p.number)}
-                >{p.number}{#if p.libero}&nbsp;L{/if}</button
+                >{p.number}{#if draft[side].liberos.includes(p.number)}&nbsp;L{/if}</button
               >
             {/each}
           </div>

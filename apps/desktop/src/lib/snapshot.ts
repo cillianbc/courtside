@@ -106,6 +106,8 @@ export interface StartingView {
   /** Shirt numbers in zones 1–6. */
   court: (number | null)[];
   setter: number | null;
+  /** The set's liberos: chosen with the six, else the team sheet's. */
+  liberos: number[];
 }
 
 export interface Snapshot {
@@ -118,6 +120,8 @@ export interface Snapshot {
   court: Pair<(number | null)[]>;
   setter: Pair<number | null>;
   setterZone: Pair<number | null>;
+  /** Each team's liberos in the set in progress (#56). */
+  liberos: Pair<number[]>;
   /** The team has no six on court: enter its lineup before play. */
   needsLineup: Pair<boolean>;
   /** A team has won the match (and the golden set, if played); no set follows. */
@@ -195,6 +199,22 @@ export interface ClipFilter {
   set: number | null;
   /** Text the code contains, as written (`D=`, `a12`); "" for all. */
   text: string;
+}
+
+/** Find and replace in the code log (#25, `rules.rs`). */
+export type Rule =
+  | { kind: "replace"; with: string }
+  | { kind: "add"; code: string; place: "before" | "after"; team: "same" | "other" };
+
+/** What a rule does to one code found. */
+export interface RuleChange {
+  id: string;
+  /** The found code as it was. */
+  code: string;
+  /** The code it became, or the codes added. */
+  result: string[];
+  /** Why the rule leaves this code alone. */
+  error: string | null;
 }
 
 export interface Clip {

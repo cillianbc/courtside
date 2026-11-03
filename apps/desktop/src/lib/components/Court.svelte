@@ -18,10 +18,7 @@
   const nets = $derived<[Net, Net]>(ui.endView ? ["bottom", "top"] : ["right", "left"]);
 
   function liberos(side: Side): string {
-    return snap.teams[side].players
-      .filter((p) => p.libero)
-      .map((p) => p.number)
-      .join(", ");
+    return snap.liberos[side].join(", ");
   }
 </script>
 
