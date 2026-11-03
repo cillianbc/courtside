@@ -108,6 +108,16 @@ class Ui {
   followed = $state<string[]>([]);
   followedShown = $state(false);
   /**
+   * A whole rally waiting to be deleted (#72): what goes, from the dry
+   * run, and whether its codes are listed (and tinted in the log).
+   */
+  deletingRally = $state<{
+    id: string;
+    rally: number | null;
+    preview: backend.RallyDelete;
+    showCodes: boolean;
+  } | null>(null);
+  /**
    * Clips' filter, Checked ticks and Whole rallies, kept while the panel is
    * closed, for the match `matchId` (another match starts afresh).
    */
@@ -330,6 +340,34 @@ class Ui {
     const rows = (this.snapshot?.groups ?? []).flatMap((g) => g.rows);
     const i = rows.findIndex((r) => r.id === id);
     return i >= 0 ? (rows[i + 1]?.id ?? null) : null;
+  }
+
+  /** Asks to delete the rally event `id` is in: the confirm bar, with what goes. */
+  async askDeleteRally(id: string, rally: number | null) {
+    try {
+      const preview = await backend.deleteRallyPreview(id);
+      this.deletingRally = { id, rally, preview, showCodes: false };
+    } catch (e) {
+      this.result = { text: String(e), bad: true };
+    }
+  }
+
+  /** Deletes the rally the confirm bar asked about. */
+  async deleteRally(): Promise<boolean> {
+    const d = this.deletingRally;
+    if (!d) return false;
+    this.deletingRally = null;
+    this.selected = null;
+    const n = d.preview.codes.length;
+    const what = `Deleted rally ${d.rally ?? ""} (${n} ${n === 1 ? "code" : "codes"})`;
+    const ok = await this.apply(what, () => backend.deleteRally(d.id), true);
+    if (ok)
+      this.result = {
+        text: `${what}.`,
+        bad: false,
+        action: { label: "Undo", run: () => void this.undo() },
+      };
+    return ok;
   }
 
   remove(id: string, text: string): Promise<boolean> {

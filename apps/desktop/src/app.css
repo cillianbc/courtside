@@ -2617,6 +2617,26 @@ button.flag {
   background: var(--accent-soft);
   border: 1px solid var(--accent);
 }
+.confirm.danger {
+  background: var(--err-soft);
+  border-color: var(--err);
+  margin: 0 8px 4px;
+  flex: none;
+}
+.confirm .warn-line {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--err);
+}
+.confirm .doomed-codes {
+  flex-basis: 100%;
+  font-size: 12px;
+  word-break: break-word;
+}
+.row.doomed:not(.picked) {
+  background: var(--err-soft);
+  text-decoration: line-through;
+}
 .confirm .txt {
   flex: 1;
   min-width: 12ch;

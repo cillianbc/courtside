@@ -2232,3 +2232,85 @@ fn preview_ids(
         .map(|c| c.id)
         .collect()
 }
+
+/// Deleting a whole rally (#72): its codes and the side-out rotation its
+/// point caused go, later points move back, one undo puts it back.
+#[test]
+fn a_whole_rally_is_deleted() {
+    let (mut session, _dir) = opened();
+    let snap = session.snapshot().expect("snapshot");
+    let start = texts(&snap);
+    let id = |snap: &courtside_console::Snapshot, text: &str| row_id(snap, text);
+
+    // Rally 1, a side-out: the rotation at the top of rally 2 goes too.
+    let preview = session
+        .delete_rally_preview(&id(&snap, "a14EH+"))
+        .expect("preview");
+    assert_eq!(
+        preview.codes,
+        ["*01SM-", "a12RM+", "a14EH+", "a13AH#", "ap00:01", "az3"]
+    );
+    assert_eq!((preview.set, preview.points_moved), (1, 1));
+    assert_eq!(
+        (preview.score_before.clone(), preview.score_after.clone()),
+        (
+            Pair {
+                home: 1,
+                visiting: 1
+            },
+            Pair {
+                home: 1,
+                visiting: 0
+            }
+        )
+    );
+    assert!(preview.bench.is_empty());
+    assert_eq!(texts(&session.snapshot().expect("snapshot")), start);
+
+    let snap = session.delete_rally(&id(&snap, "a14EH+")).expect("delete");
+    let t = texts(&snap);
+    assert!(!t.iter().any(|c| c == "a13AH#" || c == "az3"), "{t:?}");
+    assert!(t.contains(&"*p01:00".to_string()), "{t:?}");
+    assert_eq!(texts(&session.undo().expect("undo")), start);
+
+    // Rally 2: its timeout goes, the rotation at its top stays.
+    let snap = session.snapshot().expect("snapshot");
+    let preview = session
+        .delete_rally_preview(&id(&snap, "a12SM="))
+        .expect("preview");
+    assert_eq!(preview.codes, ["*T", "a12SM=", "*p01:01", "*z6"]);
+    assert_eq!(preview.bench, ["*T"]);
+    // The rally in progress: just its codes.
+    let preview = session
+        .delete_rally_preview(&id(&snap, "*02SH+"))
+        .expect("preview");
+    assert_eq!(preview.codes, ["*02SH+"]);
+    assert_eq!(texts(&session.snapshot().expect("snapshot")), start);
+}
+
+/// The rally that won a set takes the set end with it while nothing
+/// follows; once the next set has codes it can't go.
+#[test]
+fn deleting_a_set_winning_rally() {
+    let (mut session, _dir) = opened();
+    for n in 2..=25 {
+        session
+            .commit(&format!("*p{n:02}:01"), None)
+            .expect("point");
+    }
+    let snap = session.snapshot().expect("snapshot");
+    let last = row_id(&snap, "*p25:01");
+    let preview = session.delete_rally_preview(&last).expect("preview");
+    assert_eq!(preview.codes, ["*p25:01", "**1set"]);
+    let snap = session.delete_rally(&last).expect("delete");
+    assert_eq!(snap.set, 1);
+    assert!(!snap.sets[0].finished);
+    let snap = session.undo().expect("undo");
+    assert_eq!(snap.set, 2);
+
+    session
+        .set_lineup(Team::Home, [2, 3, 4, 5, 6, 1], 1, None, None)
+        .expect("home six");
+    let err = session.delete_rally(&last).expect_err("set 2 started");
+    assert!(err.to_string().contains("Set 2 has codes already"), "{err}");
+}

@@ -97,6 +97,7 @@ export const ACTIONS: readonly { id: string; label: string; keys: string }[] = [
   { id: "insertBeforePicked", label: "Add codes before the picked code", keys: "Alt+B" },
   { id: "insertAfterPicked", label: "Add codes after the picked code", keys: "Alt+A" },
   { id: "removePicked", label: "Remove the picked code", keys: "Alt+X" },
+  { id: "deleteRally", label: "Delete the picked code's rally", keys: "Alt+Shift+X" },
   { id: "openChecks", label: "Open Checks", keys: "Alt+C" },
   // Search the code log (#25); while a search is on, the previous/next
   // play keys step through what it found.

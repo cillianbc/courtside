@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { stepFound } from "../actions";
+  import { rallyCode, stepFound } from "../actions";
   import * as backend from "../backend";
   import { filterSummary, hasFields } from "../filter";
   import type { Group, IssueView, Row, Snapshot } from "../snapshot";
@@ -170,7 +170,28 @@
   }
 
   let section: HTMLElement | undefined = $state();
-  let menu = $state<{ x: number; y: number; row: Row; group: Group } | null>(null);
+  let menu = $state<{ x: number; y: number; row: Row; group: Group; head?: boolean } | null>(null);
+
+  // Deleting a whole rally (#72): the confirm bar, focused when it opens.
+  const doomed = $derived(new Set(ui.deletingRally?.showCodes ? ui.deletingRally.preview.ids : []));
+  let deleteButton: HTMLButtonElement | undefined = $state();
+  $effect(() => {
+    if (ui.deletingRally) deleteButton?.focus();
+  });
+  function deleteKey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      ui.deletingRally = null;
+      ui.focusCode += 1;
+    }
+  }
+  function score(p: { home: number; visiting: number }): string {
+    return `${p.home}:${p.visiting}`;
+  }
+  function askDelete(g: Group) {
+    const r = rallyCode(g);
+    if (r) void ui.askDeleteRally(r.id, g.rally);
+  }
 </script>
 
 <section class="panel codes" aria-label="Codes" bind:this={section}>
@@ -315,6 +336,47 @@
       <ReplaceBar {snap} />
     {/if}
   {/if}
+  {#if ui.deletingRally}
+    {@const d = ui.deletingRally}
+    {@const p = d.preview}
+    <div
+      class="confirm danger rally-delete"
+      role="alertdialog"
+      aria-label="Delete rally"
+      tabindex="-1"
+      onkeydown={deleteKey}
+    >
+      <span class="txt"
+        >Delete rally {d.rally ?? ""} ({p.codes.length}
+        {p.codes.length === 1 ? "code" : "codes"})? Set {p.set}
+        {score(p.scoreBefore)} → {score(p.scoreAfter)}{#if p.pointsMoved}
+          · {p.pointsMoved} later {p.pointsMoved === 1 ? "point moves" : "points move"} back{/if}.</span
+      >
+      {#if p.bench.length}
+        <span class="warn-line"
+          >Takes out {p.bench.join(", ")}: who's on court changes from here (issues {p.issuesBefore}
+          → {p.issuesAfter}).</span
+        >
+      {/if}
+      <button
+        class="link"
+        type="button"
+        aria-expanded={d.showCodes}
+        onclick={() => (d.showCodes = !d.showCodes)}
+        >{d.showCodes ? "hide codes" : "show codes"}</button
+      >
+      <button class="btn" type="button" onclick={() => (ui.deletingRally = null)}>Cancel</button>
+      <button
+        class="btn danger"
+        type="button"
+        bind:this={deleteButton}
+        onclick={() => void ui.deleteRally()}>Delete rally</button
+      >
+      {#if d.showCodes}
+        <code class="doomed-codes">{p.codes.join(" ")}</code>
+      {/if}
+    </div>
+  {/if}
   <div class="tab-panel" role="tabpanel" bind:this={pane}>
     <div class="log" role="listbox" aria-label="Codes, set {shown}">
       {#each groups as g, i (key(g))}
@@ -335,7 +397,16 @@
           </div>
         {/if}
         <div class="rally" class:closed role="group" aria-label="Rally {g.rally ?? ''}">
-          <div class="rally-head">
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="rally-head"
+            oncontextmenu={(e) => {
+              const r = rallyCode(g);
+              if (!r) return;
+              e.preventDefault();
+              menu = { x: e.clientX, y: e.clientY, row: r, group: g, head: true };
+            }}
+          >
             {#if g.closed}
               <button
                 class="rally-toggle"
@@ -391,6 +462,7 @@
               class:picked={ui.selected === r.id}
               class:found={ui.finding && foundSet.has(r.id)}
               class:followed={followedSet.has(r.id)}
+              class:doomed={doomed.has(r.id)}
               class="row"
               class:home={r.team === "home"}
               class:away={r.team === "visiting"}
@@ -477,12 +549,20 @@
       y={m.y}
       within={section}
       onclose={() => (menu = null)}
-      items={[
-        { label: "Modify", disabled: !canModify(m.row), run: () => modify(m.row, m.group) },
-        { label: "Add before", run: () => ui.startEdit("insert", m.row.id, m.row.text) },
-        { label: "Add after", run: () => ui.startEdit("after", m.row.id, m.row.text) },
-        { label: "Remove", danger: true, run: () => void ui.remove(m.row.id, m.row.text) },
-      ]}
+      items={m.head
+        ? [{ label: "Delete this rally", danger: true, run: () => askDelete(m.group) }]
+        : [
+            { label: "Modify", disabled: !canModify(m.row), run: () => modify(m.row, m.group) },
+            { label: "Add before", run: () => ui.startEdit("insert", m.row.id, m.row.text) },
+            { label: "Add after", run: () => ui.startEdit("after", m.row.id, m.row.text) },
+            { label: "Remove", danger: true, run: () => void ui.remove(m.row.id, m.row.text) },
+            {
+              label: "Delete this rally",
+              danger: true,
+              disabled: m.group.rally === null && !m.group.rows.some((r) => r.kind === "touch"),
+              run: () => askDelete(m.group),
+            },
+          ]}
     />
   {/if}
 </section>

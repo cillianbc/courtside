@@ -6,7 +6,7 @@ import { rotationCode, timeoutCode } from "./codes";
 import { stepMatch } from "./filter";
 import { pickCode } from "./jump";
 import { noteAction } from "./trail";
-import type { Side } from "./snapshot";
+import type { Group, Row, Side } from "./snapshot";
 import { ui } from "./ui.svelte";
 import { JUMP, LONG_JUMP, video } from "./video.svelte";
 
@@ -151,10 +151,16 @@ export function run(action: string): boolean {
     case "insertBeforePicked":
     case "insertAfterPicked":
     case "removePicked":
+    case "deleteRally":
       return runPicked(action);
     default:
       return runVideo(action);
   }
+}
+
+/** The code that stands for a rally: its first touch or point (a timeout isn't in it). */
+export function rallyCode(g: Group): Row | undefined {
+  return g.rows.find((r) => r.kind === "touch" || r.kind === "point") ?? g.rows[0];
 }
 
 /** Actions on the code picked in the log; false with none picked. */
@@ -179,6 +185,9 @@ function runPicked(action: string): boolean {
       return true;
     case "insertAfterPicked":
       ui.startEdit("after", r.id, r.text);
+      return true;
+    case "deleteRally":
+      void ui.askDeleteRally(rallyCode(found.g)?.id ?? r.id, found.g.rally);
       return true;
     default:
       void ui.remove(r.id, r.text);

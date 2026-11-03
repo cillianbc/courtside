@@ -9,8 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use courtside_console::{
     ClipFilter, Clips, ClockTime, FixPreview, Keys, MatchId, MatchItem, PlayerDetail,
-    PlayerListItem, Preview, Resume, Rule, RuleChange, Session, Settings, SheetCheck, SheetChoice,
-    SheetPreview, Snapshot, Team, TeamDetail, TeamForm, TeamImportView, VenueView,
+    PlayerListItem, Preview, RallyDelete, Resume, Rule, RuleChange, Session, Settings, SheetCheck,
+    SheetChoice, SheetPreview, Snapshot, Team, TeamDetail, TeamForm, TeamImportView, VenueView,
 };
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -665,6 +665,18 @@ fn rotations_fix(state: State<'_, Shared>, id: String) -> Reply<Snapshot> {
     with(&state, |s| s.fix_rotations(&id))
 }
 
+/// What deleting the rally event `id` is in would do, without doing it.
+#[tauri::command]
+fn rally_delete_preview(state: State<'_, Shared>, id: String) -> Reply<RallyDelete> {
+    with(&state, |s| s.delete_rally_preview(&id))
+}
+
+/// Deletes the rally event `id` is in.
+#[tauri::command]
+fn rally_delete(state: State<'_, Shared>, id: String) -> Reply<Snapshot> {
+    with(&state, |s| s.delete_rally(&id))
+}
+
 /// What "Fix rotations from here" would change, without changing it.
 #[tauri::command]
 fn rotations_fix_preview(state: State<'_, Shared>, id: String) -> Reply<FixPreview> {
@@ -924,6 +936,8 @@ fn main() {
             code_remove,
             rotations_fix,
             rotations_fix_preview,
+            rally_delete_preview,
+            rally_delete,
             export_dvw,
             video_open,
             video_sync,

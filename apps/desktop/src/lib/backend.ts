@@ -9,6 +9,7 @@ import type {
   ClipFilter,
   Clips,
   MatchItem,
+  Pair,
   Preview,
   Rule,
   RuleChange,
@@ -372,6 +373,32 @@ export interface FixPreview {
   toRally: number | null;
   issuesBefore: number;
   issuesAfter: number;
+}
+
+/** What deleting a whole rally would do (#72; `RallyDelete` in the console). */
+export interface RallyDelete {
+  ids: string[];
+  codes: string[];
+  set: number;
+  scoreBefore: Pair<number>;
+  scoreAfter: Pair<number>;
+  pointsMoved: number;
+  /** Substitutions and timeouts that go with it. */
+  bench: string[];
+  issuesBefore: number;
+  issuesAfter: number;
+}
+
+/** What deleting the rally event `id` is in would do; nothing changes. */
+export async function deleteRallyPreview(id: string): Promise<RallyDelete> {
+  needsApp();
+  return invoke<RallyDelete>("rally_delete_preview", { id });
+}
+
+/** Deletes the rally event `id` is in; one undo puts it back. */
+export async function deleteRally(id: string): Promise<Snapshot> {
+  needsApp();
+  return invoke<Snapshot>("rally_delete", { id });
 }
 
 export async function fixRotationsPreview(id: string): Promise<FixPreview> {

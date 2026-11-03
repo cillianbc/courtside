@@ -92,6 +92,27 @@ pub struct FixPreview {
     pub issues_after: usize,
 }
 
+/// What deleting a rally would do ([`Session::delete_rally_preview`], #72).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RallyDelete {
+    /// The codes that go, by event id and as written, in match order.
+    pub ids: Vec<String>,
+    pub codes: Vec<String>,
+    pub set: u8,
+    /// The set's score now and once the rally is gone.
+    pub score_before: snapshot::Pair<u8>,
+    pub score_after: snapshot::Pair<u8>,
+    /// Later point codes of the set that move back to their new score.
+    pub points_moved: usize,
+    /// Substitutions and timeouts that go with the rally: who is on court
+    /// (or the timeouts left) changes from there.
+    pub bench: Vec<String>,
+    /// Issues in the match now and after.
+    pub issues_before: usize,
+    pub issues_after: usize,
+}
+
 /// One change to the console's side-out rotations ([`Current::rerotate`]).
 enum RotationFix {
     Correct(EventId, Code),
@@ -664,6 +685,98 @@ fn event_id(id: &str) -> Result<EventId> {
 }
 
 impl Current {
+    /// Takes out the rally `target` is in, without saving (#72): its
+    /// touches, green code, point, substitutions and timeouts, and the
+    /// side-out rotation its point caused (at the top of the next rally).
+    /// The rotation at its own top (the rally before's) and the set's
+    /// lineup codes stay. The rally that won a set takes its set end with
+    /// it, unless anything comes after that set end. Later point codes of
+    /// the set move back and the console's rotations are written again.
+    /// The events taken out, in match order, and the rally's set.
+    fn delete_rally(&mut self, target: EventId) -> Result<(Vec<EventId>, u8)> {
+        let pos = self
+            .position_of(target)
+            .ok_or_else(|| Error::BadCode(format!("no event {:?}", target.0)))?;
+        let visible: Vec<MatchEvent> = self.game.log.visible().into_iter().cloned().collect();
+        let folded = fold(&self.game);
+        let rally = folded
+            .states
+            .get(pos)
+            .and_then(|s| s.rally)
+            .and_then(|r| folded.rallies.get(r))
+            .cloned()
+            .ok_or_else(|| Error::BadCode("That code isn't part of a rally.".into()))?;
+        let play = |e: &MatchEvent| matches!(e.kind(), EventKind::Touch | EventKind::Point);
+        let first_play = (rally.first..=rally.last).find(|&i| visible.get(i).is_some_and(play));
+        let mut gone = Vec::new();
+        for (i, e) in visible
+            .iter()
+            .enumerate()
+            .take(rally.last + 1)
+            .skip(rally.first)
+        {
+            let lineup = matches!(
+                e.kind(),
+                EventKind::Lineup
+                    | EventKind::StartingSix
+                    | EventKind::GoldenSet
+                    | EventKind::Comment
+            );
+            let rotation = matches!(
+                e.kind(),
+                EventKind::SetterPosition | EventKind::SetterChange
+            );
+            if lineup || (rotation && first_play.is_none_or(|f| i < f)) {
+                continue;
+            }
+            gone.push(e.id);
+        }
+        // Timeouts aren't in a rally; the ones between its codes go too.
+        let rest = &visible[rally.last + 1..];
+        let leading = rest
+            .iter()
+            .take_while(|e| !play(e) && e.kind() != EventKind::SetEnd);
+        if let (Some(won), Some(served)) = (rally.won_by, rally.serving)
+            && won != served
+            && let Some(e) = leading.clone().find(|e| {
+                e.kind() == EventKind::SetterPosition && e.code().and_then(Code::team) == Some(won)
+            })
+        {
+            gone.push(e.id);
+        }
+        let after = leading.count();
+        if let Some(end) = rest.get(after).filter(|e| e.kind() == EventKind::SetEnd) {
+            if rest.len() > after + 1 {
+                return Err(Error::BadCode(format!(
+                    "Set {} has codes already: this rally won set {}. Take those out first.",
+                    rally.set + 1,
+                    rally.set
+                )));
+            }
+            gone.push(end.id);
+        }
+        if gone.is_empty() {
+            return Err(Error::BadCode("This rally has no codes to delete.".into()));
+        }
+        let before = self.game.log.len();
+        let mut change = || -> std::result::Result<(), LogError> {
+            for id in &gone {
+                self.game
+                    .log
+                    .remove(&mut self.ids, *id, Producer::Keyboard)?;
+            }
+            self.rescore_from(rally.first, rally.score_before)?;
+            self.rerotate(rally.first)
+        };
+        if let Err(e) = change() {
+            while self.game.log.len() > before {
+                self.game.log.undo();
+            }
+            return Err(e.into());
+        }
+        Ok((gone, rally.set))
+    }
+
     /// The codes the console wrote, corrected or took out since the visible
     /// events were `shown`: what followed a change the scout made.
     fn followed_since(&self, shown: &[EventId]) -> Vec<rules::Followed> {
@@ -2749,6 +2862,80 @@ impl Session {
         c.persist(season, before)?;
         c.batches.push((before, c.game.log.len()));
         Ok((self.snapshot()?, changes))
+    }
+
+    /// What deleting the rally event `id` is in would do (#72), without
+    /// doing it: a dry run rolled back before returning; nothing is saved
+    /// and undo is untouched.
+    pub fn delete_rally_preview(&mut self, id: &str) -> Result<RallyDelete> {
+        let target = event_id(id)?;
+        let snap = self.snapshot()?;
+        let (before, redo, shown, done) = {
+            let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+            let shown: Vec<EventId> = c.game.log.visible().iter().map(|e| e.id).collect();
+            let before = c.game.log.len();
+            let redo = c.redo.clone();
+            (before, redo, shown, c.delete_rally(target))
+        };
+        let result = done.and_then(|(gone, set)| {
+            let after = self.snapshot()?;
+            let c = self.current.as_ref().ok_or(Error::NoMatch)?;
+            let code_of = |id: &EventId| c.game.log.get(*id).and_then(|e| e.code()).cloned();
+            let codes: Vec<Code> = gone.iter().filter_map(code_of).collect();
+            let score = |s: &Snapshot| {
+                s.sets
+                    .iter()
+                    .find(|x| x.number == set)
+                    .map(|x| x.score.clone())
+                    .unwrap_or_else(|| s.score.clone())
+            };
+            let points_moved = c
+                .game
+                .log
+                .visible()
+                .iter()
+                .filter(|e| {
+                    !shown.contains(&e.id)
+                        && e.producer == Producer::Repair
+                        && matches!(e.code(), Some(Code::Point { .. }))
+                })
+                .count();
+            Ok(RallyDelete {
+                ids: gone.iter().map(|g| g.0.to_string()).collect(),
+                codes: codes.iter().map(Code::to_string).collect(),
+                set,
+                score_before: score(&snap),
+                score_after: score(&after),
+                points_moved,
+                bench: codes
+                    .iter()
+                    .filter(|c| matches!(c, Code::Substitution { .. } | Code::Timeout { .. }))
+                    .map(Code::to_string)
+                    .collect(),
+                issues_before: snap.issues.len(),
+                issues_after: after.issues.len(),
+            })
+        });
+        if let Some(c) = self.current.as_mut() {
+            while c.game.log.len() > before {
+                c.game.log.undo();
+            }
+            c.redo = redo;
+        }
+        result
+    }
+
+    /// Deletes the rally event `id` is in (#72; what goes:
+    /// [`Session::delete_rally_preview`]). One undo puts it back.
+    pub fn delete_rally(&mut self, id: &str) -> Result<Snapshot> {
+        let target = event_id(id)?;
+        let c = self.current.as_mut().ok_or(Error::NoMatch)?;
+        let season = self.season.as_mut().ok_or(Error::NoSeason)?;
+        let before = c.game.log.len();
+        c.delete_rally(target)?;
+        c.persist(season, before)?;
+        c.batches.push((before, c.game.log.len()));
+        self.snapshot()
     }
 
     /// Remembers the video opened with the match (`None` forgets it).
