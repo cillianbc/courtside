@@ -8,6 +8,7 @@ use vb_grammar::{Code, Player, Skill, Team, Touch};
 use crate::event::{EventId, EventKind, MatchEvent};
 use crate::fold::{Folded, Rally, Score, State, fold_events};
 use crate::model::{Match, Outcome};
+use crate::subs::{Breach, SubBook};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
@@ -881,13 +882,7 @@ impl Validator<'_> {
     }
 
     fn substitutions(&mut self) {
-        #[derive(Default)]
-        struct Book {
-            count: u8,
-            pairs: HashMap<u8, u8>,
-            closed: HashSet<u8>,
-        }
-        let mut books: HashMap<(u8, Team), Book> = HashMap::new();
+        let mut books: HashMap<(u8, Team), SubBook> = HashMap::new();
         for i in 0..self.events.len() {
             let Some(Code::Substitution {
                 team, out, r#in, ..
@@ -947,7 +942,7 @@ impl Validator<'_> {
                 ));
             }
             let book = books.entry((self.f.states[i].set, team)).or_default();
-            book.count = book.count.saturating_add(1);
+            let breach = book.record(out, inn);
             let limit = self.m.rules.substitutions;
             if book.count == limit.saturating_add(1) {
                 found.push((
@@ -960,32 +955,23 @@ impl Validator<'_> {
                     ),
                 ));
             }
-            if let Some(p) = [out, inn].into_iter().find(|p| book.closed.contains(p)) {
-                found.push((
+            match breach {
+                None => {}
+                Some(Breach::ReEntry(p)) => found.push((
                     Severity::Error,
                     IssueKind::ReEntry,
                     format!("player {p} has already gone off and come back on this set"),
-                ));
-            } else if let Some(&partner) = book.pairs.get(&out) {
-                if partner == inn {
-                    book.closed.insert(out);
-                    book.closed.insert(inn);
-                } else {
-                    found.push((
-                        Severity::Error,
-                        IssueKind::WrongPartner,
-                        format!("player {out} can only be replaced by {partner}"),
-                    ));
-                }
-            } else if let Some(&partner) = book.pairs.get(&inn) {
-                found.push((
+                )),
+                Some(Breach::OffForOther { off, partner }) => found.push((
                     Severity::Error,
                     IssueKind::WrongPartner,
-                    format!("player {inn} can only come on for {partner}"),
-                ));
-            } else {
-                book.pairs.insert(out, inn);
-                book.pairs.insert(inn, out);
+                    format!("player {off} can only be replaced by {partner}"),
+                )),
+                Some(Breach::OnForOther { on, partner }) => found.push((
+                    Severity::Error,
+                    IssueKind::WrongPartner,
+                    format!("player {on} can only come on for {partner}"),
+                )),
             }
             for (severity, kind, message) in found {
                 self.push(i, severity, Rule::Substitution, kind, message);

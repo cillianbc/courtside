@@ -151,6 +151,40 @@ export function fixture(): Snapshot {
     starting: [],
     timeouts: { home: 1, visiting: 0 },
     substitutions: { home: 2, visiting: 4 },
+    substitutionPairs: {
+      home: [
+        { starter: 3, substitute: 7, state: "out" },
+        { starter: 5, substitute: 9, state: "out" },
+      ],
+      visiting: [
+        { starter: 13, substitute: 10, state: "out" },
+        { starter: 2, substitute: 9, state: "back" },
+        { starter: 19, substitute: 12, state: "out" },
+      ],
+    },
+    substitutionOptions: {
+      home: [
+        { off: 11, on: [18], reason: null },
+        { off: 14, on: [18], reason: null },
+        { off: 1, on: [18], reason: null },
+        { off: 4, on: [18], reason: null },
+        { off: 7, on: [3], reason: null },
+        { off: 9, on: [5], reason: null },
+      ],
+      visiting: [
+        { off: 15, on: [21], reason: null },
+        {
+          off: 2,
+          on: [],
+          reason:
+            "#2 and #9 have gone off and back this set; only an exceptional substitution can change them.",
+        },
+        { off: 5, on: [21], reason: null },
+        { off: 8, on: [21], reason: null },
+        { off: 10, on: [13], reason: null },
+        { off: 12, on: [19], reason: null },
+      ],
+    },
     groups,
     issues: [
       {

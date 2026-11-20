@@ -10,6 +10,7 @@ mod import;
 pub mod log;
 pub mod model;
 pub mod stats;
+pub mod subs;
 pub mod validate;
 
 pub use event::{Body, EventId, EventKind, IdGen, MatchEvent, NewEvent, Points, Producer};
