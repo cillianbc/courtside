@@ -2314,3 +2314,54 @@ fn deleting_a_set_winning_rally() {
     let err = session.delete_rally(&last).expect_err("set 2 started");
     assert!(err.to_string().contains("Set 2 has codes already"), "{err}");
 }
+
+/// The rotation at a picked code (#74): who was on court, who served and
+/// the setter's zone as the fold had them there, not at the end of the log.
+#[test]
+fn rotation_at_a_picked_code() {
+    let (session, _dir) = opened();
+    let snap = session.snapshot().expect("snapshot");
+
+    // Rally 1: both sixes as they started, home serving, 0–0.
+    let r = session
+        .rotation_at(&row_id(&snap, "a14EH+"))
+        .expect("rotation");
+    assert_eq!(r.set, 1);
+    assert_eq!(
+        r.court.home,
+        [Some(1), Some(2), Some(3), Some(4), Some(5), Some(6)]
+    );
+    assert_eq!(r.court.visiting[0], Some(11));
+    assert_eq!(r.serving, Some(Side::Home));
+    assert_eq!(
+        r.score,
+        Pair {
+            home: 0,
+            visiting: 0
+        }
+    );
+    assert_eq!(r.setter.home, Some(1));
+    assert_eq!(r.setter_zone.home, Some(1));
+    assert_eq!(r.liberos.visiting, [17]);
+
+    // Rally 2: visiting sided out and rotated; they serve, 12 from zone 1.
+    let r = session
+        .rotation_at(&row_id(&snap, "a12SM="))
+        .expect("rotation");
+    assert_eq!(r.court.visiting[0], Some(12));
+    assert_eq!(r.court.home[0], Some(1));
+    assert_eq!(r.serving, Some(Side::Visiting));
+    assert_eq!(r.setter_zone.visiting, Some(3));
+
+    // The last code: the same as the snapshot's own.
+    let r = session
+        .rotation_at(&row_id(&snap, "*02SH+"))
+        .expect("rotation");
+    assert_eq!(r.court, snap.court);
+    assert_eq!(r.serving, snap.serving);
+    assert_eq!(r.setter_zone, snap.setter_zone);
+
+    let json = serde_json::to_value(&r).expect("json");
+    assert!(json["setterZone"]["home"].is_number());
+    assert!(session.rotation_at("not an id").is_err());
+}

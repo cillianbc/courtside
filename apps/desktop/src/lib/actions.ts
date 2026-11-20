@@ -130,6 +130,10 @@ export function run(action: string): boolean {
     case "layout":
       ui.setLayout(ui.layout === "watch" ? "coding" : "watch");
       return true;
+    case "rotationView":
+      if (ui.layout !== "watch") return false;
+      ui.toggleRotation();
+      return true;
     case "exportDvw":
       void exportDvw();
       return true;

@@ -444,10 +444,13 @@ body {
 .work.watch {
   /* v6 T7: the column grows with the window, 350 to 460 px. */
   grid-template-columns: clamp(350px, 26vw, 460px) minmax(0, 1fr);
-  grid-template-rows: minmax(220px, 1fr) auto auto auto;
+  /* The rotation's row (#74) keeps its whole height; the rows around it
+     give way first. */
+  grid-template-rows: minmax(220px, 1fr) auto max-content auto auto;
   grid-template-areas:
     "codes video"
     "team video"
+    "rot video"
     "plays video"
     "cmd video";
 }
@@ -471,6 +474,141 @@ body {
 }
 .work > .side {
   grid-area: checks;
+}
+.work > .rotation {
+  grid-area: rot;
+}
+
+/* The Video layout's rotation (#74): a small court per team beside the
+   video, setter ringed, server dotted, as the team panel's court. */
+.rotation {
+  padding: 6px 8px;
+  gap: 6px;
+}
+.rot-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rot-head .rot-at {
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rot-head h2 + .btn {
+  margin-left: auto;
+}
+.rot-courts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4px minmax(0, 1fr);
+  gap: 4px;
+  background: var(--court);
+  border-radius: 6px;
+  padding: 4px;
+}
+.rot-courts.end {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 4px auto;
+}
+.rot-courts.end .net {
+  background: repeating-linear-gradient(90deg, var(--muted) 0 3px, transparent 3px 6px);
+}
+.rot-half {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rot-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  min-width: 0;
+  padding-inline: 2px;
+}
+.rot-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rot-half.home .rot-name {
+  color: var(--home);
+}
+.rot-half.away .rot-name {
+  color: var(--away);
+}
+.rot-p {
+  flex: none;
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--setter);
+}
+.rot-lib {
+  flex: none;
+  font-family: var(--mono);
+  color: var(--muted);
+}
+.rot-label .serve-dot {
+  width: 8px;
+  height: 8px;
+}
+.rot-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+.rot-grid.wide {
+  grid-template-columns: repeat(3, 1fr);
+}
+.rot-zone {
+  position: relative;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--court-line);
+  border-radius: var(--radius-control);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.rot-half.home .rot-zone {
+  color: var(--home);
+}
+.rot-half.away .rot-zone {
+  color: var(--away);
+}
+.rot-zone small {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  transform: translateY(-50%);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.rot-zone.setter {
+  background: var(--panel);
+  border: 2px solid var(--setter);
+}
+.rot-zone.server::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 /* The video layout keeps only what coding needs beside the video. */
 .work.watch > .side,
@@ -1557,6 +1695,9 @@ button.rally-toggle {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
     grid-template-areas: "video" "cmd" "codes" "team" "plays" "checks";
+  }
+  .work.watch {
+    grid-template-areas: "video" "cmd" "codes" "team" "rot" "plays";
   }
   .lineup-teams {
     grid-template-columns: minmax(0, 1fr);
@@ -2785,6 +2926,7 @@ button.flag {
 
 /* v6 T3: nothing under 12 px. */
 .court-head h2,
+.rot-head h2,
 .half-label,
 .issue .where,
 .plays-head,

@@ -665,6 +665,15 @@ fn rotations_fix(state: State<'_, Shared>, id: String) -> Reply<Snapshot> {
     with(&state, |s| s.fix_rotations(&id))
 }
 
+/// Who was on court at the code `id` (the Video layout's rotation, #74).
+#[tauri::command]
+fn rotation_at(
+    state: State<'_, Shared>,
+    id: String,
+) -> Reply<courtside_console::snapshot::RotationView> {
+    with(&state, |s| s.rotation_at(&id))
+}
+
 /// What deleting the rally event `id` is in would do, without doing it.
 #[tauri::command]
 fn rally_delete_preview(state: State<'_, Shared>, id: String) -> Reply<RallyDelete> {
@@ -938,6 +947,7 @@ fn main() {
             rotations_fix_preview,
             rally_delete_preview,
             rally_delete,
+            rotation_at,
             export_dvw,
             video_open,
             video_sync,
