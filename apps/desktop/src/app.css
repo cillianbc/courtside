@@ -2717,14 +2717,55 @@ button.flag {
 .icon-btn {
   border-color: var(--edge);
 }
-/* Keys stay in the tooltips where the panel is narrow. */
+/* Keys stay in the tooltips where the panel is narrow (#76: shown only from
+   420 px, where a team's row still fits on one line with them). */
 .team {
   container-type: inline-size;
 }
-@container (max-width: 400px) {
+@container (max-width: 419px) {
   .team .tool .kbd {
     display: none;
   }
+}
+.team .tool[aria-expanded="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+/* The substitution popover (#76): under its team's row, over the panel. */
+.sub-pop {
+  position: fixed;
+  z-index: 40;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+}
+.sub-pop:focus {
+  outline: none;
+}
+.sub-pop::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: var(--tip, 50%);
+  width: 10px;
+  height: 10px;
+  background: var(--panel);
+  border-left: 1px solid var(--edge);
+  border-top: 1px solid var(--edge);
+  transform: rotate(45deg);
+}
+.sub-pop.above::before {
+  top: auto;
+  bottom: -6px;
+  transform: rotate(225deg);
+}
+.sub-pop > .sub-form {
+  border: 0;
+  padding: 0;
+  background: none;
 }
 .zone.setter {
   background: var(--panel);
@@ -2806,7 +2847,10 @@ button.flag {
   .team .setter-in .lbl {
     display: none;
   }
-  /* Name and setter on their own line, the buttons under them. */
+}
+/* #76: one line per team down to 300 px; only narrower does the name get a
+   line of its own, the buttons under it. */
+@container (max-width: 300px) {
   .team .ctl-row {
     flex-wrap: wrap;
   }

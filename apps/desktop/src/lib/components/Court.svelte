@@ -1,5 +1,7 @@
 <!-- The team panel: timeouts, substitutions and rotation first, one row per
-     team, then who is on court. Lineups have their own screen. -->
+     team, then who is on court. Lineups have their own screen. The
+     substitution form opens as a popover under its team's row (#76), over the
+     panel and what lies below it, so the column keeps its layout. -->
 <script lang="ts">
   import * as backend from "../backend";
   import { LAYOUT, columns, type Net } from "../court";
@@ -20,7 +22,76 @@
   function liberos(side: Side): string {
     return snap.liberos[side].join(", ");
   }
+
+  // The substitution popover (#76): fixed-positioned outside the panel (the
+  // panel scrolls and is a size container, which would clip it), placed under
+  // the row whose button opened it, or above it when there's no room below.
+  let section = $state<HTMLElement>();
+  let pop = $state<HTMLElement>();
+  const rows: Partial<Record<Side, HTMLElement>> = $state({});
+  const subSide = $derived(ui.subFor && !snap.needsLineup[ui.subFor] ? ui.subFor : null);
+  let place = $state({ top: 0, left: 0, width: 0, tip: 0, above: false });
+
+  function position() {
+    const row = subSide ? rows[subSide] : undefined;
+    if (!row || !pop || !section) return;
+    const panel = section.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    const btn = row.querySelector<HTMLElement>("[aria-haspopup]")?.getBoundingClientRect() ?? r;
+    const h = pop.offsetHeight;
+    const above = r.bottom + 8 + h > window.innerHeight - 8 && r.top - 8 - h >= 8;
+    const width = Math.min(Math.max(panel.width - 8, 260), window.innerWidth - 16);
+    const left = Math.max(8, Math.min(panel.left + 4, window.innerWidth - width - 8));
+    place = {
+      top: above ? r.top - 8 - h : r.bottom + 8,
+      left,
+      width,
+      tip: btn.left + btn.width / 2 - left - 6,
+      above,
+    };
+  }
+
+  $effect(() => {
+    if (!subSide || !pop) return;
+    position();
+    const ro = new ResizeObserver(position);
+    ro.observe(pop);
+    if (section) ro.observe(section);
+    window.addEventListener("resize", position);
+    // The panel scrolls in the Coding layout; the popover follows its row.
+    window.addEventListener("scroll", position, true);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", position);
+      window.removeEventListener("scroll", position, true);
+    };
+  });
+
+  // Focus the form's first field when it opens for a team.
+  $effect(() => {
+    if (!subSide || !pop) return;
+    const el = pop;
+    queueMicrotask(() =>
+      el.querySelector<HTMLElement>("select, input, button:not(:disabled)")?.focus(),
+    );
+  });
+
+  /** Closes the popover; `refocus` puts the caret back in the command line. */
+  function closeSub(refocus = true) {
+    ui.subFor = null;
+    if (refocus) ui.focusCode += 1;
+  }
+
+  // A press outside the popover and its buttons closes it, leaving focus be.
+  function outside(e: PointerEvent) {
+    if (!subSide || !(e.target instanceof Node)) return;
+    if (pop?.contains(e.target)) return;
+    if (e.target instanceof Element && e.target.closest("[data-sub-toggle]")) return;
+    closeSub(false);
+  }
 </script>
+
+<svelte:window onpointerdowncapture={outside} />
 
 {#snippet half(side: Side, net: Net)}
   {@const cls = side === "home" ? "home" : "away"}
@@ -42,7 +113,7 @@
   </div>
 {/snippet}
 
-<section class="panel team" aria-label="Team controls and court">
+<section class="panel team" aria-label="Team controls and court" bind:this={section}>
   {#if snap.matchOver}
     <div class="match-over">
       <p class="empty-note">
@@ -66,7 +137,7 @@
       {@const name = snap.teams[side].name}
       {@const toOut = snap.timeouts[side] >= 2}
       {@const subOut = snap.substitutions[side] >= snap.substitutionLimit}
-      <div class="ctl-row" class:away={side === "visiting"}>
+      <div class="ctl-row" class:away={side === "visiting"} bind:this={rows[side]}>
         <span class="who">
           <b class="team-name {side === 'home' ? 'home' : 'away'}" title={name}>{name}</b>
           <span class="setter-in" title="Setter in zone {snap.setterZone[side] ?? '?'}"
@@ -93,9 +164,12 @@
             ? `${snap.substitutionLimit} of ${snap.substitutionLimit} substitutions used`
             : withKey(`Substitution, ${name}`, side === "home" ? "subHome" : "subAway")}
           aria-label="Substitution, {name}"
-          aria-pressed={ui.subFor === side}
+          aria-haspopup="dialog"
+          aria-expanded={subSide === side}
+          aria-controls={subSide === side ? "sub-pop" : undefined}
+          data-sub-toggle
           disabled={snap.needsLineup[side] || subOut}
-          onclick={() => (ui.subFor = ui.subFor === side ? null : side)}
+          onclick={() => (ui.subFor === side ? closeSub() : (ui.subFor = side))}
           ><Icon name="sub" /><span class="num"
             >{snap.substitutions[side]}/{snap.substitutionLimit}</span
           ><Kbd action={side === "home" ? "subHome" : "subAway"} /></button
@@ -120,9 +194,6 @@
       </div>
     {/each}
   </div>
-  {#if ui.subFor && !snap.needsLineup[ui.subFor]}
-    <SubForm {snap} side={ui.subFor} onclose={() => (ui.subFor = null)} />
-  {/if}
   <div class="court-head">
     <h2>On court · set {snap.set}</h2>
     <div class="view-tools">
@@ -158,3 +229,26 @@
     >
   </div>
 </section>
+{#if subSide}
+  <div
+    class="sub-pop"
+    class:above={place.above}
+    id="sub-pop"
+    role="dialog"
+    aria-label="Substitution, {snap.teams[subSide].name}"
+    tabindex="-1"
+    bind:this={pop}
+    style:top="{place.top}px"
+    style:left="{place.left}px"
+    style:width="{place.width}px"
+    style:--tip="{place.tip}px"
+    onkeydown={(e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeSub();
+    }}
+  >
+    {#key subSide}<SubForm {snap} side={subSide} onclose={() => closeSub()} />{/key}
+  </div>
+{/if}
