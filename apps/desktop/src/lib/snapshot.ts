@@ -110,6 +110,22 @@ export interface StartingView {
   liberos: number[];
 }
 
+export interface SubPairView {
+  starter: number;
+  substitute: number;
+  /** `out`: the substitute is on; `back`: the starter came back, both used up. */
+  state: "out" | "back";
+}
+
+export interface SubOptionView {
+  /** A player on court. */
+  off: number;
+  /** Bench players a regular substitution may bring on for them. */
+  on: number[];
+  /** Why nobody may, when `on` is empty. */
+  reason: string | null;
+}
+
 export interface Snapshot {
   matchId: string;
   teams: Pair<TeamView>;
@@ -139,6 +155,10 @@ export interface Snapshot {
   starting: SetStart[];
   timeouts: Pair<number>;
   substitutions: Pair<number>;
+  /** Each team's starter and substitute pairs in the set in progress (#75). */
+  substitutionPairs: Pair<SubPairView[]>;
+  /** For each player on court, who a regular substitution may bring on (#75). */
+  substitutionOptions: Pair<SubOptionView[]>;
   groups: Group[];
   issues: IssueView[];
   events: number;

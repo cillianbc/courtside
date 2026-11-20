@@ -5,6 +5,7 @@
 use courtside_ffi::validate::{rule_name, severity_name};
 use courtside_store::{MatchSummary, Team as StoreTeam};
 use serde::{Deserialize, Serialize};
+use vb_engine::subs::PairState;
 use vb_engine::validate::{Rule, Severity, validate_folded};
 use vb_engine::{EventKind, Match, MatchEvent, Producer, Sides, fold::fold_events};
 
@@ -89,6 +90,12 @@ pub struct Snapshot {
     /// Used in the current set.
     pub timeouts: Pair<u8>,
     pub substitutions: Pair<u8>,
+    /// Each team's starter and substitute pairs in the set in progress,
+    /// in the order the starters went off (#75).
+    pub substitution_pairs: Pair<Vec<SubPairView>>,
+    /// For each player on court, in zone order, who a regular
+    /// substitution may bring on (#75).
+    pub substitution_options: Pair<Vec<SubOptionView>>,
     /// The code stream, split into rallies; the last group may be open.
     pub groups: Vec<Group>,
     pub issues: Vec<IssueView>,
@@ -98,6 +105,25 @@ pub struct Snapshot {
     pub video_path: Option<String>,
     /// The attached scoresheet's sixes and scores, set by set (issue #57).
     pub sheet: Option<crate::sheet::SheetSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SubPairView {
+    pub starter: u8,
+    pub substitute: u8,
+    /// `out`: the substitute is on; `back`: the starter came back and
+    /// neither can be changed again in the set.
+    pub state: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SubOptionView {
+    /// A player on court.
+    pub off: u8,
+    /// Bench players a regular substitution may bring on for them.
+    pub on: Vec<u8>,
+    /// Why nobody may, when `on` is empty.
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -565,12 +591,56 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
         })
     };
 
+    let team_views = Pair {
+        home: team_view(&teams.0),
+        visiting: team_view(&teams.1),
+    };
+    let books = vb_engine::subs::books(&events, &folded);
+    let book = |team: Team| books.get(&(set, team)).cloned().unwrap_or_default();
+    let substitution_pairs = Pair::from_fn(|team| {
+        book(team)
+            .pairs
+            .iter()
+            .map(|p| SubPairView {
+                starter: p.starter,
+                substitute: p.substitute,
+                state: match p.state {
+                    PairState::Out => "out",
+                    PairState::Back => "back",
+                },
+            })
+            .collect()
+    });
+    let substitution_options = Pair::from_fn(|team| {
+        let on_court = court(team);
+        let liberos = folded.liberos(game, team, set);
+        let players = match team {
+            Team::Home => &team_views.home.players,
+            Team::Visiting => &team_views.visiting.players,
+        };
+        let bench: Vec<u8> = players
+            .iter()
+            .map(|p| p.number)
+            .filter(|n| !liberos.contains(n) && !on_court.contains(&Some(*n)))
+            .collect();
+        let book = book(team);
+        on_court
+            .iter()
+            .flatten()
+            .map(|&off| {
+                let o = book.options(off, &bench);
+                SubOptionView {
+                    off,
+                    on: o.on,
+                    reason: o.reason,
+                }
+            })
+            .collect()
+    });
+
     Snapshot {
         match_id: match_id.to_owned(),
-        teams: Pair {
-            home: team_view(&teams.0),
-            visiting: team_view(&teams.1),
-        },
+        teams: team_views,
         // The last set played once the match is over.
         set: if match_over {
             set.saturating_sub(1).max(1)
@@ -616,6 +686,8 @@ pub fn build(match_id: &str, game: &Match, teams: &(StoreTeam, StoreTeam)) -> Sn
             .collect(),
         timeouts: count(EventKind::Timeout),
         substitutions: count(EventKind::Substitution),
+        substitution_pairs,
+        substitution_options,
         groups,
         issues: issues
             .iter()
