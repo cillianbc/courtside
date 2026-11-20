@@ -2864,6 +2864,15 @@ impl Session {
         Ok((self.snapshot()?, changes))
     }
 
+    /// Who was on court at the code `id` (#74): each team's six, setter
+    /// and liberos and who served, as the fold had them just after it.
+    pub fn rotation_at(&self, id: &str) -> Result<snapshot::RotationView> {
+        let target = event_id(id)?;
+        let c = self.current.as_ref().ok_or(Error::NoMatch)?;
+        snapshot::rotation_at(&c.game, target)
+            .ok_or_else(|| Error::BadCode(format!("no event {id:?}")))
+    }
+
     /// What deleting the rally event `id` is in would do (#72), without
     /// doing it: a dry run rolled back before returning; nothing is saved
     /// and undo is untouched.

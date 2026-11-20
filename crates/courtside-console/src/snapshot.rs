@@ -7,7 +7,7 @@ use courtside_store::{MatchSummary, Team as StoreTeam};
 use serde::{Deserialize, Serialize};
 use vb_engine::subs::PairState;
 use vb_engine::validate::{Rule, Severity, validate_folded};
-use vb_engine::{EventKind, Match, MatchEvent, Producer, Sides, fold::fold_events};
+use vb_engine::{EventId, EventKind, Match, MatchEvent, Producer, Sides, fold::fold_events};
 
 use crate::readback;
 use vb_grammar::{Code, Skill, Team};
@@ -330,6 +330,60 @@ fn starting(
         court,
         setter: *st.setter.get(team),
         liberos: folded.liberos(game, team, set),
+    })
+}
+
+/// Who was on court at one code of the log (#74): the fold just after it,
+/// for the rotation the Video layout shows while a code is picked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotationView {
+    pub set: u8,
+    pub score: Pair<u8>,
+    /// The team serving the code's rally (the last point's winner for a
+    /// code outside one), when known.
+    pub serving: Option<Side>,
+    /// Shirt numbers in zones 1–6.
+    pub court: Pair<[Option<u8>; 6]>,
+    pub setter: Pair<Option<u8>>,
+    pub setter_zone: Pair<Option<u8>>,
+    pub liberos: Pair<Vec<u8>>,
+}
+
+/// [`RotationView`] at the visible event `id`; `None` when it isn't one.
+/// A set end shows the set it ends (at it the fold has moved on to the
+/// next set's empty court).
+pub fn rotation_at(game: &Match, id: EventId) -> Option<RotationView> {
+    let events = game.log.visible();
+    let folded = fold_events(game, &events);
+    let mut i = events.iter().position(|e| e.id == id)?;
+    if i > 0 && events.get(i).is_some_and(|e| e.kind() == EventKind::SetEnd) {
+        i -= 1;
+    }
+    let st = folded.states.get(i)?;
+    let serving = st
+        .rally
+        .and_then(|r| folded.rallies.get(r))
+        .and_then(|r| r.serving)
+        .or_else(|| {
+            folded
+                .rallies
+                .iter()
+                .filter(|r| r.set == st.set && r.last < i)
+                .filter_map(|r| r.won_by)
+                .next_back()
+        });
+    Some(RotationView {
+        set: st.set,
+        score: Pair {
+            home: st.score.home,
+            visiting: st.score.visiting,
+        },
+        serving: serving.map(Side::from),
+        court: Pair::from(&st.court),
+        setter: Pair::from(&st.setter),
+        setter_zone: Pair::from(&st.setter_position),
+        liberos: Pair::from_fn(|team| folded.liberos(game, team, st.set)),
     })
 }
 

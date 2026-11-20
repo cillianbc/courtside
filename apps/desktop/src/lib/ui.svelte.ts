@@ -88,6 +88,8 @@ class Ui {
   /** Light, dark or the system's; boost raises contrast over either. Per computer. */
   theme = $state<Theme>(storedTheme());
   boost = $state(remembered("courtside.boost"));
+  /** The Video layout's rotation (#74) is open. Remembered per computer. */
+  rotationShown = $state(!remembered("courtside.hideRotation"));
   sideTab = $state<"checks" | "set" | "clips">("checks");
   /** Checks show where the code stream does (Video layout, v6 T8). */
   checksOpen = $state(false);
@@ -379,6 +381,12 @@ class Ui {
   setLayout(layout: "coding" | "watch") {
     this.layout = layout;
     remember("courtside.watchLayout", layout === "watch");
+  }
+
+  /** Opens or closes the Video layout's rotation and remembers it on this computer. */
+  toggleRotation() {
+    this.rotationShown = !this.rotationShown;
+    remember("courtside.hideRotation", !this.rotationShown);
   }
 
   /**

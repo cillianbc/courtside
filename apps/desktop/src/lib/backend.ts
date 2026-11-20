@@ -4,6 +4,7 @@
 
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { fixture, fixtureTeams } from "./fixture";
+import type { RotationView } from "./rotation";
 import type { Keys, Settings } from "./settings";
 import type {
   ClipFilter,
@@ -29,7 +30,14 @@ import type { VisMatch, VisTournament } from "./vis";
 import { noteAction } from "./trail";
 
 // Polled or sent while typing: too many to say what the scout did.
-const QUIET = new Set(["video_state", "video_place", "preview", "snapshot", "report_js_error"]);
+const QUIET = new Set([
+  "video_state",
+  "video_place",
+  "preview",
+  "snapshot",
+  "report_js_error",
+  "rotation_at",
+]);
 
 /** A backend command, noted for problem reports by name. */
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -399,6 +407,15 @@ export async function deleteRallyPreview(id: string): Promise<RallyDelete> {
 export async function deleteRally(id: string): Promise<Snapshot> {
   needsApp();
   return invoke<Snapshot>("rally_delete", { id });
+}
+
+/**
+ * Who was on court at the code `id` (#74). In a plain browser there is no
+ * fold to ask: `null`, and the caller shows the snapshot's.
+ */
+export async function rotationAt(id: string): Promise<RotationView | null> {
+  if (!inTauri) return null;
+  return invoke<RotationView>("rotation_at", { id });
 }
 
 export async function fixRotationsPreview(id: string): Promise<FixPreview> {
