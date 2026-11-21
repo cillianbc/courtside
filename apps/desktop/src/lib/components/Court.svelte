@@ -5,15 +5,15 @@
 <script lang="ts">
   import * as backend from "../backend";
   import { LAYOUT, columns, type Net } from "../court";
-  import { rotationCode, timeoutCode } from "../codes";
+  import { rotationCode } from "../codes";
   import { withKey } from "../kbd";
   import type { Side, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
   import Icon from "./Icon.svelte";
-  import Kbd from "./Kbd.svelte";
   import SetterBadge from "./SetterBadge.svelte";
   import SideTag from "./SideTag.svelte";
   import SubForm from "./SubForm.svelte";
+  import TeamTools from "./TeamTools.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
 
@@ -26,18 +26,23 @@
   // The substitution popover (#76): fixed-positioned outside the panel (the
   // panel scrolls and is a size container, which would clip it), placed under
   // the row whose button opened it, or above it when there's no room below.
+  // The button is in this panel's rows (Coding layout) or the Rotation
+  // panel's header (Video layout); either way it carries `data-sub-toggle`.
   let section = $state<HTMLElement>();
   let pop = $state<HTMLElement>();
-  const rows: Partial<Record<Side, HTMLElement>> = $state({});
   const subSide = $derived(ui.subFor && !snap.needsLineup[ui.subFor] ? ui.subFor : null);
   let place = $state({ top: 0, left: 0, width: 0, tip: 0, above: false });
 
   function position() {
-    const row = subSide ? rows[subSide] : undefined;
-    if (!row || !pop || !section) return;
-    const panel = section.getBoundingClientRect();
+    const toggle = subSide
+      ? document.querySelector<HTMLElement>(`[data-sub-toggle="${subSide}"]`)
+      : null;
+    const row = toggle?.closest<HTMLElement>(".ctl-row, .rot-head") ?? null;
+    const host = toggle?.closest<HTMLElement>(".panel") ?? section;
+    if (!toggle || !row || !pop || !host) return;
+    const panel = host.getBoundingClientRect();
     const r = row.getBoundingClientRect();
-    const btn = row.querySelector<HTMLElement>("[aria-haspopup]")?.getBoundingClientRect() ?? r;
+    const btn = toggle.getBoundingClientRect();
     const h = pop.offsetHeight;
     const above = r.bottom + 8 + h > window.innerHeight - 8 && r.top - 8 - h >= 8;
     const width = Math.min(Math.max(panel.width - 8, 260), window.innerWidth - 16);
@@ -135,45 +140,14 @@
   <div class="team-ctl">
     {#each ui.order as side (side)}
       {@const name = snap.teams[side].name}
-      {@const toOut = snap.timeouts[side] >= 2}
-      {@const subOut = snap.substitutions[side] >= snap.substitutionLimit}
-      <div class="ctl-row" class:away={side === "visiting"} bind:this={rows[side]}>
+      <div class="ctl-row" class:away={side === "visiting"}>
         <span class="who">
           <b class="team-name {side === 'home' ? 'home' : 'away'}" title={name}>{name}</b>
           <span class="setter-in" title="Setter in zone {snap.setterZone[side] ?? '?'}"
             ><SetterBadge /><span class="lbl">setter in</span> {snap.setterZone[side] ?? "?"}</span
           >
         </span>
-        <button
-          type="button"
-          class="tool"
-          title={toOut
-            ? "No timeouts left in this set"
-            : withKey(`Timeout, ${name}`, side === "home" ? "timeoutHome" : "timeoutAway")}
-          aria-label="Timeout, {name}"
-          disabled={toOut}
-          onclick={() => ui.commit(timeoutCode(side))}
-          ><Icon name="timeout" /><span class="num">{snap.timeouts[side]}/2</span><Kbd
-            action={side === "home" ? "timeoutHome" : "timeoutAway"}
-          /></button
-        >
-        <button
-          type="button"
-          class="tool"
-          title={subOut
-            ? `${snap.substitutionLimit} of ${snap.substitutionLimit} substitutions used`
-            : withKey(`Substitution, ${name}`, side === "home" ? "subHome" : "subAway")}
-          aria-label="Substitution, {name}"
-          aria-haspopup="dialog"
-          aria-expanded={subSide === side}
-          aria-controls={subSide === side ? "sub-pop" : undefined}
-          data-sub-toggle
-          disabled={snap.needsLineup[side] || subOut}
-          onclick={() => (ui.subFor === side ? closeSub() : (ui.subFor = side))}
-          ><Icon name="sub" /><span class="num"
-            >{snap.substitutions[side]}/{snap.substitutionLimit}</span
-          ><Kbd action={side === "home" ? "subHome" : "subAway"} /></button
-        >
+        {#if ui.layout !== "watch"}<TeamTools {snap} {side} />{/if}
         <span class="rot-group">
           {#each [false, true] as forward (forward)}
             {@const code = rotationCode(side, snap.setterZone[side], forward)}

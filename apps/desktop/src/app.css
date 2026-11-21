@@ -484,6 +484,7 @@ body {
 .rotation {
   padding: 6px 8px;
   gap: 6px;
+  container-type: inline-size;
 }
 .rot-head {
   display: flex;
@@ -500,6 +501,58 @@ body {
 }
 .rot-head h2 + .btn {
   margin-left: auto;
+}
+/* Timeouts and substitutions in the Video layout (between "Now" and Hide):
+   a pair per team, marked with the team's colour. */
+.rot-tools {
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
+}
+.rot-team {
+  display: inline-flex;
+  gap: 3px;
+  padding-left: 5px;
+  border-left: 3px solid var(--home);
+}
+.rot-team.away {
+  border-left-color: var(--away);
+}
+.rot-team .tool {
+  height: 26px;
+  padding: 0 4px;
+  gap: 3px;
+}
+.rot-head .rot-toggle {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+/* Narrow column: the title gives way so the four buttons, "Now" and the
+   toggle stay on one line. */
+@container (max-width: 380px) {
+  .rot-head h2 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+.rot-team .tool[aria-expanded="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+/* Narrow column: the "Now / Picked code" line gives way first, then the
+   header wraps the buttons onto their own line. */
+.rot-head {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  gap: 6px;
+}
+.rot-head .rot-at {
+  min-width: 0;
 }
 .rot-courts {
   display: grid;

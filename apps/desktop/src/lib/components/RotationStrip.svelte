@@ -9,6 +9,8 @@
   import { cells, rotationName, rotationOf, type RotationView } from "../rotation";
   import type { Side, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
+  import Icon from "./Icon.svelte";
+  import TeamTools from "./TeamTools.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
 
@@ -75,7 +77,7 @@
 {/snippet}
 
 <section class="panel rotation" aria-label="Rotation">
-  <div class="rot-head">
+  <div class="rot-head" class:collapsed={!ui.rotationShown}>
     <h2>Rotation</h2>
     {#if ui.rotationShown}
       <span class="rot-at">
@@ -86,12 +88,24 @@
         {/if}
       </span>
     {/if}
+    <!-- Timeouts and substitutions live here in the Video layout, one
+         team-coloured pair each, in court order. -->
+    <span class="rot-tools">
+      {#each ui.order as side (side)}
+        <span
+          class="rot-team {side === 'home' ? 'home' : 'away'}"
+          role="group"
+          aria-label={snap.teams[side].name}><TeamTools {snap} {side} keys={false} /></span
+        >
+      {/each}
+    </span>
     <button
-      class="btn small"
+      class="icon-btn rot-toggle"
       type="button"
       title={withKey(ui.rotationShown ? "Hide the rotation" : "Show the rotation", "rotationView")}
+      aria-label={ui.rotationShown ? "Hide the rotation" : "Show the rotation"}
       aria-expanded={ui.rotationShown}
-      onclick={() => ui.toggleRotation()}>{ui.rotationShown ? "Hide" : "Show"}</button
+      onclick={() => ui.toggleRotation()}><Icon name={ui.rotationShown ? "up" : "down"} /></button
     >
   </div>
   {#if ui.rotationShown}

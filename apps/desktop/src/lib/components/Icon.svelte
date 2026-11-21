@@ -10,6 +10,8 @@
     | "forward"
     | "swap"
     | "turn"
+    | "up"
+    | "down"
     | "lineup"
     | "pause"
     | "stepBack"
@@ -101,5 +103,9 @@
     <rect x="1.5" y="6" width="8" height="8" rx="1" /><path
       d="M7 2.5h3a3.5 3.5 0 0 1 3.5 3.5v2.5"
     /><path d="M11.5 7l2 2 2-2" />
+  {:else if name === "up"}
+    <path d="M4 10l4-4 4 4" />
+  {:else if name === "down"}
+    <path d="M4 6l4 4 4-4" />
   {/if}
 </svg>
