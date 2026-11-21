@@ -9,7 +9,6 @@
   import Court from "./lib/components/Court.svelte";
   import LineupScreen from "./lib/components/LineupScreen.svelte";
   import PlayCourt from "./lib/components/PlayCourt.svelte";
-  import RotationStrip from "./lib/components/RotationStrip.svelte";
   import SearchPanel from "./lib/components/SearchPanel.svelte";
   import StartScreen from "./lib/components/StartScreen.svelte";
   import TopBar from "./lib/components/TopBar.svelte";
@@ -91,7 +90,6 @@
           <CodeStream {snap} />
         {/if}
         <Court {snap} />
-        {#if ui.layout === "watch"}<RotationStrip {snap} />{/if}
         {#if ui.layout === "watch" && ui.finding}<SearchPanel {snap} />{/if}
         <CommandBar />
         <PlayCourt {snap} />

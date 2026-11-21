@@ -5,7 +5,11 @@
      code's zones. -->
 <script lang="ts">
   import * as backend from "../backend";
-  import { cellPosition, fromDrawing, toDrawing, type Pt } from "../court";
+  import { rotationCode } from "../codes";
+  import { cellPosition, fromDrawing, toDrawing, zonePosition, type Pt } from "../court";
+  import { withKey } from "../kbd";
+  import { rotationName, rotationOf, type RotationView } from "../rotation";
+  import Icon from "./Icon.svelte";
   import { other, type Row, type Side, type Snapshot } from "../snapshot";
   import { keyFor } from "../settings";
   import { ui } from "../ui.svelte";
@@ -50,6 +54,64 @@
 
   // The video layout draws it end on, as a tall strip beside the video.
   const end = $derived(ui.endView || ui.layout === "watch");
+  const watch = $derived(ui.layout === "watch");
+
+  // The Video layout's one court (as VolleyStation): who is on court, drawn
+  // as shirts by zone, at the picked code (the backend's fold there) or at
+  // the end of the log. Alt+P hides them.
+  let picked = $state<RotationView | null>(null);
+  $effect(() => {
+    const id = ui.selected;
+    void snap; // a change to the log can change who was on court there
+    if (!id || !watch) {
+      picked = null;
+      return;
+    }
+    let live = true;
+    backend.rotationAt(id).then(
+      (r) => {
+        if (live) picked = r;
+      },
+      () => {
+        if (live) picked = null;
+      },
+    );
+    return () => {
+      live = false;
+    };
+  });
+  const view = $derived(picked ?? rotationOf(snap));
+  interface Player {
+    side: Side;
+    zone: number;
+    number: number;
+    at: Pt;
+    setter: boolean;
+    server: boolean;
+  }
+  const players = $derived.by((): Player[] => {
+    if (!watch || !ui.rotationShown) return [];
+    const out: Player[] = [];
+    for (const side of ui.order) {
+      const flip = side !== (ui.order[0] ?? "home");
+      view.court[side].forEach((n, i) => {
+        if (n === null || n === undefined) return;
+        const zone = i + 1;
+        out.push({
+          side,
+          zone,
+          number: n,
+          at: toDrawing(zonePosition(zone), flip, end),
+          setter: n === view.setter[side],
+          server: view.serving === side && zone === 1,
+        });
+      });
+    }
+    return out;
+  });
+  // A shirt, centred on (0, 0), in court units.
+  const SHIRT =
+    "M-0.17 -0.3L-0.36 -0.2L-0.3 0.0L-0.2 -0.04L-0.2 0.3L0.2 0.3L0.2 -0.04L0.3 0.0L0.36 -0.2L0.17 -0.3Q0 -0.2 -0.17 -0.3Z";
   const keys = $derived(
     [keyFor(ui.keymap, "codePrev"), keyFor(ui.keymap, "codeNext")].filter(Boolean).join(" / "),
   );
@@ -101,10 +163,11 @@
     };
   });
 
-  // On a short window the Video layout folds the court to its header until
-  // a play is picked or a clip plays, or the scout opens it (v6 review).
+  // On a short window the Coding layout folds the court to its header until
+  // a play is picked or a clip plays, or the scout opens it (v6 review). The
+  // Video layout's court is also the rotation, so it stays open.
   let opened = $state(false);
-  const marking_ = $derived(opened || !!ui.selected || !!video.clip);
+  const marking_ = $derived(watch || opened || !!ui.selected || !!video.clip);
 
   let svg: SVGSVGElement | undefined = $state();
   let from = $state<Pt | null>(null);
@@ -160,6 +223,30 @@
   }
 </script>
 
+{#snippet rotate(side: Side)}
+  {@const name = snap.teams[side].name}
+  <div class="court-rot">
+    <span class="court-p" title="{name}: setter in zone {view.setterZone[side] ?? '?'}"
+      >{rotationName(view.setterZone[side])}</span
+    >
+    {#if view.liberos[side].length}<span class="court-l" title="Libero"
+        >L {view.liberos[side].join(", ")}</span
+      >{/if}
+    {#each [true, false] as forward (forward)}
+      {@const code = rotationCode(side, snap.setterZone[side], forward)}
+      {@const label = `Rotate ${name} ${forward ? "forward" : "back"} one place`}
+      <button
+        type="button"
+        class="icon-btn"
+        title={forward ? withKey(label, side === "home" ? "rotateHome" : "rotateAway") : label}
+        aria-label={label}
+        disabled={code === null}
+        onclick={() => code && ui.commit(code)}><Icon name={forward ? "fwd" : "back"} /></button
+      >
+    {/each}
+  </div>
+{/snippet}
+
 {#snippet drawn(r: Row, main: boolean)}
   {@const a = arrow(r)}
   {@const cls = r.team === "home" ? "home" : "away"}
@@ -207,6 +294,9 @@
         >Where it went: <code>{target.text}</code>
         <span class="sub-note">{target.meaning}</span></span
       >
+      {#if picked}<span class="sub-note court-at"
+          >Set {view.set} · {view.score.home}–{view.score.visiting}</span
+        >{/if}
       <button
         class="btn mark-open"
         type="button"
@@ -221,35 +311,62 @@
       <span class="sub-note">Code a play, or pick one in the log, to mark where it went.</span>
     {/if}
   </div>
-  <svg
-    bind:this={svg}
-    viewBox={box}
-    role="img"
-    aria-label="Court: drag from where the play started to where it ended, or click where it ended"
-    onpointerdown={down}
-    onpointermove={move}
-    onpointerup={up}
-    onpointercancel={() => (from = to = null)}
-  >
-    <rect class="floor" x={rect.x} y={rect.y} width={rect.w} height={rect.h} />
-    {#each lines.attack as l, i (i)}
-      <line class="court-line thin" x1={l.a.x} y1={l.a.y} x2={l.b.x} y2={l.b.y} />
-    {/each}
-    <line
-      class="net-line"
-      x1={lines.net.a.x}
-      y1={lines.net.a.y}
-      x2={lines.net.b.x}
-      y2={lines.net.b.y}
-    />
-    {#each rally as r (r.id)}
-      {@render drawn(r, false)}
-    {/each}
-    {#if target}{@render drawn(target, true)}{/if}
-    {#if from && to}
-      <line class="play drag" x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
-    {/if}
-  </svg>
+  <div class="court-wrap" class:with-rot={watch}>
+    {#if watch}{@render rotate(ui.order[0] ?? "home")}{/if}
+    <svg
+      class="court-svg"
+      bind:this={svg}
+      viewBox={box}
+      role="img"
+      aria-label="Court: drag from where the play started to where it ended, or click where it ended"
+      onpointerdown={down}
+      onpointermove={move}
+      onpointerup={up}
+      onpointercancel={() => (from = to = null)}
+    >
+      <rect class="floor" x={rect.x} y={rect.y} width={rect.w} height={rect.h} />
+      {#each lines.attack as l, i (i)}
+        <line class="court-line thin" x1={l.a.x} y1={l.a.y} x2={l.b.x} y2={l.b.y} />
+      {/each}
+      <line
+        class="net-line"
+        x1={lines.net.a.x}
+        y1={lines.net.a.y}
+        x2={lines.net.b.x}
+        y2={lines.net.b.y}
+      />
+      {#each players as p (p.side + p.zone)}
+        <g
+          class="shirt {p.side === 'home' ? 'home' : 'away'}"
+          class:setter={p.setter}
+          transform="translate({p.at.x} {p.at.y}) scale(1.4)"
+        >
+          <title
+            >{snap.teams[p.side].name}
+            {p.number}, zone {p.zone}{p.setter ? ", setter" : ""}{p.server
+              ? ", serving"
+              : ""}</title
+          >
+          <path d={SHIRT} />
+          <text y="0.1">{p.number}</text>
+          {#if p.setter}<circle class="s-badge" cx="0.25" cy="0.25" r="0.14" /><text
+              class="s-text"
+              x="0.25"
+              y="0.32">S</text
+            >{/if}
+          {#if p.server}<circle class="serve-ball" cx="-0.26" cy="0.26" r="0.08" />{/if}
+        </g>
+      {/each}
+      {#each rally as r (r.id)}
+        {@render drawn(r, false)}
+      {/each}
+      {#if target}{@render drawn(target, true)}{/if}
+      {#if from && to}
+        <line class="play drag" x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
+      {/if}
+    </svg>
+    {#if watch}{@render rotate(ui.order[1] ?? "visiting")}{/if}
+  </div>
   <div class="end-legend" aria-label="End marks">
     <span
       ><svg viewBox="0 0 18 12" aria-hidden="true"

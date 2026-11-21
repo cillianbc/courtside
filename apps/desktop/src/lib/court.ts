@@ -29,6 +29,17 @@ export interface Pt {
   y: number;
 }
 
+/**
+ * Where a player in zone 1–6 stands, in the team's own frame (its half at
+ * the bottom, zone 4 on the left): front row midway between the attack
+ * line and the net, back row midway between the baseline and the attack
+ * line.
+ */
+export function zonePosition(zone: number): Pt {
+  const col: Record<number, number> = { 4: 1, 3: 2, 2: 3, 5: 1, 6: 2, 1: 3 };
+  return { x: col[zone] ?? 2, y: zone >= 2 && zone <= 4 ? 3 : 1.5 };
+}
+
 /** The centre of a `.dvw` grid cell (columns 4–6 of a `[3SCOUT]` line). */
 export function cellPosition(cell: number | null): Pt | null {
   if (cell === null || cell < 1 || cell > 10100) return null;

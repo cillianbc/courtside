@@ -446,11 +446,10 @@ body {
   grid-template-columns: clamp(350px, 26vw, 460px) minmax(0, 1fr);
   /* The team panel's and the rotation's rows (#74, #76) keep their whole
      height; the codes and the play court give way first. */
-  grid-template-rows: minmax(220px, 1fr) max-content max-content auto auto;
+  grid-template-rows: minmax(200px, 1fr) max-content auto auto;
   grid-template-areas:
     "codes video"
     "team video"
-    "rot video"
     "plays video"
     "cmd video";
 }
@@ -465,7 +464,6 @@ body {
   grid-template-areas:
     "codes search video"
     "team search video"
-    "rot search video"
     "plays search video"
     "cmd search video";
 }
@@ -567,33 +565,154 @@ body {
 .work > .side {
   grid-area: checks;
 }
-.work > .rotation {
-  grid-area: rot;
-}
 
 /* The Video layout's rotation (#74): a small court per team beside the
    video, setter ringed, server dotted, as the team panel's court. */
-.rotation {
-  padding: 6px 8px;
-  gap: 6px;
-  container-type: inline-size;
+/* The Video layout's team panel (as VolleyStation): a score strip, team
+   names at the outside edges in their colours, sets won then points. */
+.work.watch .team-ctl.watch-hidden {
+  display: none;
 }
-.rot-head {
+.score-strip {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
-.rot-head .rot-at {
+.ss-team {
   flex: 1;
-  font-size: 12px;
-  color: var(--muted);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-left: 4px solid var(--home);
+  background: var(--sunk);
+  border-radius: var(--radius-control);
+}
+.ss-team.away {
+  border-left-color: var(--away);
+}
+.ss-team.right {
+  flex-direction: row-reverse;
+  border-left: 0;
+  border-right: 4px solid var(--home);
+}
+.ss-team.right.away {
+  border-right-color: var(--away);
+}
+.ss-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.rot-head h2 + .btn {
+.ss-team.home .ss-name {
+  color: var(--home);
+}
+.ss-team.away .ss-name {
+  color: var(--away);
+}
+.ss-team.right .ss-name {
+  text-align: right;
+}
+.ss-sets {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ss-pts {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.ss-set {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+/* The Video layout's one court: rotate buttons and the setter's rotation
+   beside each team's half (first team top left, second bottom right). */
+.court-wrap {
+  display: flex;
+  justify-content: center;
+  min-height: 0;
+}
+.court-wrap.with-rot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
+}
+.court-wrap.with-rot > svg.court-svg {
+  width: 100%;
+}
+.court-rot {
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.court-wrap > .court-rot:last-child {
+  align-self: end;
+}
+.court-p {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--setter, var(--fg));
+}
+.court-l {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.court-at {
   margin-left: auto;
 }
+.play-court g.shirt {
+  pointer-events: none;
+  stroke: none;
+}
+.shirt path {
+  fill: var(--home);
+  stroke: var(--panel);
+  stroke-width: 0.03;
+}
+.shirt.away path {
+  fill: var(--away);
+}
+.shirt text {
+  fill: var(--on-accent, #fff);
+  font-family: var(--display);
+  font-size: 0.34px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+.shirt.setter path {
+  stroke: var(--setter);
+  stroke-width: 0.04;
+}
+.shirt .s-badge {
+  fill: var(--setter);
+  stroke: var(--panel);
+  stroke-width: 0.03;
+}
+.shirt .s-text {
+  fill: #fff;
+  font-family: var(--body);
+  font-size: 0.2px;
+}
+.shirt .serve-ball {
+  fill: var(--accent);
+  stroke: var(--panel);
+  stroke-width: 0.03;
+}
+
 /* The Video layout's timeouts and substitutions (#76): one line, the teams
    mirrored (subs outside, timeouts inside), each with its colour. */
 .tools-line {
@@ -624,128 +743,6 @@ body {
   background: var(--accent-soft);
   border-color: var(--accent);
 }
-.rot-head .rot-toggle {
-  flex: none;
-  width: 26px;
-  height: 26px;
-}
-.rot-head {
-  flex-wrap: wrap;
-  row-gap: 4px;
-  gap: 6px;
-}
-.rot-head .rot-at {
-  min-width: 0;
-}
-.rot-courts {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 4px minmax(0, 1fr);
-  gap: 4px;
-  background: var(--court);
-  border-radius: 6px;
-  padding: 4px;
-}
-.rot-courts.end {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 4px auto;
-}
-.rot-courts.end .net {
-  background: repeating-linear-gradient(90deg, var(--muted) 0 3px, transparent 3px 6px);
-}
-.rot-half {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.rot-label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  min-width: 0;
-  padding-inline: 2px;
-}
-.rot-name {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.rot-half.home .rot-name {
-  color: var(--home);
-}
-.rot-half.away .rot-name {
-  color: var(--away);
-}
-.rot-p {
-  flex: none;
-  font-family: var(--mono);
-  font-weight: 700;
-  color: var(--setter);
-}
-.rot-lib {
-  flex: none;
-  font-family: var(--mono);
-  color: var(--muted);
-}
-.rot-label .serve-dot {
-  width: 8px;
-  height: 8px;
-}
-.rot-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px;
-}
-.rot-grid.wide {
-  grid-template-columns: repeat(3, 1fr);
-}
-.rot-zone {
-  position: relative;
-  height: 20px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--court-line);
-  border-radius: var(--radius-control);
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: 16px;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-.rot-half.home .rot-zone {
-  color: var(--home);
-}
-.rot-half.away .rot-zone {
-  color: var(--away);
-}
-.rot-zone small {
-  position: absolute;
-  top: 50%;
-  left: 3px;
-  transform: translateY(-50%);
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted);
-}
-.rot-zone.setter {
-  background: var(--panel);
-  border: 2px solid var(--setter);
-}
-.rot-zone.server::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  transform: translateY(-50%);
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-}
 /* The video layout keeps only what coding needs beside the video. */
 .work.watch > .side,
 .work.watch .team .court-head,
@@ -757,7 +754,7 @@ body {
 .work.watch .team {
   padding: 6px 8px;
 }
-.work.watch .plays svg {
+.work.watch .plays svg.court-svg {
   flex: none;
   height: min(32vh, 280px);
 }
@@ -1175,7 +1172,7 @@ body {
   color: var(--on-accent);
   border-color: var(--accent);
 }
-.play-court svg {
+.play-court svg.court-svg {
   /* Fills the panel; the viewBox keeps the court to scale. */
   flex: 1 1 auto;
   min-height: 120px;
@@ -1833,11 +1830,11 @@ button.rally-toggle {
     grid-template-areas: "video" "cmd" "codes" "team" "plays" "checks";
   }
   .work.watch {
-    grid-template-areas: "video" "cmd" "codes" "team" "rot" "plays";
+    grid-template-areas: "video" "cmd" "codes" "team" "plays";
   }
   .work.watch.searching {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "video" "cmd" "search" "codes" "team" "rot" "plays";
+    grid-template-areas: "video" "cmd" "search" "codes" "team" "plays";
   }
   .work > .search-panel {
     max-height: 60vh;
@@ -3095,22 +3092,18 @@ button.flag {
   display: none;
 }
 @media (max-height: 760px) {
-  .work.watch .plays .mark-open {
-    display: inline-flex;
-  }
-  .work.watch .plays:not(.marking) svg,
+  .work.watch .plays:not(.marking) svg.court-svg,
   .work.watch .plays:not(.marking) .end-legend,
   .work.watch .plays .plays-note {
     display: none;
   }
-  .work.watch .plays.marking svg {
+  .work.watch .plays.marking svg.court-svg {
     height: 36vh;
   }
 }
 
 /* v6 T3: nothing under 12 px. */
 .court-head h2,
-.rot-head h2,
 .half-label,
 .issue .where,
 .plays-head,
@@ -3497,7 +3490,7 @@ button.flag {
 }
 
 /* Clips in the Video layout's column: the court folds (v6 clips design). */
-.work.watch.clips-open .plays svg,
+.work.watch.clips-open .plays svg.court-svg,
 .work.watch.clips-open .plays .end-legend,
 .work.watch.clips-open .plays .plays-note {
   display: none;

@@ -19,6 +19,20 @@
 
   const nets = $derived<[Net, Net]>(ui.endView ? ["bottom", "top"] : ["right", "left"]);
 
+  // Sets won so far, from the sets before this one (as the top bar).
+  const won = $derived(
+    snap.sets
+      .filter((s) => s.number !== snap.set)
+      .reduce(
+        (w, s) => {
+          if (s.score.home > s.score.visiting) w.home++;
+          else if (s.score.visiting > s.score.home) w.visiting++;
+          return w;
+        },
+        { home: 0, visiting: 0 },
+      ),
+  );
+
   function liberos(side: Side): string {
     return snap.liberos[side].join(", ");
   }
@@ -138,8 +152,20 @@
     <p class="empty-note">Golden set: first to 15, two clear.</p>
   {/if}
   {#if ui.layout === "watch"}
-    <!-- The Video layout: every timeout and substitution on one line, the
-         teams mirrored left and right in court order (#76). -->
+    <!-- The Video layout, as VolleyStation: a score strip (team, sets won,
+         points, set number), then every timeout and substitution on one
+         line, the teams mirrored left and right in court order (#76). The
+         court below it shows who is on (PlayCourt). -->
+    <div class="score-strip" aria-label="Score">
+      {#each ui.order as side, i (side)}
+        {#if i === 1}<span class="ss-set">Set {snap.set}</span>{/if}
+        <span class="ss-team {side === 'home' ? 'home' : 'away'}" class:right={i === 1}>
+          <b class="ss-name" title={snap.teams[side].name}>{snap.teams[side].name}</b>
+          <span class="ss-sets" title="Sets won">{won[side]}</span>
+          <span class="ss-pts" title="Points this set">{snap.score[side]}</span>
+        </span>
+      {/each}
+    </div>
     <div class="tools-line" role="group" aria-label="Timeouts and substitutions">
       {#each ui.order as side, i (side)}
         <span
@@ -152,7 +178,7 @@
       {/each}
     </div>
   {/if}
-  <div class="team-ctl">
+  <div class="team-ctl" class:watch-hidden={ui.layout === "watch"}>
     {#each ui.order as side (side)}
       {@const name = snap.teams[side].name}
       <div class="ctl-row" class:away={side === "visiting"}>
