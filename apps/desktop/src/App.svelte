@@ -10,6 +10,7 @@
   import LineupScreen from "./lib/components/LineupScreen.svelte";
   import PlayCourt from "./lib/components/PlayCourt.svelte";
   import RotationStrip from "./lib/components/RotationStrip.svelte";
+  import SearchPanel from "./lib/components/SearchPanel.svelte";
   import StartScreen from "./lib/components/StartScreen.svelte";
   import TopBar from "./lib/components/TopBar.svelte";
   import VideoPanel from "./lib/components/VideoPanel.svelte";
@@ -81,6 +82,7 @@
       <main
         class="work {ui.layout}"
         class:clips-open={ui.layout === "watch" && ui.checksOpen && ui.sideTab === "clips"}
+        class:searching={ui.layout === "watch" && ui.finding}
       >
         <VideoPanel />
         {#if ui.checksOpen && ui.layout === "watch"}
@@ -90,6 +92,7 @@
         {/if}
         <Court {snap} />
         {#if ui.layout === "watch"}<RotationStrip {snap} />{/if}
+        {#if ui.layout === "watch" && ui.finding}<SearchPanel {snap} />{/if}
         <CommandBar />
         <PlayCourt {snap} />
         <ChecksPanel {snap} />

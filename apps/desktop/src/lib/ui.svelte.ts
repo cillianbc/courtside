@@ -124,6 +124,8 @@ class Ui {
    * closed, for the match `matchId` (another match starts afresh).
    */
   clips = $state<ClipsState>(freshClips(null));
+  /** Clips plays its list as soon as it loads (the search's "Play on video"). */
+  clipsAutoplay = $state(false);
   /** "Report a problem" is open. */
   reporting = $state(false);
   /** Set whose codes the stream shows; `null` follows the set in progress. */

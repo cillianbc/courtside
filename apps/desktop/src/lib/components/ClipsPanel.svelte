@@ -42,6 +42,10 @@
         // A new list: the clip playing is no longer where it was.
         video.stopClips();
         video.playlist = windows(c.clips);
+        if (ui.clipsAutoplay) {
+          ui.clipsAutoplay = false;
+          if (c.clips.length && video.open) void video.playClip(0);
+        }
       },
       (e) => (error = String(e)),
     );

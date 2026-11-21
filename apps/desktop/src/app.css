@@ -457,6 +457,98 @@ body {
 .work > .video {
   grid-area: video;
 }
+/* The Video layout's search pops out between the column and the video,
+   which narrows while it's open (the picture is a native layer, so the
+   panel can't go over it). */
+.work.watch.searching {
+  grid-template-columns: clamp(350px, 26vw, 460px) clamp(260px, 20vw, 340px) minmax(0, 1fr);
+  grid-template-areas:
+    "codes search video"
+    "team search video"
+    "rot search video"
+    "plays search video"
+    "cmd search video";
+}
+.work > .search-panel {
+  grid-area: search;
+  min-height: 0;
+}
+.search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.search-head h2 {
+  font-size: 15px;
+  margin: 0;
+}
+.search-panel .find-bar {
+  flex-wrap: wrap;
+}
+/* The panel's header has the close button. */
+.search-panel .find-bar [aria-label="Close the search"] {
+  display: none;
+}
+.search-panel .find-bar input {
+  flex: 1 1 100%;
+}
+.hits-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-left: 3px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--sunk);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.hit.home {
+  border-left-color: var(--home);
+}
+.hit.away {
+  border-left-color: var(--away);
+}
+.hit code {
+  font-family: var(--mono);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hit .where {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.hit:hover {
+  border-color: var(--edge);
+}
+.hit.picked {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.play-found {
+  flex: none;
+}
 .work > .codes,
 .work > .clips {
   grid-area: codes;
@@ -1742,6 +1834,13 @@ button.rally-toggle {
   }
   .work.watch {
     grid-template-areas: "video" "cmd" "codes" "team" "rot" "plays";
+  }
+  .work.watch.searching {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "video" "cmd" "search" "codes" "team" "rot" "plays";
+  }
+  .work > .search-panel {
+    max-height: 60vh;
   }
   .lineup-teams {
     grid-template-columns: minmax(0, 1fr);
