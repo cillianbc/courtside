@@ -37,7 +37,7 @@
     const toggle = subSide
       ? document.querySelector<HTMLElement>(`[data-sub-toggle="${subSide}"]`)
       : null;
-    const row = toggle?.closest<HTMLElement>(".ctl-row, .rot-head") ?? null;
+    const row = toggle?.closest<HTMLElement>(".ctl-row, .tools-line") ?? null;
     const host = toggle?.closest<HTMLElement>(".panel") ?? section;
     if (!toggle || !row || !pop || !host) return;
     const panel = host.getBoundingClientRect();
@@ -136,6 +136,21 @@
     </div>
   {:else if snap.goldenSet === snap.set}
     <p class="empty-note">Golden set: first to 15, two clear.</p>
+  {/if}
+  {#if ui.layout === "watch"}
+    <!-- The Video layout: every timeout and substitution on one line, the
+         teams mirrored left and right in court order (#76). -->
+    <div class="tools-line" role="group" aria-label="Timeouts and substitutions">
+      {#each ui.order as side, i (side)}
+        <span
+          class="tools-team {side === 'home' ? 'home' : 'away'}"
+          class:right={i === 1}
+          role="group"
+          aria-label={snap.teams[side].name}
+          ><TeamTools {snap} {side} keys={false} subsFirst={i === 0} /></span
+        >
+      {/each}
+    </div>
   {/if}
   <div class="team-ctl">
     {#each ui.order as side (side)}

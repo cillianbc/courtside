@@ -444,9 +444,9 @@ body {
 .work.watch {
   /* v6 T7: the column grows with the window, 350 to 460 px. */
   grid-template-columns: clamp(350px, 26vw, 460px) minmax(0, 1fr);
-  /* The rotation's row (#74) keeps its whole height; the rows around it
-     give way first. */
-  grid-template-rows: minmax(220px, 1fr) auto max-content auto auto;
+  /* The team panel's and the rotation's rows (#74, #76) keep their whole
+     height; the codes and the play court give way first. */
+  grid-template-rows: minmax(220px, 1fr) max-content max-content auto auto;
   grid-template-areas:
     "codes video"
     "team video"
@@ -502,50 +502,41 @@ body {
 .rot-head h2 + .btn {
   margin-left: auto;
 }
-/* Timeouts and substitutions in the Video layout (between "Now" and Hide):
-   a pair per team, marked with the team's colour. */
-.rot-tools {
-  display: inline-flex;
-  gap: 6px;
-  flex: none;
-  margin-left: auto;
+/* The Video layout's timeouts and substitutions (#76): one line, the teams
+   mirrored (subs outside, timeouts inside), each with its colour. */
+.tools-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0 4px;
 }
-.rot-team {
+.tools-team {
   display: inline-flex;
-  gap: 3px;
-  padding-left: 5px;
+  gap: 4px;
+  padding-left: 6px;
   border-left: 3px solid var(--home);
 }
-.rot-team.away {
+.tools-team.away {
   border-left-color: var(--away);
 }
-.rot-team .tool {
-  height: 26px;
-  padding: 0 4px;
-  gap: 3px;
+.tools-team.right {
+  padding-left: 0;
+  padding-right: 6px;
+  border-left: 0;
+  border-right: 3px solid var(--home);
+}
+.tools-team.right.away {
+  border-right-color: var(--away);
+}
+.tools-team .tool[aria-expanded="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 .rot-head .rot-toggle {
   flex: none;
   width: 26px;
   height: 26px;
 }
-/* Narrow column: the title gives way so the four buttons, "Now" and the
-   toggle stay on one line. */
-@container (max-width: 380px) {
-  .rot-head h2 {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-  }
-}
-.rot-team .tool[aria-expanded="true"] {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-}
-/* Narrow column: the "Now / Picked code" line gives way first, then the
-   header wraps the buttons onto their own line. */
 .rot-head {
   flex-wrap: wrap;
   row-gap: 4px;

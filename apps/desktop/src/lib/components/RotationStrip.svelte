@@ -10,7 +10,6 @@
   import type { Side, Snapshot } from "../snapshot";
   import { ui } from "../ui.svelte";
   import Icon from "./Icon.svelte";
-  import TeamTools from "./TeamTools.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
 
@@ -88,17 +87,6 @@
         {/if}
       </span>
     {/if}
-    <!-- Timeouts and substitutions live here in the Video layout, one
-         team-coloured pair each, in court order. -->
-    <span class="rot-tools">
-      {#each ui.order as side (side)}
-        <span
-          class="rot-team {side === 'home' ? 'home' : 'away'}"
-          role="group"
-          aria-label={snap.teams[side].name}><TeamTools {snap} {side} keys={false} /></span
-        >
-      {/each}
-    </span>
     <button
       class="icon-btn rot-toggle"
       type="button"
