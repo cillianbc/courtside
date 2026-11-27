@@ -149,6 +149,8 @@ class Video {
     this.run(() => backend.videoCommand(["seek", at.toFixed(3), "absolute+exact"]));
   step = (back: boolean) =>
     this.run(() => backend.videoCommand([back ? "frame-back-step" : "frame-step"]));
+  /** Sound on or off (tester report: no mute). */
+  toggleMute = () => this.run(() => backend.videoCommand(["cycle", "mute"]));
   /** Steps the speed; `wrap` cycles back to the slowest after the fastest (the button). */
   speed = (by: number, wrap = false) =>
     this.run(() => {

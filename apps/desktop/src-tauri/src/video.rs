@@ -26,6 +26,8 @@ pub struct PlayerState {
     pub duration: Option<f64>,
     pub paused: bool,
     pub speed: f64,
+    /// Sound off (mpv's `mute`).
+    pub muted: bool,
     /// Frames per second of the video stream, for frame stepping and the
     /// timecode.
     pub fps: Option<f64>,
@@ -184,6 +186,7 @@ mod player {
                 duration: num("duration"),
                 paused: mpv.get_property::<bool>("pause").unwrap_or(true),
                 speed: num("speed").unwrap_or(1.0),
+                muted: mpv.get_property::<bool>("mute").unwrap_or(false),
                 fps: num("container-fps"),
             }
         }

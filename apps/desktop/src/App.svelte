@@ -15,7 +15,7 @@
   import VideoPanel from "./lib/components/VideoPanel.svelte";
   import { run } from "./lib/actions";
   import { catchWindowErrors } from "./lib/diagnostics";
-  import { actionFor, keyString, usableWhileTyping } from "./lib/settings";
+  import { actionFor, keyString, movesInFields, usableWhileTyping } from "./lib/settings";
   import { applyTeamColours } from "./lib/teams";
   import { ui } from "./lib/ui.svelte";
 
@@ -47,6 +47,10 @@
     if (!action || !keys) return;
     const inField = e.target instanceof HTMLElement && e.target.closest("input, select, textarea");
     if (inField && !usableWhileTyping(keys)) return;
+    // Up and down still move in lists and number boxes; only the command
+    // line hands them to the keymap.
+    const codeLine = e.target instanceof HTMLElement && e.target.classList.contains("code-input");
+    if (inField && movesInFields(keys) && !codeLine) return;
     const typing = document.activeElement?.classList.contains("code-input") && ui.code.trim();
     if (typing && (action === "undo" || action === "redo")) return;
     if (run(action)) e.preventDefault();

@@ -12,7 +12,7 @@
   import Icon from "./Icon.svelte";
   import { other, type Row, type Side, type Snapshot } from "../snapshot";
   import { keyFor } from "../settings";
-  import { ui } from "../ui.svelte";
+  import { COURT_MAX, COURT_MIN, ui } from "../ui.svelte";
   import { video } from "../video.svelte";
 
   let { snap }: { snap: Snapshot } = $props();
@@ -55,6 +55,31 @@
   // The video layout draws it end on, as a tall strip beside the video.
   const end = $derived(ui.endView || ui.layout === "watch");
   const watch = $derived(ui.layout === "watch");
+
+  // The Video layout's court size (tester report): drag the bar above the
+  // court; up makes it taller, so the codes get what it gives up.
+  const svgHeight = () => ui.courtHeight ?? Math.round(svg?.getBoundingClientRect().height ?? 0);
+  function sizeDown(e: PointerEvent) {
+    const bar = e.currentTarget as HTMLElement;
+    bar.setPointerCapture(e.pointerId);
+    const y0 = e.clientY;
+    const h0 = svgHeight();
+    const move = (m: PointerEvent) => ui.setCourtHeight(h0 + (y0 - m.clientY));
+    const up = () => {
+      bar.removeEventListener("pointermove", move);
+      bar.removeEventListener("pointerup", up);
+      bar.removeEventListener("pointercancel", up);
+    };
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", up);
+    bar.addEventListener("pointercancel", up);
+  }
+  function sizeKey(e: KeyboardEvent) {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    e.stopPropagation();
+    ui.setCourtHeight(svgHeight() + (e.key === "ArrowUp" ? 20 : -20));
+  }
 
   // The Video layout's one court (as VolleyStation): who is on court, drawn
   // as shirts by zone, at the picked code (the backend's fold there) or at
@@ -288,6 +313,25 @@
   class:marking={marking_}
   aria-label="Where plays went"
 >
+  {#if watch}
+    <!-- Drag to give the court or the codes more room; double-click resets. -->
+    <!-- A focusable separator is a widget (ARIA), which Svelte doesn't know. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+    <div
+      class="court-size"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Court size"
+      aria-valuemin={COURT_MIN}
+      aria-valuemax={COURT_MAX}
+      aria-valuenow={svgHeight()}
+      tabindex="0"
+      title="Drag to resize the court (double-click: default size)"
+      onpointerdown={sizeDown}
+      ondblclick={() => ui.setCourtHeight(null)}
+      onkeydown={sizeKey}
+    ></div>
+  {/if}
   <div class="play-head">
     {#if target}
       <span
@@ -315,6 +359,7 @@
     {#if watch}{@render rotate(ui.order[0] ?? "home")}{/if}
     <svg
       class="court-svg"
+      style:height={watch && ui.courtHeight ? `${ui.courtHeight}px` : undefined}
       bind:this={svg}
       viewBox={box}
       role="img"

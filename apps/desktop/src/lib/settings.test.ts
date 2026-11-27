@@ -54,6 +54,10 @@ describe("keymap", () => {
     expect(usableWhileTyping("F5")).toBe(true);
     expect(usableWhileTyping("Shift+T")).toBe(false);
     expect(usableWhileTyping("T")).toBe(false);
+    // Up and down type nothing on the command line (points on the arrows).
+    expect(usableWhileTyping("ArrowUp")).toBe(true);
+    expect(usableWhileTyping("Shift+ArrowDown")).toBe(true);
+    expect(usableWhileTyping("ArrowLeft")).toBe(false);
   });
 });
 

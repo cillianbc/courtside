@@ -756,7 +756,29 @@ body {
 }
 .work.watch .plays svg.court-svg {
   flex: none;
-  height: min(32vh, 280px);
+  height: min(28vh, 240px);
+}
+/* The bar above the Video layout's court: drag to resize it. */
+.court-size {
+  height: 8px;
+  margin: -4px 0 0;
+  cursor: ns-resize;
+  border-radius: 4px;
+  position: relative;
+}
+.court-size::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - 16px);
+  top: 3px;
+  width: 32px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line);
+}
+.court-size:hover::after,
+.court-size:focus-visible::after {
+  background: var(--accent);
 }
 .layout-switch {
   display: inline-flex;

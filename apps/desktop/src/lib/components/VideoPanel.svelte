@@ -238,6 +238,15 @@
       aria-label="Forward {JUMP} seconds"
       onclick={(e) => video.seek(e.shiftKey ? LONG_JUMP : JUMP)}><Icon name="forward" /></button
     >
+    <button
+      class="icon-btn"
+      type="button"
+      disabled={!player?.path}
+      title={withKey(player?.muted ? "Sound on" : "Sound off", "videoMute")}
+      aria-label={player?.muted ? "Sound on" : "Sound off"}
+      aria-pressed={player?.muted ?? false}
+      onclick={video.toggleMute}><Icon name={player?.muted ? "muted" : "sound"} /></button
+    >
     <span class="timecode">{timecode(player?.time ?? null, player?.fps ?? null)}</span>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div

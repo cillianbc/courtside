@@ -289,6 +289,8 @@ export interface PlayerState {
   duration: number | null;
   paused: boolean;
   speed: number;
+  /** Sound off. */
+  muted: boolean;
   fps: number | null;
 }
 

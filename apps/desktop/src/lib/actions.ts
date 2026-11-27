@@ -230,6 +230,9 @@ function runVideo(action: string): boolean {
     case "videoFaster":
       void video.speed(1);
       return true;
+    case "videoMute":
+      void video.toggleMute();
+      return true;
     case "clipPrev":
       video.stepClip(-1);
       return true;

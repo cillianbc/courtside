@@ -40,6 +40,20 @@ export function remember(key: string, on: boolean) {
   }
 }
 
+/** A number remembered on this computer, or null when none or unreadable. */
+function rememberedNumber(key: string): number | null {
+  try {
+    const n = Number(localStorage.getItem(key));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The Video layout's court height limits, in px (tester report: the court took the codes' room). */
+export const COURT_MIN = 100;
+export const COURT_MAX = 560;
+
 export type Theme = "light" | "dark" | "system";
 
 /** The theme this computer last chose ("system" when none or unreadable). */
@@ -90,6 +104,8 @@ class Ui {
   boost = $state(remembered("courtside.boost"));
   /** The Video layout's rotation (#74) is open. Remembered per computer. */
   rotationShown = $state(!remembered("courtside.hideRotation"));
+  /** The Video layout's court height in px, dragged by the scout; null is the default. */
+  courtHeight = $state<number | null>(rememberedNumber("courtside.courtHeight"));
   sideTab = $state<"checks" | "set" | "clips">("checks");
   /** Checks show where the code stream does (Video layout, v6 T8). */
   checksOpen = $state(false);
@@ -383,6 +399,18 @@ class Ui {
   setLayout(layout: "coding" | "watch") {
     this.layout = layout;
     remember("courtside.watchLayout", layout === "watch");
+  }
+
+  /** Sets the Video layout's court height (null: the default) and remembers it. */
+  setCourtHeight(px: number | null) {
+    this.courtHeight =
+      px === null ? null : Math.round(Math.min(COURT_MAX, Math.max(COURT_MIN, px)));
+    try {
+      if (this.courtHeight === null) localStorage.removeItem("courtside.courtHeight");
+      else localStorage.setItem("courtside.courtHeight", String(this.courtHeight));
+    } catch {
+      // Private window or blocked storage: the size lasts this session.
+    }
   }
 
   /** Opens or closes the Video layout's rotation and remembers it on this computer. */

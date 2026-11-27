@@ -114,6 +114,7 @@ export const ACTIONS: readonly { id: string; label: string; keys: string }[] = [
   { id: "videoFrameForward", label: "Video: one frame on", keys: "Alt+." },
   { id: "videoSlower", label: "Video: slower", keys: "Alt+Shift+," },
   { id: "videoFaster", label: "Video: faster", keys: "Alt+Shift+." },
+  { id: "videoMute", label: "Video: sound off or on", keys: "Alt+M" },
   { id: "clipPrev", label: "Clips: previous clip", keys: "Alt+[" },
   { id: "clipNext", label: "Clips: next clip", keys: "Alt+]" },
 ];
@@ -243,9 +244,19 @@ export function conflicts(keymap: KeyBinding[]): Set<string> {
 
 /**
  * Whether a binding is safe while the scout types on the command line: it
- * must use Mod or Alt, or be a function key, so plain typing never
- * triggers it.
+ * must use Mod or Alt, or be a function key, or a key that types nothing on
+ * a one-line box (up, down, page up, page down), so typing never triggers it.
  */
 export function usableWhileTyping(keys: string): boolean {
-  return /(^|\+)(Mod|Alt)\+/.test(keys) || /(^|\+)F([1-9]|1[0-2])$/.test(keys);
+  return (
+    /(^|\+)(Mod|Alt)\+/.test(keys) || /(^|\+)F([1-9]|1[0-2])$/.test(keys) || NO_TEXT.test(keys)
+  );
+}
+
+/** Keys that type nothing on the command line (tester report: points on ↑ ↓). */
+const NO_TEXT = /(^|\+)(ArrowUp|ArrowDown|PageUp|PageDown)$/;
+
+/** Whether a key also means something in other fields (lists, numbers). */
+export function movesInFields(keys: string): boolean {
+  return NO_TEXT.test(keys) && !/(^|\+)(Mod|Alt)\+/.test(keys);
 }

@@ -30,7 +30,9 @@
     | "clips"
     | "open"
     | "find"
-    | "report";
+    | "report"
+    | "sound"
+    | "muted";
   let { name }: { name: IconName } = $props();
 </script>
 
@@ -107,5 +109,11 @@
     <path d="M4 10l4-4 4 4" />
   {:else if name === "down"}
     <path d="M4 6l4 4 4-4" />
+  {:else if name === "sound"}
+    <path d="M2.5 6v4h2.5l3.5 3V3L5 6H2.5Z" /><path
+      d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.5a6 6 0 0 1 0 9"
+    />
+  {:else if name === "muted"}
+    <path d="M2.5 6v4h2.5l3.5 3V3L5 6H2.5Z" /><path d="M11 6l3.5 4M14.5 6 11 10" />
   {/if}
 </svg>
