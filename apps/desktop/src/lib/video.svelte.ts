@@ -6,7 +6,7 @@ import type { PlayerState } from "./backend";
 import type { Clip } from "./snapshot";
 
 /** Playback speeds the speed button and keys step through. */
-export const SPEEDS = [0.25, 0.5, 1, 1.5, 2];
+export const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2];
 /** Seconds a jump moves; a long jump (Shift-click, Alt+Shift keys). */
 export const JUMP = 5;
 export const LONG_JUMP = 30;
