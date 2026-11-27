@@ -47,10 +47,16 @@
     if (!action || !keys) return;
     const inField = e.target instanceof HTMLElement && e.target.closest("input, select, textarea");
     if (inField && !usableWhileTyping(keys)) return;
-    // Up and down still move in lists and number boxes; only the command
-    // line hands them to the keymap.
+    // Up and down still move in lists, menus, sliders and number boxes; only
+    // the command line, or nothing focused (the video, the page), hands them
+    // to the keymap.
     const codeLine = e.target instanceof HTMLElement && e.target.classList.contains("code-input");
-    if (inField && movesInFields(keys) && !codeLine) return;
+    const moves =
+      e.target instanceof HTMLElement &&
+      e.target.closest(
+        "input, select, textarea, [role=listbox], [role=menu], [role=option], [role=menuitem], [role=separator], [role=slider]",
+      );
+    if (movesInFields(keys) && moves && !codeLine) return;
     const typing = document.activeElement?.classList.contains("code-input") && ui.code.trim();
     if (typing && (action === "undo" || action === "redo")) return;
     if (run(action)) e.preventDefault();
